@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QWidget, QLineEdit, QLabel, QVBoxLayout,
                              QGraphicsDropShadowEffect, QFrame,
                              QListWidget, QListWidgetItem)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import QKeyEvent, QColor
+from PyQt6.QtGui import QKeyEvent, QColor, QPainter, QFont
 import ctypes
 import os
 from executor import evaluate_expr, preview
@@ -32,6 +32,63 @@ def _win_force_foreground(hwnd: int):
     user32.SetForegroundWindow(hwnd)
     if attached:
         user32.AttachThreadInput(cur_tid, fg_tid, False)
+
+
+class PomodoroOverlay(QWidget):
+    """屏幕右下角半透明、展击穿透的番茄钟倒计时层。"""
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.Tool |
+            Qt.WindowType.BypassWindowManagerHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setFixedSize(160, 52)
+        self._text = ""
+        self._reposition()
+
+    def _reposition(self):
+        screen = QApplication.primaryScreen().availableGeometry()
+        self.move(screen.right() - self.width() - 24,
+                  screen.bottom() - self.height() - 24)
+
+    def update_text(self, text: str):
+        self._text = text
+        self.update()
+
+    def paintEvent(self, event):
+        if not self._text:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # 背景圆角矩形
+        p.setBrush(QColor(20, 18, 12, 185))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawRoundedRect(self.rect(), 10, 10)
+        # 文字
+        font = QFont()
+        font.setPointSize(18)
+        font.setBold(True)
+        p.setFont(font)
+        p.setPen(QColor("#e8d89a"))
+        p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._text)
+        p.end()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # 设置 WS_EX_TRANSPARENT 实现鼠标水波穿透
+        hwnd = int(self.winId())
+        GWL_EXSTYLE = -20
+        WS_EX_TRANSPARENT = 0x00000020
+        WS_EX_LAYERED = 0x00080000
+        style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        ctypes.windll.user32.SetWindowLongW(
+            hwnd, GWL_EXSTYLE, style | WS_EX_TRANSPARENT | WS_EX_LAYERED
+        )
 
 class InputWindow(QWidget):
     # 提交信号

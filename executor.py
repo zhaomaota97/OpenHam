@@ -2,6 +2,7 @@ import subprocess
 import ast
 import operator
 import os
+import re as _re
 from pathlib import Path
 from openai import OpenAI
 
@@ -158,7 +159,30 @@ _PREVIEWS = {
 
 def preview(text: str):
     """返回指令的预览提示字符串，无匹配则返回 None。"""
-    return _PREVIEWS.get(text.strip())
+    t = text.strip()
+    p = _PREVIEWS.get(t)
+    if p:
+        return p
+    pomo = parse_pomodoro(t)
+    if pomo:
+        action, mins = pomo
+        if action == 'stop':
+            return '↩ 停止番茄钟'
+        return f'↩ 开始 {mins} 分钟番茄钟 🍅'
+    return None
+
+
+def parse_pomodoro(text: str):
+    """解析番茄钟指令。返回 ('start', minutes) 或 ('stop', 0) 或 None。"""
+    text = text.strip()
+    if text in ('番茄停', '停番茄', '番茄 停', '番茄钟 停'):
+        return ('stop', 0)
+    m = _re.match(r'^番茄(?:钟)?\s*(\d+)?$', text)
+    if m:
+        mins = int(m.group(1)) if m.group(1) else 25
+        if 1 <= mins <= 120:
+            return ('start', mins)
+    return None
 
 
 # ─── 文件搜索 ────────────────────────────────────────────────
