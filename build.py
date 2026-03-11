@@ -56,6 +56,8 @@ cmd = [
     "--hidden-import", "pynput.keyboard._win32",
     "--hidden-import", "pynput.mouse._win32",
     "--collect-all", "pynput",
+    "--hidden-import", "keyboard",
+    "--collect-all", "keyboard",
     *exclude_args,
     "main.py",
 ]

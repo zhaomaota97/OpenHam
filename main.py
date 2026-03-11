@@ -7,7 +7,8 @@ from dotenv import load_dotenv  # ← 添加这行
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush
-from pynput import keyboard
+import keyboard as kb
+import re
 
 
 from window import InputWindow
@@ -164,9 +165,9 @@ def main():
 
     window.submitted.connect(on_submitted)
 
-    # 启动全局快捷键监听
-    listener = keyboard.GlobalHotKeys({hotkey_str: on_hotkey})
-    listener.start()
+    # 启动全局快捷键监听（suppress=True 使其优先级高于系统快捷键，如 Alt+Space）
+    kb_hotkey = re.sub(r'[<>]', '', hotkey_str).lower()
+    kb.add_hotkey(kb_hotkey, on_hotkey, suppress=True)
 
     sys.exit(app.exec())
 
