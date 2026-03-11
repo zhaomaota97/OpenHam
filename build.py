@@ -58,6 +58,10 @@ cmd = [
     "--collect-all", "pynput",
     "--hidden-import", "keyboard",
     "--collect-all", "keyboard",
+    "--hidden-import", "qrcode",
+    "--collect-all", "qrcode",
+    "--hidden-import", "PIL",
+    "--collect-all", "PIL",
     *exclude_args,
     "main.py",
 ]

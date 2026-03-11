@@ -13,7 +13,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QAction
 import keyboard as kb
 
 from window import InputWindow, PomodoroOverlay
-from executor import execute, call_deepseek_stream, search_files, parse_pomodoro
+from executor import execute, call_deepseek_stream, search_files, parse_pomodoro, get_system_info, generate_qr_bytes
 
 
 def _base_dir() -> str:
@@ -218,13 +218,34 @@ def main():
         if text.lstrip().startswith("找 "):
             return
 
+        # 电脑信息
+        if text == "电脑信息":
+            window.show_info(get_system_info())
+            return
+
+        # 剪贴板转二维码
+        if text == "转二维码":
+            clip = QApplication.clipboard().text().strip()
+            if not clip:
+                window.show_result("❌ 剪贴板为空")
+                return
+            png = generate_qr_bytes(clip)
+            if png is None:
+                window.show_result("❌ 请先安装 qrcode 库")
+                return
+            window.show_qr(png)
+            return
+
         result = execute(text)
         print(f"[on_submitted] execute 结果: {result!r}")
         if result is not None:
             _ai_gen += 1
-            window.show_result(result)
-            if result.startswith("✅"):
-                QTimer.singleShot(800, window.hide_window)
+            if result.startswith("ℹ️"):
+                window.show_info(result[2:].strip())
+            else:
+                window.show_result(result)
+                if result.startswith("✅"):
+                    QTimer.singleShot(800, window.hide_window)
         elif api_key:
             _ai_gen += 1
             my_gen = _ai_gen

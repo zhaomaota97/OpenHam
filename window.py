@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QWidget, QLineEdit, QLabel, QVBoxLayout,
                              QGraphicsDropShadowEffect, QFrame,
                              QListWidget, QListWidgetItem)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import QKeyEvent, QColor, QPainter, QFont
+from PyQt6.QtGui import QKeyEvent, QColor, QPainter, QFont, QPixmap
 import ctypes
 import os
 from executor import evaluate_expr, preview
@@ -260,19 +260,27 @@ class InputWindow(QWidget):
         card_layout.addSpacing(6)
         card_layout.addWidget(self.ai_label)
 
+        # QR 二维码图片（默认隐藏）
+        self.qr_label = QLabel()
+        self.qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.qr_label.setStyleSheet("background: transparent; padding: 8px 0;")
+        self.qr_label.hide()
+        card_layout.addWidget(self.qr_label)
+
         outer.addWidget(self.card)
 
     def _on_text_changed(self, text: str):
         count = len(text)
         stripped = text.lstrip()
 
-        # ─── 文件搜索模式：以 "找 " 开头 ─────────────────────────────────
+        # ――― 文件搜索模式：以 "找 " 开头 ―――――――――――――――――――――――――――――――――――――
         if stripped.startswith("找 "):
             query = stripped[2:].strip()
             self._eval_timer.stop()
             self._dot_timer.stop()
             self.ai_label.setText("")
             self.ai_label.hide()
+            self.clear_qr()
             self.count_label.setStyleSheet("color: #c09030; font-size: 12px;")
             self.count_label.setText("≡ 文件搜索")
             self.result_label.setText("")
@@ -287,10 +295,11 @@ class InputWindow(QWidget):
             self.adjustSize()
             return
 
-        # ─── 非文件搜索模式：清除文件列表 ─────────────────────────────
-        if self.file_list.isVisible():
+        # ─── 非文件搜索模式：清除文件列表和二维码 ─────────────────────
+        if self.file_list.isVisible() or self.qr_label.isVisible():
             self._search_timer.stop()
             self.clear_file_results()
+            self.clear_qr()
 
         # 接近上限变红提示
         if count >= MAX_LENGTH * 0.9:
@@ -411,6 +420,7 @@ class InputWindow(QWidget):
         """显示思考动画（清空旧回答并启动帧计时器）。"""
         print("[UI] show_thinking 被调用")
         self._dot_frame = 0
+        self.clear_qr()
         self.ai_label.setStyleSheet("color: #8a7040; font-size: 13px;")
         self.ai_label.setText("正在思考")
         self.ai_label.show()
@@ -421,6 +431,7 @@ class InputWindow(QWidget):
         """AI 回答完成（错误分支），展示结果并清空输入框。"""
         print(f"[UI] show_ai_result 被调用，内容: {text[:60]}...")
         self._dot_timer.stop()
+        self.clear_qr()
         color = "#c05050" if text.startswith("❌") else "#d8cfb8"
         self.ai_label.setStyleSheet(
             f"color: {color}; font-size: 13px; line-height: 1.6;"
@@ -443,10 +454,11 @@ class InputWindow(QWidget):
         self.count_label.setText(result)
         self.result_label.setText("")
         self.input.clear()
-        # 清空上次 AI 回答
+        # 清空上次 AI 回答和 QR
         self._dot_timer.stop()
         self.ai_label.setText("")
         self.ai_label.hide()
+        self.clear_qr()
         self.adjustSize()
 
     def show_window(self):
@@ -471,7 +483,47 @@ class InputWindow(QWidget):
         self.hide()
         self._hiding = False
 
-    # ─── 文件搜索相关 ─────────────────────────────────────────────
+    # ─── 文件搜索相关 ─────────────────────────────────────────────────────
+
+    def show_info(self, text: str):
+        """用等宽字体展示系统信息类多行文本。"""
+        self._dot_timer.stop()
+        self.clear_qr()
+        self.clear_file_results()
+        self.ai_label.setStyleSheet(
+            "color: #c8c0a8; font-family: Consolas, 'Courier New', monospace; "
+            "font-size: 12px; line-height: 1.8;"
+        )
+        self.ai_label.setText(text)
+        self.ai_label.show()
+        self.input.clear()
+        self.adjustSize()
+
+    def show_qr(self, png_bytes: bytes):
+        """展示二维码图片（清除其他结果区域）。"""
+        self._dot_timer.stop()
+        self.ai_label.setText("")
+        self.ai_label.hide()
+        self.clear_file_results()
+        px = QPixmap()
+        px.loadFromData(png_bytes)
+        size = 210
+        self.qr_label.setPixmap(
+            px.scaled(size, size,
+                      Qt.AspectRatioMode.KeepAspectRatio,
+                      Qt.TransformationMode.SmoothTransformation)
+        )
+        self.input.clear()   # 先清空输入框，避免触发 _on_text_changed 时 qr_label 已可见
+        self.qr_label.show()
+        self.count_label.setText("手机扫码  ESC 关闭")
+        self.count_label.setStyleSheet("color: #7ab86a; font-size: 12px;")
+        self.result_label.setText("")
+        self.adjustSize()
+
+    def clear_qr(self):
+        """TODO: 隐藏并清除二维码图片。"""
+        self.qr_label.clear()
+        self.qr_label.hide()
 
     def _emit_search(self):
         self.search_requested.emit(self._search_query)
