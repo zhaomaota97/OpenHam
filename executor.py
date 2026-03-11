@@ -101,6 +101,38 @@ def execute(text: str) -> str:
         subprocess.Popen("notepad.exe")
         return "✅ 已打开记事本"
 
+    if text == "cmd":
+        subprocess.Popen("cmd.exe")
+        return "✅ 已打开 CMD"
+
+    if text in ("powershell", "ps"):
+        subprocess.Popen("powershell.exe")
+        return "✅ 已打开 PowerShell"
+
+    if text in ("资源管理器", "文件管理器"):
+        subprocess.Popen("explorer.exe")
+        return "✅ 已打开资源管理器"
+
+    if text == "任务管理器":
+        subprocess.Popen("taskmgr.exe")
+        return "✅ 已打开任务管理器"
+
+    if text in ("控制面板", "control"):
+        subprocess.Popen("control.exe")
+        return "✅ 已打开控制面板"
+
+    if text in ("设置", "settings"):
+        subprocess.Popen(["explorer.exe", "ms-settings:"])
+        return "✅ 已打开设置"
+
+    if text in ("截图", "截图工具"):
+        subprocess.Popen(["explorer.exe", "ms-screenclip:"])
+        return "✅ 请框选截图区域"
+
+    if text in ("画图", "mspaint"):
+        subprocess.Popen("mspaint.exe")
+        return "✅ 已打开画图"
+
     return None
 
 
@@ -108,11 +140,26 @@ def execute(text: str) -> str:
 _PREVIEWS = {
     "计算器": "↩ 打开计算器",
     "记事本": "↩ 打开记事本",
+    "cmd": "↩ 打开 CMD",
+    "powershell": "↩ 打开 PowerShell",
+    "ps": "↩ 打开 PowerShell",
+    "资源管理器": "↩ 打开资源管理器",
+    "文件管理器": "↩ 打开资源管理器",
+    "任务管理器": "↩ 打开任务管理器",
+    "控制面板": "↩ 打开控制面板",
+    "control": "↩ 打开控制面板",
+    "设置": "↩ 打开设置",
+    "settings": "↩ 打开设置",
+    "截图": "↩ 框选截图",
+    "截图工具": "↩ 框选截图",
+    "画图": "↩ 打开画图",
+    "mspaint": "↩ 打开画图",
 }
 
 def preview(text: str):
     """返回指令的预览提示字符串，无匹配则返回 None。"""
     return _PREVIEWS.get(text.strip())
+
 
 # ─── 文件搜索 ────────────────────────────────────────────────
 
