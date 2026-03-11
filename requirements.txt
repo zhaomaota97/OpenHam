@@ -1,0 +1,8 @@
+PyQt6
+pynput
+openai
+httpx
+requests
+certifi
+anyio
+python-dotenv
