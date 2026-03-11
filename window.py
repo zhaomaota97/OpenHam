@@ -1,9 +1,11 @@
 from PyQt6.QtWidgets import (QWidget, QLineEdit, QLabel, QVBoxLayout,
                              QHBoxLayout, QApplication,
-                             QGraphicsDropShadowEffect, QFrame)
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+                             QGraphicsDropShadowEffect, QFrame,
+                             QListWidget, QListWidgetItem)
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtGui import QKeyEvent, QColor
 import ctypes
+import os
 from executor import evaluate_expr, preview
 
 MAX_LENGTH = 200  # AI 模式下允许输入更长的内容
@@ -34,6 +36,8 @@ def _win_force_foreground(hwnd: int):
 class InputWindow(QWidget):
     # 提交信号
     submitted = pyqtSignal(str)
+    # 文件搜索信号
+    search_requested = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -54,6 +58,12 @@ class InputWindow(QWidget):
         self._dot_timer.setInterval(380)
         self._dot_timer.timeout.connect(self._tick_thinking)
         self._dot_frame = 0
+        # 文件搜索防抖计时器
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(200)
+        self._search_timer.timeout.connect(self._emit_search)
+        self._search_query = ""
 
     def _on_focus_window_changed(self, focus_window):
         """焦点切换到本窗口之外时隐藏"""
@@ -149,6 +159,34 @@ class InputWindow(QWidget):
         bottom_row.addWidget(self.count_label)
         card_layout.addLayout(bottom_row)
 
+        # 文件搜索结果列表（默认隐藏）
+        self.file_list = QListWidget()
+        self.file_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.file_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.file_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.file_list.setStyleSheet("""
+            QListWidget {
+                background: transparent;
+                border: none;
+                outline: none;
+                padding: 2px 0;
+            }
+            QListWidget::item {
+                border-radius: 6px;
+            }
+            QListWidget::item:selected {
+                background: rgba(192, 140, 30, 0.20);
+            }
+            QListWidget::item:hover:!selected {
+                background: rgba(192, 140, 30, 0.09);
+            }
+        """)
+        self.file_list.hide()
+        self.file_list.itemDoubleClicked.connect(
+            lambda item: self._open_file_at_row(self.file_list.row(item))
+        )
+        card_layout.addWidget(self.file_list)
+
         # AI 回答区（默认隐藏，有内容时自动展开）
         self.ai_label = QLabel("")
         self.ai_label.setWordWrap(True)
@@ -169,6 +207,34 @@ class InputWindow(QWidget):
 
     def _on_text_changed(self, text: str):
         count = len(text)
+        stripped = text.lstrip()
+
+        # ─── 文件搜索模式：以 "找 " 开头 ─────────────────────────────────
+        if stripped.startswith("找 "):
+            query = stripped[2:].strip()
+            self._eval_timer.stop()
+            self._dot_timer.stop()
+            self.ai_label.setText("")
+            self.ai_label.hide()
+            self.count_label.setStyleSheet("color: #c09030; font-size: 12px;")
+            self.count_label.setText("≡ 文件搜索")
+            self.result_label.setText("")
+            if query:
+                self._search_query = query
+                self.result_label.setText("搜索中…")
+                self.result_label.setStyleSheet("color: #6a5a3a; font-size: 12px;")
+                self._search_timer.start()
+            else:
+                self._search_timer.stop()
+                self.clear_file_results()
+            self.adjustSize()
+            return
+
+        # ─── 非文件搜索模式：清除文件列表 ─────────────────────────────
+        if self.file_list.isVisible():
+            self._search_timer.stop()
+            self.clear_file_results()
+
         # 接近上限变红提示
         if count >= MAX_LENGTH * 0.9:
             self.count_label.setStyleSheet("color: #c05050; font-size: 12px;")
@@ -200,8 +266,18 @@ class InputWindow(QWidget):
             self.result_label.setText("")
 
     def keyPressEvent(self, event: QKeyEvent):
+        file_mode = self.file_list.isVisible() and self.file_list.count() > 0
         # 回车提交（不立刻清空，等 AI 回答后再清空）
         if event.key() == Qt.Key.Key_Return:
+            if file_mode:
+                row = self.file_list.currentRow()
+                if row < 0:
+                    row = 0
+                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                    self._open_folder_at_row(row)
+                else:
+                    self._open_file_at_row(row)
+                return
             text = self.input.text().strip()
             if text:
                 # 记录历史（去重，新的放末尾）
@@ -209,8 +285,12 @@ class InputWindow(QWidget):
                     self._history.append(text)
                 self._history_idx = -1
                 self.submitted.emit(text)
-        # ↑ 键：向上翻历史
+        # ↑ 键：文件列表导航 / 历史
         elif event.key() == Qt.Key.Key_Up:
+            if file_mode:
+                row = self.file_list.currentRow()
+                self.file_list.setCurrentRow(max(0, row - 1))
+                return
             if self._history:
                 if self._history_idx == -1:
                     self._history_idx = len(self._history) - 1
@@ -218,8 +298,12 @@ class InputWindow(QWidget):
                     self._history_idx -= 1
                 self.input.setText(self._history[self._history_idx])
                 self.input.end(False)  # 光标移到末尾
-        # ↓ 键：向下翻历史
+        # ↓ 键：文件列表导航 / 历史
         elif event.key() == Qt.Key.Key_Down:
+            if file_mode:
+                row = self.file_list.currentRow()
+                self.file_list.setCurrentRow(min(self.file_list.count() - 1, row + 1))
+                return
             if self._history_idx != -1:
                 if self._history_idx < len(self._history) - 1:
                     self._history_idx += 1
@@ -326,5 +410,80 @@ class InputWindow(QWidget):
 
     def hide_window(self):
         self._hiding = True
+        self._search_timer.stop()
         self.hide()
         self._hiding = False
+
+    # ─── 文件搜索相关 ─────────────────────────────────────────────
+
+    def _emit_search(self):
+        self.search_requested.emit(self._search_query)
+
+    def show_file_results(self, results: list):
+        self.file_list.clear()
+        if not results:
+            self.result_label.setStyleSheet("color: #6a5a3a; font-size: 12px;")
+            self.result_label.setText("未找到文件")
+            self.file_list.hide()
+        else:
+            self.result_label.setStyleSheet("color: #6a5a3a; font-size: 12px;")
+            self.result_label.setText(f"找到 {len(results)} 个  ↵打开  Ctrl+↵打开文件夹")
+            for r in results:
+                self._add_file_item(r['name'], r['path'], r['dir'])
+            item_h = 48
+            max_visible = 5
+            total_h = len(results) * item_h + 4
+            self.file_list.setFixedHeight(min(total_h, max_visible * item_h + 4))
+            self.file_list.setCurrentRow(0)
+            self.file_list.show()
+        self.adjustSize()
+
+    def clear_file_results(self):
+        self.file_list.clear()
+        self.file_list.hide()
+        self.adjustSize()
+
+    def _add_file_item(self, name: str, path: str, directory: str):
+        item = QListWidgetItem()
+        item.setData(Qt.ItemDataRole.UserRole, path)
+        item.setSizeHint(QSize(_CARD_W - 40, 48))
+
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        w.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        vl = QVBoxLayout(w)
+        vl.setContentsMargins(6, 5, 6, 5)
+        vl.setSpacing(1)
+
+        name_lbl = QLabel(name)
+        name_lbl.setStyleSheet("color: #ede5d0; font-size: 13px; background: transparent;")
+        name_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        dir_lbl = QLabel(directory)
+        dir_lbl.setStyleSheet("color: #5a4a2a; font-size: 10px; background: transparent;")
+        dir_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+        vl.addWidget(name_lbl)
+        vl.addWidget(dir_lbl)
+
+        self.file_list.addItem(item)
+        self.file_list.setItemWidget(item, w)
+
+    def _open_file_at_row(self, row: int):
+        if row < 0 or row >= self.file_list.count():
+            return
+        item = self.file_list.item(row)
+        if item:
+            path = item.data(Qt.ItemDataRole.UserRole)
+            if path and os.path.exists(path):
+                os.startfile(path)
+                self.hide_window()
+
+    def _open_folder_at_row(self, row: int):
+        if row < 0 or row >= self.file_list.count():
+            return
+        item = self.file_list.item(row)
+        if item:
+            path = item.data(Qt.ItemDataRole.UserRole)
+            if path and os.path.exists(path):
+                os.startfile(os.path.dirname(path))
+                self.hide_window()

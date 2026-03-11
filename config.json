@@ -1,3 +1,5 @@
 {
-    "hotkey": "<alt>+<space>"
+    "hotkey": "<alt>+<space>",
+    "search_roots": []
 }
+
