@@ -76,7 +76,17 @@ if result.returncode == 0:
     if os.path.exists(logo_src):
         shutil.copy2(logo_src, logo_dst)
         print(f"   已复制 logo.png → dist/OpenHam/")
+    
+    # 复制 .env（优先本地 .env，其次 .env.example）
+    env_src = os.path.join(os.path.dirname(__file__), ".env")
+    if not os.path.exists(env_src):
+        env_src = os.path.join(os.path.dirname(__file__), ".env.example")
+    env_dst = os.path.join(os.path.dirname(__file__), "dist", "OpenHam", ".env")
+    if os.path.exists(env_src):
+        shutil.copy2(env_src, env_dst)
+        print(f"   已复制 .env → dist/OpenHam/")
+    
     print("\n✅ 构建完成，输出在 dist/OpenHam/OpenHam.exe")
-    print("   发布时将整个 dist/OpenHam/ 文件夹一起分发即可")
+    print("   用户只需编辑 .env 中的 DEEPSEEK_API_KEY 即可")
 else:
     print("\n❌ 构建失败，请检查上方错误信息")
