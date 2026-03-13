@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 import os
 import json
 import ctypes
@@ -12,8 +12,10 @@ from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QAction
 import keyboard as kb
 
-from window import InputWindow, PomodoroOverlay
+from window import InputWindow, PomodoroOverlay, GitLabOverlay
 from executor import execute, call_deepseek_stream, search_files, parse_pomodoro, get_system_info, generate_qr_bytes
+import gitlab_preset
+from watched_repos import WatchedReposManager
 
 
 def _base_dir() -> str:
@@ -40,6 +42,15 @@ class AISignal(QObject):
 
 class FileSignal(QObject):
     results = pyqtSignal(list)
+
+class InfoSignal(QObject):
+    info = pyqtSignal(str)
+
+class GitLabSignal(QObject):
+    data = pyqtSignal(list)
+
+class BranchResultSignal(QObject):
+    result = pyqtSignal(str, object)  # url, list[str] | str
 
 
 def _show_toast(title: str, message: str):
@@ -109,6 +120,18 @@ def main():
     ai_signal.responded.connect(window.show_ai_result)
     ai_signal.chunk.connect(window.append_ai_chunk)
     ai_signal.stream_done.connect(window.finish_ai_stream)
+    info_signal = InfoSignal()
+    info_signal.info.connect(window.show_info)
+
+    # -- GitLab 关注仓库管理 --
+    _gl_token = os.getenv("GITLAB_TOKEN", "").strip() or None
+    manager = WatchedReposManager(gitlab_preset.GITLAB_BASE_URL, _gl_token)
+
+    gitlab_overlay = GitLabOverlay()
+    gitlab_signal = GitLabSignal()
+    gitlab_signal.data.connect(gitlab_overlay.update_data)
+    branch_result_signal = BranchResultSignal()
+    branch_result_signal.result.connect(gitlab_overlay.show_branch_choices)
 
     # -- 系统托盘 --
     tray = QSystemTrayIcon(_make_tray_icon(), app)
@@ -236,6 +259,20 @@ def main():
             window.show_qr(png)
             return
 
+        # GitLab 仓库提交查询（网络请求，异步执行）
+        if gitlab_preset.is_gitlab_query(text):
+            _ai_gen += 1
+            my_gen = _ai_gen
+            gitlab_overlay.show_loading()
+            window.input.clear()
+            window.hide_window()
+            def _gitlab_call(t=text, gen=my_gen):
+                result = manager.fetch_structured()
+                if _ai_gen == gen:
+                    gitlab_signal.data.emit(result)
+            threading.Thread(target=_gitlab_call, daemon=True).start()
+            return
+
         result = execute(text)
         print(f"[on_submitted] execute 结果: {result!r}")
         if result is not None:
@@ -293,6 +330,51 @@ def main():
         threading.Thread(target=_run, daemon=True).start()
 
     window.search_requested.connect(on_search_requested)
+
+    # -- GitLab 浮层信号 --
+    def _reload_edit():
+        gitlab_overlay.load_edit_repos(
+            manager.get_repos(),
+            manager.is_webhook_enabled(),
+            manager.get_webhook_url(),
+        )
+
+    def on_gitlab_refresh():
+        gitlab_overlay.show_loading()
+        def _fetch():
+            gitlab_signal.data.emit(manager.fetch_structured())
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def on_branch_fetch(url: str):
+        def _fetch():
+            branch_result_signal.result.emit(url, manager.fetch_branches(url))
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def on_repo_add(url: str, name: str, branches: list):
+        manager.add_or_update(url, name, branches)
+        _reload_edit()
+
+    def on_repo_remove(url: str):
+        manager.remove(url)
+        _reload_edit()
+
+    def on_webhook_toggle(enabled: bool):
+        manager.set_webhook_enabled(enabled)
+        if enabled:
+            manager.start_webhook_server(
+                lambda: gitlab_signal.data.emit(manager.fetch_structured())
+            )
+        _reload_edit()
+
+    gitlab_overlay.refresh_requested.connect(on_gitlab_refresh)
+    gitlab_overlay.edit_mode_opened.connect(_reload_edit)
+    gitlab_overlay.branch_fetch_requested.connect(on_branch_fetch)
+    gitlab_overlay.repo_add_requested.connect(on_repo_add)
+    gitlab_overlay.repo_remove_requested.connect(on_repo_remove)
+    gitlab_overlay.webhook_toggle.connect(on_webhook_toggle)
+
+    # 启动 ETag 后台轮询（30秒，有新提交自动刷新浮层）
+    manager.start_polling(lambda data: gitlab_signal.data.emit(data))
 
     # -- 全局快捷键 --
     kb_hotkey = re.sub(r'[<>]', '', hotkey_str).lower()

@@ -10,6 +10,7 @@ import io as _io
 import string as _string
 from pathlib import Path
 from openai import OpenAI
+from gitlab_preset import GITLAB_PREVIEWS, is_gitlab_query
 
 # 允许的运算符映射，不使用 eval() 避免安全风险
 _OPERATORS = {
@@ -184,6 +185,9 @@ def preview(text: str):
         if action == 'stop':
             return '↩ 停止番茄钟'
         return f'↩ 开始 {mins} 分钟番茄钟 🍅'
+    gitlab_p = GITLAB_PREVIEWS.get(t)
+    if gitlab_p:
+        return gitlab_p
     return None
 
 
