@@ -12,16 +12,19 @@ from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QAction
 import keyboard as kb
 
-from window import InputWindow, PomodoroOverlay, GitLabOverlay
-from executor import execute, call_deepseek_stream, search_files, parse_pomodoro, get_system_info, generate_qr_bytes
-import gitlab_preset
-from watched_repos import WatchedReposManager
+from ui import InputWindow, PomodoroOverlay, GitLabOverlay, ScriptManagerOverlay
+from ui.tray import _make_tray_icon, _show_toast
+from core.script_engine import execute, set_script_overlay
+from core.ai_client import call_deepseek_stream
+from utils.search import search_files
+from utils.system_tools import parse_pomodoro, get_system_info, generate_qr_bytes
+from utils.paths import _base_dir
+
+from gitlab import preset as gitlab_preset
+from gitlab.watched_repos import WatchedReposManager
+from core.signals import HotkeySignal, AISignal, FileSignal, InfoSignal, GitLabSignal, BranchResultSignal
 
 
-def _base_dir() -> str:
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
 
 
 def _ensure_single_instance():
@@ -31,45 +34,6 @@ def _ensure_single_instance():
     return mutex
 
 
-# 子线程 -> 主线程通信信号
-class HotkeySignal(QObject):
-    triggered = pyqtSignal()
-
-class AISignal(QObject):
-    responded   = pyqtSignal(str)
-    chunk       = pyqtSignal(str)
-    stream_done = pyqtSignal()
-
-class FileSignal(QObject):
-    results = pyqtSignal(list)
-
-class InfoSignal(QObject):
-    info = pyqtSignal(str)
-
-class GitLabSignal(QObject):
-    data = pyqtSignal(list)
-
-class BranchResultSignal(QObject):
-    result = pyqtSignal(str, object)  # url, list[str] | str
-
-
-def _show_toast(title: str, message: str):
-    """PowerShell balloon tip — Windows 10/11 最可靠的气泡通知方式。"""
-    safe_t = title.replace('"', "'")
-    safe_m = message.replace('"', "'")
-    script = (
-        'Add-Type -AssemblyName System.Windows.Forms; '
-        '$n = New-Object System.Windows.Forms.NotifyIcon; '
-        '$n.Icon = [System.Drawing.SystemIcons]::Information; '
-        '$n.Visible = $true; '
-        f'$n.ShowBalloonTip(8000,"{safe_t}","{safe_m}",'
-        '[System.Windows.Forms.ToolTipIcon]::Info); '
-        'Start-Sleep 9; $n.Dispose()'
-    )
-    subprocess.Popen(
-        ['powershell', '-WindowStyle', 'Hidden', '-NoProfile', '-Command', script],
-        creationflags=subprocess.CREATE_NO_WINDOW
-    )
 
 
 def load_config():
@@ -88,20 +52,6 @@ def load_api_key():
     return api_key
 
 
-def _make_tray_icon() -> QIcon:
-    logo_path = os.path.join(_base_dir(), "logo.png")
-    if os.path.exists(logo_path):
-        return QIcon(logo_path)
-    size = 64
-    px = QPixmap(size, size)
-    px.fill(QColor(0, 0, 0, 0))
-    painter = QPainter(px)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    painter.setBrush(QBrush(QColor("#c08020")))
-    painter.setPen(QColor(0, 0, 0, 0))
-    painter.drawEllipse(4, 4, size - 8, size - 8)
-    painter.end()
-    return QIcon(px)
 
 
 def main():
@@ -115,6 +65,9 @@ def main():
     app.setQuitOnLastWindowClosed(False)
 
     window = InputWindow()
+    # ── 脚本管理器浮层 ──
+    script_overlay = ScriptManagerOverlay()
+    set_script_overlay(script_overlay)
     signal = HotkeySignal()
     ai_signal = AISignal()
     ai_signal.responded.connect(window.show_ai_result)
@@ -145,15 +98,17 @@ def main():
     action_timer_sep = tray_menu.addSeparator()
     action_timer_sep.setVisible(False)
     action_show = tray_menu.addAction("呼出窗口")
+    action_script_config = tray_menu.addAction("脚本配置")
     tray_menu.addSeparator()
     action_quit = tray_menu.addAction("退出")
 
     action_show.triggered.connect(window.show_window)
+    action_script_config.triggered.connect(script_overlay.open)
     action_quit.triggered.connect(app.quit)
     tray.setContextMenu(tray_menu)
     tray.activated.connect(
         lambda reason: window.show_window()
-        if reason == QSystemTrayIcon.ActivationReason.DoubleClick
+        if reason == QSystemTrayIcon.ActivationReason.Trigger
         else None
     )
     tray.show()
