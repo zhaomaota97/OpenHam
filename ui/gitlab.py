@@ -401,6 +401,7 @@ class GitLabOverlay(QWidget):
             " background: transparent; border: none;"
         )
         self._view_layout.addWidget(self._loading_label)
+        self._view_layout.addStretch()
         return page
 
     def _build_edit_page(self) -> QWidget:
@@ -626,7 +627,7 @@ class GitLabOverlay(QWidget):
                     "color: #c09030; font-size: 14px; font-weight: bold; "
                     "padding: 2px; background: transparent; border: none;"
                 )
-                self._view_layout.addWidget(lbl)
+                self._view_layout.insertWidget(self._view_layout.count() - 1, lbl)
                 self._view_widgets.append(lbl)
             if error:
                 err = QLabel(f"  ⚠  {error}")
@@ -634,14 +635,22 @@ class GitLabOverlay(QWidget):
                     "color: #c05050; font-size: 13px; padding: 4px 6px;"
                     " background: transparent; border: none;"
                 )
-                self._view_layout.addWidget(err)
+                self._view_layout.insertWidget(self._view_layout.count() - 1, err)
                 self._view_widgets.append(err)
             elif name:
                 tbl = self._make_table(repo_data.get("branches", []))
-                self._view_layout.addWidget(tbl)
+                self._view_layout.insertWidget(self._view_layout.count() - 1, tbl)
                 self._view_widgets.append(tbl)
         self.adjustSize()
         if not self.isVisible():
+            self.show()
+            self.raise_()
+        
+    def _adjust_layout_items(self):
+        self.adjustSize()
+        if not self.isVisible():
+            self.show()
+            self.raise_()
             self.show()
             self.raise_()
 
@@ -707,14 +716,12 @@ class GitLabOverlay(QWidget):
 
     def switch_to_edit(self):
         self._title_label.setText("✏️  管理关注仓库")
-        self._edit_btn.hide()
-        self._refresh_btn.hide()
-        self._done_btn.show()
         # 编辑页至少占视口高度的 80%（减去标题栏和底部Webhook栏）
         screen_h = QApplication.primaryScreen().availableGeometry().height()
         title_h = self._title_bar.sizeHint().height()
         footer_h = 42
         self._edit_scroll.setMinimumHeight(max(200, int(screen_h * 0.80) - title_h - footer_h))
+        self._edit_scroll.setMaximumHeight(16777215)
         self._stack.setCurrentIndex(1)
         self.adjustSize()
         self.edit_mode_opened.emit()

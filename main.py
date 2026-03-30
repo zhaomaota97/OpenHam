@@ -12,17 +12,19 @@ from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QAction
 import keyboard as kb
 
-from ui import InputWindow, PomodoroOverlay, GitLabOverlay, ScriptManagerOverlay
+from ui import InputWindow, PomodoroOverlay, GitLabOverlay, ScriptManagerOverlay, ScreenCaptureOverlay
 from ui.tray import _make_tray_icon, _show_toast
 from core.script_engine import execute, set_script_overlay
 from core.ai_client import call_deepseek_stream
 from utils.search import search_files
 from utils.system_tools import parse_pomodoro, get_system_info, generate_qr_bytes
 from utils.paths import _base_dir
+from utils.ocr_tools import extract_text_from_image
+import asyncio
 
 from gitlab import preset as gitlab_preset
 from gitlab.watched_repos import WatchedReposManager
-from core.signals import HotkeySignal, AISignal, FileSignal, InfoSignal, GitLabSignal, BranchResultSignal
+from core.signals import HotkeySignal, AISignal, FileSignal, InfoSignal, GitLabSignal, BranchResultSignal, OCRSignal
 
 
 
@@ -58,7 +60,9 @@ def main():
     _mutex = _ensure_single_instance()
 
     config = load_config()
-    hotkey_str = config.get("hotkey", "<ctrl>+<F11>")
+    hotkey_str = config.get("hotkey", "ctrl+f11")
+    # 兼容 pynput 风格的配置（如果在 config.json 里写了 <alt> 需要剥离尖括号）
+    clean_hotkey = hotkey_str.replace("<", "").replace(">", "")
     api_key = load_api_key()
 
     app = QApplication(sys.argv)
@@ -118,12 +122,60 @@ def main():
     # 番茄钟悬浮层
     overlay = PomodoroOverlay()
 
+    _last_hotkey_time = 0.0
     def on_hotkey():
+        nonlocal _last_hotkey_time
+        now = _time.time()
+        if now - _last_hotkey_time < 0.3:
+            return
+        _last_hotkey_time = now
         signal.triggered.emit()
 
     signal.triggered.connect(lambda: (
         window.hide_window() if window.isVisible() else window.show_window()
     ))
+    kb.add_hotkey(clean_hotkey, on_hotkey, suppress=True)
+
+    # -- OCR 屏幕抓取与文字识别 --
+    ocr_hotkey_str = config.get("ocr_hotkey", "ctrl+f12")
+    clean_ocr_hotkey = ocr_hotkey_str.replace("<", "").replace(">", "")
+    ocr_overlay = ScreenCaptureOverlay()
+    ocr_signal = OCRSignal()
+
+    def on_ocr_finished(text: str):
+        window.result_label.setText("")
+        if text and text.strip():
+            # 自动复制到剪贴板
+            app.clipboard().setText(text)
+            window.show_result("✅ 识别结果已复制到剪贴板")
+            window.show_window()
+        else:
+            window.show_result("❌ 本地 OCR 未识别到文本")
+            window.show_window()
+
+    def on_capture_finished(pixmap: QPixmap):
+        window.show_window()
+        window.input.clear()
+        window.result_label.setStyleSheet("color: #8a7040; font-size: 12px;")
+        window.result_label.setText("🔍 正在识别截屏文字…")
+        
+        def _bg_ocr():
+            try:
+                text = asyncio.run(extract_text_from_image(pixmap.toImage()))
+            except Exception:
+                text = ""
+            ocr_signal.finished.emit(text)
+            
+        threading.Thread(target=_bg_ocr, daemon=True).start()
+
+    ocr_overlay.capture_finished.connect(on_capture_finished)
+    ocr_signal.triggered.connect(ocr_overlay.start_capture)
+    ocr_signal.finished.connect(on_ocr_finished)
+    
+    def on_ocr_hotkey():
+        ocr_signal.triggered.emit()
+
+    kb.add_hotkey(clean_ocr_hotkey, on_ocr_hotkey, suppress=True)
 
     # -- 番茄钟状态 --
     _timer_gen   = 0
@@ -194,6 +246,12 @@ def main():
 
         # 文件搜索模式
         if text.lstrip().startswith("找 "):
+            return
+
+        # 屏幕文字识别 (本地 OCR)
+        if text.lower() in ("ocr", "提取文字", "截图翻译"):
+            ocr_signal.triggered.emit()
+            window.show_result("✅ 请框选需要识别的区域（按 ESC 取消）")
             return
 
         # 电脑信息

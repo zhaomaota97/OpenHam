@@ -19,3 +19,7 @@ class GitLabSignal(QObject):
 
 class BranchResultSignal(QObject):
     result = pyqtSignal(str, object)  # url, list[str] | str
+
+class OCRSignal(QObject):
+    triggered = pyqtSignal()
+    finished = pyqtSignal(str)

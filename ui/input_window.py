@@ -69,6 +69,7 @@ class InputWindow(QWidget):
 
         # 启动预热(Pre-warm)解决第一次输入卡顿
         QTimer.singleShot(100, self._pre_warm_caches)
+        self._just_shown = False
 
     def _pre_warm_caches(self):
         """预计算特殊图标的宽幅以触发 Qt 的 Windows 字体回退引擎，同时预加载脚本缓存。"""
@@ -81,6 +82,8 @@ class InputWindow(QWidget):
 
     def _on_focus_window_changed(self, focus_window):
         """焦点切换到本窗口之外时隐藏"""
+        if getattr(self, "_just_shown", False):
+            return
         if self.isVisible() and not self._hiding:
             if focus_window is None or focus_window != self.windowHandle():
                 self.hide_window()
@@ -447,10 +450,15 @@ class InputWindow(QWidget):
         x = (screen.width() - self.width()) // 2
         y = screen.height() // 3
         self.move(x, y)
+        self._just_shown = True
         self.show()
         self.raise_()
         # 延迟激活，确保窗口完全渲染后再抢夺焦点（解决 Windows 下 Tool 窗口无法获得输入的问题）
         QTimer.singleShot(50, self._force_focus)
+        QTimer.singleShot(500, self._clear_just_shown)
+
+    def _clear_just_shown(self):
+        self._just_shown = False
 
     def _force_focus(self):
         hwnd = int(self.winId())

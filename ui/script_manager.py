@@ -383,6 +383,7 @@ class ScriptManagerOverlay(QWidget):
         )
         self._list_empty.hide()
         vbox.addWidget(self._list_empty)
+        vbox.addStretch()
         return page
 
     # ── 编辑页 ─────────────────────────────────────────────────────────────
@@ -397,7 +398,7 @@ class ScriptManagerOverlay(QWidget):
         # 基本信息
         vbox.addWidget(self._section_lbl("基本信息（触发词与功能说明）"))
         self._trigger_input = QLineEdit()
-        self._trigger_input.setPlaceholderText("触发词必填，如: fw")
+        self._trigger_input.setPlaceholderText("触发词必填，如: open playground")
         self._trigger_input.setStyleSheet(self._input_ss())
         self._trigger_input.setFixedHeight(34)
         self._trigger_input.setMaxLength(60)

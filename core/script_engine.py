@@ -75,6 +75,12 @@ def evaluate_expr(text: str):
         return None
     try:
         tree = ast.parse(text, mode="eval")
+        # 忽略单纯的数字和带符号数字，如 123 或 -5
+        if isinstance(tree.body, ast.Constant):
+            return None
+        if isinstance(tree.body, ast.UnaryOp) and isinstance(tree.body.operand, ast.Constant):
+            return None
+            
         result = _eval_node(tree)
         # 整数结果去掉小数点
         if isinstance(result, float) and result.is_integer():
@@ -182,6 +188,9 @@ _PREVIEWS = {
     "mspaint": "↩ 打开画图",
     "电脑信息": "↩ 查看系统信息",
     "转二维码": "↩ 剪贴板文字 → 二维码",
+    "ocr": "↩ 框选区域识别文字",
+    "提取文字": "↩ 框选区域识别文字",
+    "截图翻译": "↩ 框选区域识别文字",
 }
 
 def preview(text: str):
