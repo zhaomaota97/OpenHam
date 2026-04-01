@@ -1,6 +1,6 @@
 from core.plugin_manager import openham_plugin, get_plugin_previews, PLUGIN_MATCHERS
 from core.script_engine import _sm_load_scripts
-from gitlab.preset import GITLAB_PREVIEWS
+from plugins.gitlab.preset import GITLAB_PREVIEWS
 
 @openham_plugin(trigger=["help", "?", "帮助", "指令"], desc="查看所有可用指令 (预设/插件/自定义)")
 def plugin_help(text: str):

@@ -5,7 +5,9 @@
       "help",
       "?",
       "帮助",
-      "指令"
+      "指令",
+      "ip",
+      "？"
     ]
   },
   "plugins.ocr.plugin_ocr": {
@@ -13,12 +15,25 @@
     "triggers": [
       "ocr",
       "提取文字",
-      "截图翻译"
+      "截图翻译",
+      "ip"
     ]
   },
   "plugins.pomodoro.execute_pomodoro": {
     "enabled": true,
-    "triggers": []
+    "actions": {
+      "start": {
+        "triggers": [
+          "番茄钟"
+        ]
+      },
+      "stop": {
+        "triggers": [
+          "stop",
+          "停止番茄钟"
+        ]
+      }
+    }
   },
   "plugins.qrcode.plugin_qrcode": {
     "enabled": true,
@@ -96,7 +111,7 @@
   "plugins.system_info.plugin_system_info": {
     "enabled": true,
     "triggers": [
-      "叽叽嘎嘎"
+      "系统信息"
     ]
   },
   "plugins.system_info - 副本.plugin_system_info": {
@@ -104,5 +119,9 @@
     "triggers": [
       "电脑信息"
     ]
+  },
+  "plugins.gitlab_engine.plugin_gitlab": {
+    "enabled": true,
+    "triggers": []
   }
 }

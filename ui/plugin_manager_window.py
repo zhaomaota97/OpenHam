@@ -1,7 +1,7 @@
 import os
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QPushButton, QListWidget, QListWidgetItem,
-                             QGraphicsDropShadowEffect, QScrollArea, QLineEdit, QDialog)
+                             QGraphicsDropShadowEffect, QScrollArea, QLineEdit, QDialog, QGridLayout)
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QCursor
 import ctypes
@@ -11,7 +11,7 @@ from core.plugin_manager import (ALL_PLUGINS_META, get_plugin_config,
 from utils.paths import _base_dir
 
 _SHADOW = 20
-_PM_CARD_W = 600
+_PM_CARD_W = 800
 _PM_CARD_H = 700
 
 def _win_force_foreground(hwnd: int):
@@ -68,6 +68,138 @@ class ToggleSwitch(QPushButton):
         f.setBold(True)
         self.setFont(f)
 
+from PyQt6.QtCore import QTimer
+
+def _check_conflict(trigger: str, exclude_plugin_id: str) -> str | None:
+    t_strip = trigger.strip()
+    if not t_strip: return None
+    from core.script_engine import _sm_load_scripts
+    for s in _sm_load_scripts():
+        if s.get("trigger", "").strip() == t_strip:
+            return s.get("description", "自定义脚本")
+            
+    # 从当前的 GUI 实例中抓取活体的、尚未保存的 Tags 配置
+    from PyQt6.QtWidgets import QApplication
+    pm_window = next((w for w in QApplication.topLevelWidgets() if type(w).__name__ == "PluginManagerWindow"), None)
+    
+    from core.plugin_manager import ALL_PLUGINS_META, get_plugin_config
+    
+    if pm_window:
+        for widget in getattr(pm_window, "items", []):
+            if widget.plugin_id == exclude_plugin_id:
+                continue
+            if getattr(widget, "trigger_input", None) and t_strip in widget.trigger_input.get_tags():
+                meta = ALL_PLUGINS_META.get(widget.plugin_id, {})
+                return meta.get("desc", widget.plugin_id)
+            if getattr(widget, "action_inputs", None):
+                for act_name, tag_input in widget.action_inputs.items():
+                    if t_strip in tag_input.get_tags():
+                        meta = ALL_PLUGINS_META.get(widget.plugin_id, {})
+                        return meta.get("actions", {}).get(act_name, {}).get("desc", widget.plugin_id)
+    else:
+        # Fallback 保底读取硬盘缓存
+        all_confs = get_plugin_config()
+        for pid, meta in ALL_PLUGINS_META.items():
+            if pid == exclude_plugin_id:
+                continue
+            conf = all_confs.get(pid, {})
+            if conf.get("enabled", True):
+                if not meta.get("actions"):
+                    trs = conf.get("triggers", meta.get("default_triggers", []))
+                    if t_strip in trs:
+                        return meta.get("desc", pid)
+                else:
+                    conf_acts = conf.get("actions", {})
+                    for act_name, act_meta in meta.get("actions", {}).items():
+                        trs = conf_acts.get(act_name, {}).get("triggers", act_meta.get("trigger", []))
+                        if t_strip in trs:
+                            return act_meta.get("desc", pid)
+    return None
+
+class TagInputWidget(QScrollArea):
+    tags_changed = pyqtSignal()
+    
+    def __init__(self, plugin_id: str, triggers: list[str], parent=None):
+        super().__init__(parent)
+        self.plugin_id = plugin_id
+        self.setWidgetResizable(True)
+        self.setStyleSheet("QScrollArea { border: 1px solid #4a3f2a; border-radius: 4px; background: #2a251a; }")
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setFixedHeight(34)
+        
+        self.container = QWidget()
+        self.container.setStyleSheet("background: transparent;")
+        self.layout = QHBoxLayout(self.container)
+        self.layout.setContentsMargins(4, 2, 4, 2)
+        self.layout.setSpacing(6)
+        self.setWidget(self.container)
+        
+        self.tags = []
+        for t in triggers:
+            self._create_tag_widget(t)
+            
+        self.input_box = QLineEdit()
+        self.input_box.setPlaceholderText("敲回车新增...")
+        self.input_box.setStyleSheet("background: transparent; color: #c08c1e; border: none; min-width: 140px;")
+        self.input_box.returnPressed.connect(self._on_submit)
+        
+        self.layout.addWidget(self.input_box)
+        self.layout.addStretch()
+
+    def _create_tag_widget(self, text: str):
+        if text in self.tags: return
+        self.tags.append(text)
+        
+        tag_w = QWidget()
+        tag_w.setStyleSheet("background: #503d15; border-radius: 4px;")
+        t_layout = QHBoxLayout(tag_w)
+        t_layout.setContentsMargins(6, 2, 4, 2)
+        t_layout.setSpacing(4)
+        
+        lbl = QLabel(text)
+        lbl.setStyleSheet("color: #ebdbb2;")
+        
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(14, 14)
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setStyleSheet("QPushButton { color: #ebdbb2; background: transparent; border: none; font-weight: bold; font-size: 10px; } QPushButton:hover { color: #fb4934; }")
+        close_btn.clicked.connect(lambda: self._remove_tag(text, tag_w))
+        
+        t_layout.addWidget(lbl)
+        t_layout.addWidget(close_btn)
+        
+        self.layout.insertWidget(self.layout.count() - 2, tag_w)
+        
+    def _remove_tag(self, text: str, widget: QWidget):
+        if text in self.tags:
+            self.tags.remove(text)
+        widget.deleteLater()
+        self.tags_changed.emit()
+        
+    def _on_submit(self):
+        t = self.input_box.text().strip()
+        if not t: return
+        
+        conflict_owner = _check_conflict(t, self.plugin_id)
+        if conflict_owner:
+            self.input_box.clear()
+            self.setStyleSheet("QScrollArea { border: 1px solid #cc241d; border-radius: 4px; background: #2a251a; }")
+            QTimer.singleShot(800, lambda: self.setStyleSheet("QScrollArea { border: 1px solid #4a3f2a; border-radius: 4px; background: #2a251a; }"))
+            
+            from PyQt6.QtWidgets import QToolTip
+            # 在输入框的正下方弹出一个轻量级的跟随提示气泡
+            pt = self.input_box.mapToGlobal(self.input_box.rect().bottomLeft())
+            QToolTip.showText(pt, f"指令「{t}」已被【{conflict_owner}】占用", self.input_box)
+            return
+            
+        self._create_tag_widget(t)
+        self.input_box.clear()
+        self.tags_changed.emit()
+        
+    def get_tags(self) -> list[str]:
+        return self.tags
+
 
 class PluginItemWidget(QWidget):
     """插件列表每一行的渲染器"""
@@ -106,43 +238,73 @@ class PluginItemWidget(QWidget):
         
         layout.addLayout(top_row)
         
-        # Bottom row: Triggers
-        bot_row = QHBoxLayout()
-        alias_lbl = QLabel("触发命令:")
-        alias_lbl.setStyleSheet("color: #a89f8a; font-size: 12px;")
-        
-        # Retrieve active triggers avoiding reference mutation during load.
-        triggers = conf.get("triggers", meta.get("default_triggers", []))
-        trigger_str = ", ".join(triggers)
-        
-        self.trigger_input = QLineEdit(trigger_str)
-        self.trigger_input.setStyleSheet("""
-            QLineEdit {
-                background: #2a251a;
-                border: 1px solid #4a3f2a;
-                border-radius: 4px;
-                color: #c08c1e;
-                padding: 4px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #c08c1e;
-            }
-        """)
-        self.trigger_input.editingFinished.connect(lambda: self.changed.emit())
-        
-        bot_row.addWidget(alias_lbl)
-        bot_row.addWidget(self.trigger_input, 1)
-        
-        layout.addLayout(bot_row)
+        # Bottom rows: Triggers or Actions
+        if not meta.get("actions"):
+            bot_row = QHBoxLayout()
+            alias_lbl = QLabel("触发命令:")
+            alias_lbl.setStyleSheet("color: #a89f8a; font-size: 12px;")
+            
+            triggers = conf.get("triggers")
+            if triggers is None or (not triggers and meta.get("default_triggers")):
+                triggers = meta.get("default_triggers", [])
+            
+            self.trigger_input = TagInputWidget(self.plugin_id, triggers)
+            self.trigger_input.tags_changed.connect(lambda: self.changed.emit())
+            
+            bot_row.addWidget(alias_lbl)
+            bot_row.addWidget(self.trigger_input, 1)
+            layout.addLayout(bot_row)
+            self.action_inputs = None
+            
+        else:
+            self.trigger_input = None
+            self.action_inputs = {}
+            conf_actions = conf.get("actions", {})
+            
+            act_container = QVBoxLayout()
+            act_container.setSpacing(0)
+            act_container.setContentsMargins(0, 4, 0, 0)
+            
+            first = True
+            for act_name, act_meta in meta.get("actions").items():
+                if not first:
+                    act_container.addSpacing(12)
+                first = False    
+                
+                act_row = QHBoxLayout()
+                act_row.setContentsMargins(0, 0, 0, 0)
+                
+                desc_text = act_meta.get("desc", act_name)
+                lbl = QLabel(f"{desc_text}:")
+                lbl.setStyleSheet("color: #a89f8a; font-size: 13px; min-width: 80px;")
+                
+                act_conf = conf_actions.get(act_name, {})
+                triggers = act_conf.get("triggers")
+                if triggers is None or (not triggers and act_meta.get("trigger")):
+                    triggers = act_meta.get("trigger", [])
+                
+                tag_input = TagInputWidget(self.plugin_id, triggers)
+                tag_input.tags_changed.connect(lambda: self.changed.emit())
+                self.action_inputs[act_name] = tag_input
+                
+                act_row.addWidget(lbl)
+                act_row.addWidget(tag_input, 1)
+                
+                act_container.addLayout(act_row)
+                
+            layout.addLayout(act_container)
         
     def get_data(self):
         """返回此插件最新的 config 持久化字典"""
-        raw_triggers = self.trigger_input.text().split(",")
-        triggers = [t.strip() for t in raw_triggers if t.strip()]
-        return {
-            "enabled": self.toggle.isChecked(),
-            "triggers": triggers
-        }
+        data = {"enabled": self.toggle.isChecked()}
+        if self.trigger_input is not None:
+            data["triggers"] = self.trigger_input.get_tags()
+        if self.action_inputs:
+            acts = {}
+            for act_name, widget in self.action_inputs.items():
+                acts[act_name] = {"triggers": widget.get_tags()}
+            data["actions"] = acts
+        return data
 
 
 class PluginManagerWindow(QWidget):
@@ -307,14 +469,22 @@ class PluginManagerWindow(QWidget):
         for pid, meta in plugins:
             pconf = conf.get(pid, {})
             
-            item = QListWidgetItem(self.list_widget)
-            item.setSizeHint(QSize(list_widget_width:=self.list_widget.viewport().width() - 20, 110))
-            
             widget = PluginItemWidget(pid, meta, pconf)
+            
+            # PyQt 中未显示的 QWidget 其 sizeHint 可能会失真或被引擎滞后计算
+            # 强制要求 Layout 系统深度遍历并重算确切的物理占用高宽
+            widget.layout().activate()
+            exact_h = widget.layout().sizeHint().height()
+            
+            item = QListWidgetItem(self.list_widget)
+            
+            list_width = self.list_widget.viewport().width() - 20
+            # 给予充足的基础高度 (含内外边距误差补偿)
+            item.setSizeHint(QSize(list_width, max(110, exact_h + 16)))
+            
             self.list_widget.addItem(item)
             self.list_widget.setItemWidget(item, widget)
             self.items.append(widget)
-
     def _save_data_silently(self):
         new_conf = get_plugin_config()
         for widget in self.items:

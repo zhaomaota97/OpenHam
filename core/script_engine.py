@@ -93,14 +93,20 @@ def evaluate_expr(text: str):
 
 def check_script_trigger(text: str) -> str | None:
     """
-    检查 text 是否匹配任意脚本触发命令。
+    检查 text 是否匹配任意脚本触发命令。支持前缀带参数匹配。
     命中则通过 overlay.run_trigger() 运行，返回提示字符串；未命中返回 None。
     """
+    t = text.strip()
+    parts = t.split(maxsplit=1)
+    prefix = parts[0] if len(parts) > 1 else t
+    
     for s in _sm_load_scripts():
-        if s.get("trigger", "").strip() == text.strip():
+        trigger = s.get("trigger", "").strip()
+        if trigger == t or trigger == prefix:
             if _script_overlay is not None:
-                _script_overlay.run_trigger(text, silent=False)
-                return f"✅ 正在执行脚本「{s.get('trigger', text)}」"
+                # 依然传递完整的带参数 text 进去，交由内部决定如何使用保留的参数
+                _script_overlay.run_trigger(t, silent=False)
+                return f"✅ 正在执行脚本「{trigger}」"
             return f"✅ 脚本触发成功（overlay 未就绪）"
     return None
 
@@ -118,30 +124,34 @@ def execute(text: str) -> str:
 
 
 def preview(text: str):
-    """返回指令的预览提示字符串，无匹配则返回 None。"""
+    """返回指令的预览提示字符串，无匹配则返回 None。支持前缀参数匹配。"""
     t = text.strip()
+    parts = t.split(maxsplit=1)
+    prefix = parts[0] if len(parts) > 1 else t
     
     from core.plugin_manager import get_plugin_previews
     pl_previews = get_plugin_previews()
-    if t in pl_previews:
-        return pl_previews[t]
+    if t in pl_previews: return pl_previews[t]
+    if prefix in pl_previews: return pl_previews[prefix]
 
-    if t in ("脚本", "脚本配置"):
+    if t in ("脚本", "脚本配置") or prefix in ("脚本", "脚本配置"):
         return "⚙️ 打开脚本管理器"
 
-    if t == "ip":
+    if t == "ip" or prefix == "ip":
         try:
             return f"📶 {_socket.gethostbyname(_socket.gethostname())}"
         except Exception:
             return "📶 获取失败"
-    gitlab_p = GITLAB_PREVIEWS.get(t)
+            
+    gitlab_p = GITLAB_PREVIEWS.get(t) or GITLAB_PREVIEWS.get(prefix)
     if gitlab_p:
         return gitlab_p
+        
     # 动态脚本触发命令预览
     try:
         for s in _sm_load_scripts():
             trigger = s.get("trigger", "").strip()
-            if trigger == t:
+            if trigger == t or trigger == prefix:
                 desc = s.get("description", "").strip()
                 if desc:
                     return f"↩ {desc} [{trigger}]"
@@ -155,6 +165,8 @@ def get_autocomplete(text: str) -> tuple[str, str] | None:
     t = text.strip()
     if not t:
         return None
+    parts = t.split(maxsplit=1)
+    prefix = parts[0] if len(parts) > 1 else t
         
     candidates = {
         "脚本配置": "打开脚本管理器",
@@ -175,7 +187,8 @@ def get_autocomplete(text: str) -> tuple[str, str] | None:
     except Exception:
         pass
     
-    matches = [c for c in candidates if c.startswith(t) and c != t]
+    # 补全列表匹配前缀：例如输入 "番" 补全 "番茄钟"
+    matches = [c for c in candidates if c.startswith(prefix) and c != prefix]
     if matches:
         matches.sort(key=len)
         best = matches[0]

@@ -12,7 +12,7 @@ _CARD_W    = 640         # 卡片宽度
 _WIN_W     = _CARD_W + _SHADOW * 2
 
 _SM_SHADOW = 10
-_SM_CARD_W = 840
+_SM_CARD_W = 960
 
 from PyQt6.QtWidgets import QStackedWidget
 
@@ -220,43 +220,123 @@ class ThemeConfirmDialog(QDialog):
         outer.addWidget(card)
 
 
+from PyQt6.QtWidgets import QStackedWidget, QSplitter, QTabWidget
+
+class _RunTabWidget(QWidget):
+    """单个脚本运行任务的独立日志面板，嵌入 QTabWidget 的某个 Tab 中。"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.is_cancelled = False
+        self.proc = None
+        self._build()
+
+    def _build(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        self.log_edit = QTextEdit()
+        self.log_edit.setReadOnly(True)
+        self.log_edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.log_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.log_edit.setStyleSheet("""
+            QTextEdit {
+                background: #141210; border: 1px solid rgba(192,140,30,0.18);
+                border-radius: 6px; color: #c0b89a;
+                font-family: Consolas, 'Courier New', monospace; font-size: 13px;
+                outline: none; padding: 8px 10px;
+            }
+            QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
+            QScrollBar::handle:vertical {
+                background: rgba(192,140,30,0.25); border-radius: 3px; min-height: 20px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+        """)
+        layout.addWidget(self.log_edit, 1)
+
+        bottom = QHBoxLayout()
+        bottom.setSpacing(8)
+        self.status_lbl = QLabel("▶  执行中…")
+        self.status_lbl.setStyleSheet(
+            "color: #c09030; font-size: 13px; font-weight: bold; "
+            "background: transparent; border: none;"
+        )
+        bottom.addWidget(self.status_lbl, 1)
+
+        self.stop_btn = QPushButton("⏹ 停止")
+        self.stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.stop_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.stop_btn.setStyleSheet("""
+            QPushButton { background: rgba(200,60,60,0.15); color: #e66;
+                border: 1px solid rgba(170,68,68,0.3); border-radius: 4px;
+                font-size: 12px; padding: 4px 10px; }
+            QPushButton:hover { background: rgba(200,60,60,0.3); border-color: rgba(238,102,102,0.4); }
+        """)
+        self.stop_btn.clicked.connect(self.cancel)
+        bottom.addWidget(self.stop_btn)
+        layout.addLayout(bottom)
+
+    def cancel(self):
+        self.is_cancelled = True
+        self.stop_btn.hide()
+        if self.proc:
+            try: self.proc.terminate()
+            except Exception: pass
+
+    def set_done(self, success: bool):
+        self.stop_btn.hide()
+        if success:
+            self.status_lbl.setText("✅  执行成功")
+            self.status_lbl.setStyleSheet(
+                "color: #50c870; font-size: 13px; font-weight: bold; "
+                "background: transparent; border: none;"
+            )
+        else:
+            self.status_lbl.setText("❌  执行失败")
+            self.status_lbl.setStyleSheet(
+                "color: #c05050; font-size: 13px; font-weight: bold; "
+                "background: transparent; border: none;"
+            )
+
+    def append_line(self, text: str, color: str = "#c0b89a"):
+        from PyQt6.QtGui import QTextCursor
+        cursor = self.log_edit.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self.log_edit.setTextCursor(cursor)
+        parsed = ScriptManagerOverlay._parse_ansi(text, color).replace('\n', '<br>')
+        self.log_edit.insertHtml(parsed + '<br>')
+        self.log_edit.ensureCursorVisible()
+
 from ui.window_base import OpenHamWindowBase
 
 class ScriptManagerOverlay(OpenHamWindowBase):
     """
     原生脚本管理浮层：
-      列表页  → 所有脚本，可新建/选中
-      编辑页  → 触发命令 + 脚本内容（多行）
-      运行日志页 → 实时输出
-    风格与 GitLabOverlay 保持一致。
+      左侧面板  → 脚本列表 / 编辑（始终可见）
+      右侧面板  → 多标签运行日志，每个脚本独立一个 Tab
     """
 
-    # 通知 main.py 刷新 preview 缓存（trigger 变化时）
     triggers_changed = pyqtSignal()
-    # 请求在后台线程运行某脚本
-    run_requested = pyqtSignal(str)   # script id
-    
-    # 后台线程更新UI的信号
-    log_appended = pyqtSignal(str, str)
-    run_finished = pyqtSignal(bool)
+    run_requested = pyqtSignal(str)
+    # 跨线程日志信号：(run_tab 引用, 文本, 颜色)
+    log_appended = pyqtSignal(object, str, str)
+    run_finished = pyqtSignal(object, bool)
 
     def __init__(self):
-        super().__init__(title="", shadow_size=_SM_SHADOW, min_w=_SM_CARD_W, min_h=400)
+        super().__init__(title="", shadow_size=_SM_SHADOW, min_w=_SM_CARD_W, min_h=600)
         self._drag_pos = None
         self._has_been_shown = False
-        self._current_id: str | None = None   # 正在编辑的脚本 id，None = 新建
-        self._run_timer = QTimer(self)
+        self._current_id: str | None = None
+        self._run_timer = QTimer(self)    # kept for compatibility
         self._run_timer.setInterval(300)
         self._run_timer.timeout.connect(self._poll_log)
-        self._run_lines_shown = 0
-        self._run_proc: _subprocess.Popen | None = None
-        self._run_thread = None
 
         self.log_appended.connect(self._do_append_log)
         self.run_finished.connect(self._do_set_log_done)
 
         self._build_ui()
-        self.show_window_centered(_SM_CARD_W, 500)
+        self.resize(_SM_CARD_W + _SM_SHADOW * 2, 760)
+        self.show_window_centered(_SM_CARD_W, 760)
         self.hide()
 
     # ── UI 构建 ────────────────────────────────────────────────────────────
@@ -274,13 +354,116 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self.content_layout.setSpacing(0)
         self.content_layout.addWidget(self._build_title_bar())
 
-        self._stack = _AdaptiveStack()
-        self._stack.setStyleSheet("background: transparent;")
-        self._stack.addWidget(self._build_list_page())   # 0
-        self._stack.addWidget(self._build_edit_page())   # 1
-        self._stack.addWidget(self._build_log_page())    # 2
-        
-        self.content_layout.addWidget(self._stack)
+        # ── 左右分栏 ────────────────────────────────────────────────────────
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setStyleSheet("""
+            QSplitter::handle {
+                background: rgba(192,140,30,0.18); width: 2px;
+            }
+        """)
+        splitter.setHandleWidth(2)
+        splitter.setChildrenCollapsible(False)
+
+        # 左侧：脚本列表 / 编辑页 (始终可见)
+        self._left_stack = QStackedWidget()
+        self._left_stack.setStyleSheet("background: transparent;")
+        self._left_stack.setMinimumWidth(300)
+        self._left_stack.addWidget(self._build_list_page())  # 0 = 列表
+        self._left_stack.addWidget(self._build_edit_page())  # 1 = 编辑
+        splitter.addWidget(self._left_stack)
+
+        # 右侧：多任务日志标签页
+        self._tab_widget = QTabWidget()
+        self._tab_widget.setTabsClosable(True)
+        self._tab_widget.setMovable(True)
+        self._tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border: none; background: transparent;
+            }
+            QTabBar::tab {
+                background: rgba(30,28,20,0.7);
+                color: #8a7a5a; border: 1px solid rgba(192,140,30,0.18);
+                border-bottom: none; border-radius: 5px 5px 0 0;
+                padding: 5px 12px; font-size: 12px; min-width: 80px;
+            }
+            QTabBar::tab:selected {
+                background: #272416; color: #c09030;
+                border-color: rgba(192,140,30,0.45);
+            }
+            QTabBar::tab:hover:!selected { background: rgba(50,44,28,0.9); }
+            QTabBar::close-button {
+                image: none; subcontrol-position: right;
+                width: 14px; height: 14px;
+            }
+        """)
+        self._tab_widget.tabCloseRequested.connect(self._close_run_tab)
+        self._tab_widget.setMinimumWidth(350)
+
+        # 欢迎占位页
+        self._welcome_tab = self._make_welcome_tab()
+        self._tab_widget.addTab(self._welcome_tab, " 运行日志 ")
+        self._tab_widget.tabBar().setTabButton(0, self._tab_widget.tabBar().ButtonPosition.RightSide, None)
+        splitter.addWidget(self._tab_widget)
+
+        splitter.setSizes([340, 620])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        self.content_layout.addWidget(splitter, 1)
+
+        # 右下角拖拽缩放手柄
+        from PyQt6.QtWidgets import QSizeGrip
+        grip_row = QHBoxLayout()
+        grip_row.setContentsMargins(0, 0, 4, 4)
+        grip_row.addStretch()
+        self._size_grip = QSizeGrip(self)
+        self._size_grip.setFixedSize(14, 14)
+        self._size_grip.setStyleSheet("background: transparent;")
+        grip_row.addWidget(self._size_grip)
+        self.content_layout.addLayout(grip_row)
+
+    def _make_welcome_tab(self) -> QWidget:
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(w)
+        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl = QLabel("点击左侧脚本的  ▶ 运行  按钮\n即可在此查看实时执行日志\n\n可同时运行多个脚本，各自独立显示")
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setStyleSheet(
+            "color: #3a3020; font-size: 14px; line-height: 2; "
+            "background: transparent; border: none;"
+        )
+        lay.addWidget(lbl)
+        return w
+
+    def _create_run_tab(self, name: str) -> "_RunTabWidget":
+        """新建一个运行日志 Tab 并切换到它。"""
+        # 若欢迎页还在，替换掉
+        if self._welcome_tab is not None:
+            idx = self._tab_widget.indexOf(self._welcome_tab)
+            if idx >= 0:
+                self._tab_widget.removeTab(idx)
+            self._welcome_tab = None
+
+        tab = _RunTabWidget(self)
+        short_name = name[:18] + "…" if len(name) > 18 else name
+        idx = self._tab_widget.addTab(tab, f"⏳ {short_name}")
+        self._tab_widget.setCurrentIndex(idx)
+        return tab
+
+    def _close_run_tab(self, idx: int):
+        """关闭某个运行 Tab，同时 terminate 对应进程。"""
+        tab = self._tab_widget.widget(idx)
+        if isinstance(tab, _RunTabWidget):
+            tab.cancel()
+        self._tab_widget.removeTab(idx)
+        # 若所有运行 Tab 都关了，恢复欢迎页
+        if self._tab_widget.count() == 0:
+            self._welcome_tab = self._make_welcome_tab()
+            self._tab_widget.addTab(self._welcome_tab, " 运行日志 ")
+            self._tab_widget.tabBar().setTabButton(
+                0, self._tab_widget.tabBar().ButtonPosition.RightSide, None
+            )
+
 
     # ── 标题栏 ─────────────────────────────────────────────────────────────
 
@@ -363,6 +546,12 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
+        # 允许列表随窗口拉伸，不锁死高度，超出时自然启用滚动条
+        from PyQt6.QtWidgets import QSizePolicy
+        self._list_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self._list_widget.setMinimumHeight(200)
         self._list_widget.itemDoubleClicked.connect(
             lambda item: self._go_edit(item.data(Qt.ItemDataRole.UserRole))
         )
@@ -542,9 +731,8 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._title_lbl.setText("⚡  脚本配置")
         self._new_btn.show()
         self._back_btn.hide()
-        self._stack.setCurrentIndex(0)
+        self._left_stack.setCurrentIndex(0)
         self._reload_list()
-        self.adjustSize()
 
     def _go_new(self):
         self._current_id = None
@@ -556,8 +744,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._script_edit.clear()
         self._edit_status.setText("")
         self._set_script_type("shell")
-        self._stack.setCurrentIndex(1)
-        self.adjustSize()
+        self._left_stack.setCurrentIndex(1)
         self._trigger_input.setFocus()
 
     def _go_edit(self, sid: str):
@@ -574,33 +761,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._script_edit.setPlainText(s.get("commands", ""))
         self._set_script_type(s.get("script_type", "shell"))
         self._edit_status.setText("")
-        self._stack.setCurrentIndex(1)
-        self.adjustSize()
+        self._left_stack.setCurrentIndex(1)
         self._trigger_input.setFocus()
 
-    def _go_log(self, name: str):
-        self._title_lbl.setText(f"⚡  运行：{name}")
-        self._new_btn.hide()
-        self._back_btn.show()
-        self._log_list.clear()
-        self._stop_btn.show()
-        self._log_status_lbl.setText("▶  执行中…")
-        self._log_status_lbl.setStyleSheet(
-            "color: #c09030; font-size: 13px; font-weight: bold; "
-            "background: transparent; border: none;"
-        )
-        self._stack.setCurrentIndex(2)
-        self.adjustSize()
-
-    def _cancel_run(self):
-        self._is_cancelled = True
-        self._stop_btn.hide()
-        self._append_log("⚠️ 收到手动终止信号...", color="#c09030")
-        if getattr(self, "_run_proc", None):
-            try:
-                self._run_proc.terminate()
-            except Exception:
-                pass
 
     # ── 数据操作 ───────────────────────────────────────────────────────────
 
@@ -616,14 +779,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             for s in scripts:
                 item = QListWidgetItem()
                 item.setData(Qt.ItemDataRole.UserRole, s.get("id"))
-                item.setSizeHint(QSize(_SM_CARD_W - 28, 56))
+                item.setSizeHint(QSize(_SM_CARD_W - 28, 64))
                 self._list_widget.addItem(item)
                 self._list_widget.setItemWidget(item, self._make_script_row(s))
-        self._list_widget.setFixedHeight(
-            min(max(300, len(scripts) * 60), 480) if scripts else 60
-        )
-        self.adjustSize()
-
     def _make_script_row(self, s: dict) -> QWidget:
         row = QWidget()
         row.setStyleSheet("""
@@ -707,15 +865,38 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             QPushButton:hover { background: rgba(200,60,60,0.2); color: #e66; border-color: rgba(238,102,102,0.3); }
         """)
         def _confirm_delete():
-            dlg = ThemeConfirmDialog(self, "确认删除", f"确定要永久删除脚本「{s.get('trigger', '未命名')}」吗？")
+            dlg = ThemeConfirmDialog(self, "确认删除",
+                f"确定要永久删除脚本「{s.get('trigger', '未命名')}」吗？")
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self._current_id = s.get("id")
                 self._delete_script()
-
         del_b.clicked.connect(_confirm_delete)
         h.addWidget(del_b)
-
         return row
+
+    def _run_by_id(self, sid: str, silent: bool = False):
+        scripts = _sm_load()
+        s = next((x for x in scripts if x.get("id") == sid), None)
+        if not s:
+            return
+        trigger = s.get("trigger", sid)
+        if not silent:
+            run_tab = self._create_run_tab(trigger)
+            if not self.isVisible():
+                if not self._has_been_shown:
+                    self._reposition()
+                self.show()
+                self.raise_()
+        else:
+            run_tab = _RunTabWidget()  # silent: create but don't add to tab widget
+        self._start_run(s, run_tab)
+
+    def _run_current(self):
+        """从编辑页运行当前脚本（先保存）。"""
+        self._save_script()
+        if not self._current_id:
+            return
+        self._run_by_id(self._current_id)
 
     def _save_script(self):
         trigger = self._trigger_input.text().strip()
@@ -725,7 +906,6 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         if not trigger:
             self._show_edit_status("❌  请填写触发命令", error=True)
             return
-
         scripts = _sm_load()
         if self._current_id:
             for s in scripts:
@@ -756,103 +936,74 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self.triggers_changed.emit()
         self._go_list()
 
-    # ── 脚本运行 ───────────────────────────────────────────────────────────
-
-    def _run_current(self):
-        """从编辑页运行当前脚本（先保存）。"""
-        self._save_script()
-        if not self._current_id:
-            return
-        self._run_by_id(self._current_id)
-
-    def _run_by_id(self, sid: str, silent: bool = False):
-        scripts = _sm_load()
-        s = next((x for x in scripts if x.get("id") == sid), None)
-        if not s:
-            return
-        if not silent:
-            trigger = s.get("trigger", sid)
-            self._go_log(trigger)
-            if not self.isVisible():
-                if not self._has_been_shown:
-                    self._reposition()
-                self.show()
-                self.raise_()
-        self._start_run(s)
-
-    def _start_run(self, s: dict):
+    def _start_run(self, s: dict, run_tab: _RunTabWidget):
         self._stop_run_timer()
-        self._run_lines_shown = 0
-        self._is_cancelled = False
-        if hasattr(self, "_stop_btn"):
-            self._stop_btn.show()
 
         content = s.get("commands", "").strip()
         stype   = s.get("script_type", "shell")
         sid     = s.get("id", str(_uuid.uuid4()))
 
+        # 利用闭包捕获 run_tab，让每个任务拥有独立的日志/状态
+        def _log(text, color="#c0b89a"):
+            self.log_appended.emit(run_tab, text, color)
+        def _done(success):
+            self.run_finished.emit(run_tab, success)
+
         if not content:
-            self._append_log("（没有内容）", color="#c05050")
-            self._set_log_done(success=False)
+            _log("(没有内容)", "#c05050")
+            _done(False)
             return
 
         if stype == "shell":
-            # 逐行执行，每行视为一个步骤
             commands = [c.strip() for c in content.splitlines() if c.strip()]
 
             def _worker_shell():
                 total = len(commands)
                 for i, cmd in enumerate(commands, 1):
-                    if self._is_cancelled:
+                    if run_tab.is_cancelled:
                         break
-                    self._append_log(f"⏳ [{i}/{total}]  {cmd}", color="#c09030")
+                    _log(f"⏳ [{i}/{total}]  {cmd}", "#c09030")
                     try:
-                        self._run_proc = _subprocess.Popen(
+                        run_tab.proc = _subprocess.Popen(
                             cmd, shell=True,
                             stdout=_subprocess.PIPE, stderr=_subprocess.STDOUT
                         )
-                        for line_bytes in self._run_proc.stdout:
+                        for line_bytes in run_tab.proc.stdout:
                             try:
                                 line = line_bytes.decode("utf-8")
                             except UnicodeDecodeError:
                                 line = line_bytes.decode("gbk", errors="replace")
-                            self._append_log(line.rstrip())
-                            if self._is_cancelled:
+                            _log(line.rstrip())
+                            if run_tab.is_cancelled:
                                 break
-                        self._run_proc.wait()
-                        if self._is_cancelled:
-                            self._append_log(f"⚠️ 已中止。完成 {i-1} / {total} 步", color="#e66")
-                            self._set_log_done(success=False)
+                        run_tab.proc.wait()
+                        if run_tab.is_cancelled:
+                            _log(f"⚠️ 已中止。完成 {i-1} / {total} 步", "#e66")
+                            _done(False)
                             return
-
-                        if self._run_proc.returncode != 0:
-                            self._append_log(
-                                f"❌ 步骤 {i} 失败（退出码 {self._run_proc.returncode}）", color="#c05050"
-                            )
-                            self._append_log(
-                                f"ℹ️  已完成 {i-1} / {total} 步", color="#8a9a7a"
-                            )
-                            self._set_log_done(success=False)
+                        if run_tab.proc.returncode != 0:
+                            _log(f"❌ 步骤 {i} 失败（退出码 {run_tab.proc.returncode}）", "#c05050")
+                            _log(f"ℹ️  已完成 {i-1} / {total} 步", "#8a9a7a")
+                            _done(False)
                             return
-                        self._append_log(f"✅ 步骤 {i} 完成", color="#50c870")
+                        _log(f"✅ 步骤 {i} 完成", "#50c870")
                     except Exception as e:
-                        self._append_log(f"❌ 步骤 {i} 异常：{e}", color="#c05050")
-                        self._set_log_done(success=False)
+                        _log(f"❌ 步骤 {i} 异常：{e}", "#c05050")
+                        _done(False)
                         return
-                self._append_log(f"\n🎉 全部 {total} 步执行完毕！", color="#50c870")
-                self._set_log_done(success=True)
+                _log(f"\n🎉 全部 {total} 步执行完毕！", "#50c870")
+                _done(True)
 
-            self._run_thread = _threading.Thread(target=_worker_shell, daemon=True)
-            self._run_thread.start()
+            t = _threading.Thread(target=_worker_shell, daemon=True)
+            t.start()
 
         else:
-            # Python / PowerShell / Batch → 写专门的工作区文件，整体运行
             import sys as _sys
             _EXT   = {"python": ".py", "powershell": ".ps1", "batch": ".bat"}
             _CMD   = {
                 "python":     [_sys.executable],
                 "powershell": ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"],
-                "batch":      [],  # 直接 call
+                "batch":      [],
             }
             ext  = _EXT.get(stype, ".txt")
             cmds = _CMD.get(stype, [])
@@ -864,62 +1015,56 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                     with open(tmp_path, "w", encoding="utf-8") as tf:
                         tf.write(body)
                 except Exception as e:
-                    self._append_log(f"❌ 写脚本文件失败：{e}", color="#c05050")
-                    self._set_log_done(success=False)
+                    _log(f"❌ 写脚本文件失败：{e}", "#c05050")
+                    _done(False)
                     return
 
-                self._append_log(f"▶  工作区目录：{wd}", color="#8a9a7a")
-                self._append_log(f"▶  本地源文件：{tmp_path}", color="#8a9a7a")
+                _log(f"▶  工作区目录：{wd}", "#8a9a7a")
+                _log(f"▶  本地源文件：{tmp_path}", "#8a9a7a")
 
                 if typ == "batch":
-                    full_cmd = tmp_path   # shell=True 直接调用
+                    full_cmd = tmp_path
                     use_shell = True
                 else:
                     full_cmd = run_cmd + [tmp_path]
                     use_shell = False
-                    
+
                 env = _os.environ.copy()
                 if typ == "python":
                     env["PYTHONIOENCODING"] = "utf-8"
                     env["PYTHONUTF8"] = "1"
 
                 try:
-                    self._run_proc = _subprocess.Popen(
+                    run_tab.proc = _subprocess.Popen(
                         full_cmd, shell=use_shell,
                         stdout=_subprocess.PIPE, stderr=_subprocess.STDOUT,
                         env=env, cwd=wd
                     )
-                    for line_bytes in self._run_proc.stdout:
+                    for line_bytes in run_tab.proc.stdout:
                         try:
                             line = line_bytes.decode("utf-8")
                         except UnicodeDecodeError:
                             line = line_bytes.decode("gbk", errors="replace")
-                        self._append_log(line.rstrip())
-                        if getattr(self, "_is_cancelled", False):
+                        _log(line.rstrip())
+                        if run_tab.is_cancelled:
                             break
-                    self._run_proc.wait()
-                    if getattr(self, "_is_cancelled", False):
-                        self._append_log("⚠️ 已手动终止运行", color="#e66")
-                        self._set_log_done(success=False)
+                    run_tab.proc.wait()
+                    if run_tab.is_cancelled:
+                        _log("⚠️ 已手动终止运行", "#e66")
+                        _done(False)
                         return
-                    if self._run_proc.returncode != 0:
-                        self._append_log(
-                            f"❌ 执行失败（退出码 {self._run_proc.returncode}）", color="#c05050"
-                        )
-                        self._set_log_done(success=False)
+                    if run_tab.proc.returncode != 0:
+                        _log(f"❌ 执行失败（退出码 {run_tab.proc.returncode}）", "#c05050")
+                        _done(False)
                     else:
-                        self._append_log("\n🎉 执行完毕！", color="#50c870")
-                        self._set_log_done(success=True)
+                        _log("\n🎉 执行完毕！", "#50c870")
+                        _done(True)
                 except Exception as e:
-                    self._append_log(f"❌ 运行异常：{e}", color="#c05050")
-                    self._set_log_done(success=False)
+                    _log(f"❌ 运行异常：{e}", "#c05050")
+                    _done(False)
 
-            self._run_thread = _threading.Thread(target=_worker_file, daemon=True)
-            self._run_thread.start()
-
-    def _append_log(self, text: str, color: str = "#c0b89a"):
-        """跨线程安全地追加日志（通过信号交由主线程处理）。"""
-        self.log_appended.emit(text, color)
+            t = _threading.Thread(target=_worker_file, daemon=True)
+            t.start()
 
     @staticmethod
     def _parse_ansi(text: str, default_fg: str) -> str:
@@ -953,34 +1098,28 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                 out.append(f'<span style="{s}">{h}</span>')
         return "".join(out)
 
-    def _do_append_log(self, text: str, color: str):
-        from PyQt6.QtGui import QTextCursor
-        cursor = self._log_list.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        self._log_list.setTextCursor(cursor)
-        
-        parsed = self._parse_ansi(text, color).replace('\n', '<br>')
-        self._log_list.insertHtml(parsed + '<br>')
-        self._log_list.ensureCursorVisible()
+    def _do_append_log(self, run_tab: _RunTabWidget, text: str, color: str):
+        if run_tab and isinstance(run_tab, _RunTabWidget):
+            run_tab.append_line(text, color)
 
-    def _set_log_done(self, success: bool):
-        self.run_finished.emit(success)
+    def _set_log_done(self, run_tab: _RunTabWidget, success: bool):
+        self.run_finished.emit(run_tab, success)
 
-    def _do_set_log_done(self, success: bool):
-        if hasattr(self, "_stop_btn"):
-            self._stop_btn.hide()
-        if success:
-            self._log_status_lbl.setText("✅  执行成功")
-            self._log_status_lbl.setStyleSheet(
-                "color: #50c870; font-size: 13px; font-weight: bold; "
-                "background: transparent; border: none;"
-            )
-        else:
-            self._log_status_lbl.setText("❌  执行失败")
-            self._log_status_lbl.setStyleSheet(
-                "color: #c05050; font-size: 13px; font-weight: bold; "
-                "background: transparent; border: none;"
-            )
+    def _do_set_log_done(self, run_tab: _RunTabWidget, success: bool):
+        if not (run_tab and isinstance(run_tab, _RunTabWidget)):
+            return
+        run_tab.set_done(success)
+        # 更新 Tab 标题 emoji
+        idx = self._tab_widget.indexOf(run_tab)
+        if idx >= 0:
+            old = self._tab_widget.tabText(idx)
+            # 剥离旧 emoji 前缀
+            name = old
+            for prefix in ("⏳ ", "✅ ", "❌ "):
+                if name.startswith(prefix):
+                    name = name[len(prefix):]
+                    break
+            self._tab_widget.setTabText(idx, ("✅ " if success else "❌ ") + name)
 
     def _stop_run_timer(self):
         if self._run_timer.isActive():

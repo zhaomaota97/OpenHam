@@ -313,7 +313,12 @@ class InputWindow(QWidget):
                 self.count_label.setText(fm.elidedText(raw_txt, Qt.TextElideMode.ElideRight, 500))
                 self.count_label.setStyleSheet("color: #8a9a7a; font-size: 12px;")
             else:
-                self.count_label.setText(f"{count} / {MAX_LENGTH}")
+                if text.strip():
+                    fm = self.count_label.fontMetrics()
+                    self.count_label.setText(fm.elidedText("↩ 询问 AI", Qt.TextElideMode.ElideRight, 500))
+                    self.count_label.setStyleSheet("color: #6a8a9a; font-size: 13px;")
+                else:
+                    self.count_label.setText(f"{count} / {MAX_LENGTH}")
             self.result_label.setText("")
             if text.strip():
                 self._eval_timer.start()

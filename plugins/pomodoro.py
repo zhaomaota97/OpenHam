@@ -62,33 +62,42 @@ def _update_countdown():
         if _action_timer_label: _action_timer_label.setText(label)
         _overlay.update_text(f"🍅 {m:02d}:{s:02d}")
 
-def parse_pomodoro(text: str):
-    """验证是否是合法的番茄钟指令 (如 25m, 1m, stop, 停止番茄钟等)"""
-    text = text.strip()
-    if text.lower() == "stop" or text == "停止番茄钟":
-        return ("stop", 0)
+def parse_dynamic(text: str):
+    """尝试判断是否属于不需要指令名、直接由独立前缀唤醒的隐式参数 (如 25m)"""
+    text = text.strip().lower()
     if text.endswith("m"):
-        num_part = text[:-1]
-        if num_part.isdigit():
-            mins = int(num_part)
-            if 0 < mins <= 999: # 做个简单的保护
-                return ("start", mins)
-    if text == "番茄钟":
-        return ("start", 25)
+        num = text[:-1]
+        if num.isdigit() and 0 < int(num) <= 999:
+            return ("start", int(num))
     return None
 
 def match_pomodoro(text: str) -> bool:
-    return parse_pomodoro(text) is not None
+    # 动态拦截仅暴露最为严谨的隐式参数规则，杜绝其他杂音
+    return parse_dynamic(text) is not None
 
-@openham_plugin(match=match_pomodoro, desc="番茄钟 (例如: 25m, stop)", setup=setup_pomodoro)
-def execute_pomodoro(text: str):
+@openham_plugin(
+    actions={
+        "start": {"desc": "启动番茄钟", "trigger": ["番茄钟"]},
+        "stop": {"desc": "停止番茄钟", "trigger": ["stop", "停止番茄钟"]}
+    },
+    match=match_pomodoro,
+    desc="🍅 桌面交互番茄钟",
+    setup=setup_pomodoro
+)
+def execute_pomodoro(text: str, action: str = None):
     global _timer_gen, _timer_end
     
-    pomo = parse_pomodoro(text)
-    if not pomo:
-        return {"type": "error", "content": "参数错误"}
-        
-    action, mins = pomo
+    if action == "stop":
+        mins = 0
+    elif action == "start":
+        parts = text.strip().split(maxsplit=1)
+        mins = int(parts[1]) if len(parts) == 2 and parts[1].isdigit() and 0 < int(parts[1]) <= 999 else 25
+    else:
+        # 当从不受 Tag 约束的全局正则动态入口 (例如: 盲敲 "40m") 切入时，进行兜底解析
+        pomo = parse_dynamic(text)
+        if not pomo:
+            return {"type": "error", "content": "❌ 参数格式错误"}
+        action, mins = pomo
     _timer_gen += 1
     
     tray: QSystemTrayIcon = _api.call("get_tray_icon")

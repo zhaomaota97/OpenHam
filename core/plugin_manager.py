@@ -48,11 +48,12 @@ class OpenHamPluginAPI:
 plugin_api = OpenHamPluginAPI()
 
 def openham_plugin(trigger: str | List[str] | None = None, 
+                   actions: Dict[str, Dict] | None = None,
                    match: Callable[[str], bool] | None = None,
                    desc: str = "",
                    setup: Callable[[OpenHamPluginAPI], None] | None = None):
     """
-    OpenHam 插件注册装饰器。现在拦截时会读取 user_config 热覆盖。
+    OpenHam 插件注册装饰器。支持直接触发单身命令，也支持级联注册多动作子集。
     """
     def decorator(func):
         plugin_id = f"{func.__module__}.{func.__name__}"
@@ -64,6 +65,7 @@ def openham_plugin(trigger: str | List[str] | None = None,
             "func_name": func.__name__,
             "module_name": func.__module__,
             "default_triggers": default_triggers,
+            "actions": actions or {},
             "desc": desc,
             "has_match": bool(match),
             "has_setup": bool(setup)
@@ -74,14 +76,33 @@ def openham_plugin(trigger: str | List[str] | None = None,
         enabled = conf.get("enabled", True)
         
         if not enabled:
-            return func  # 不装载到实际工作字典中
+            return func
             
-        triggers = conf.get("triggers", default_triggers)
-        
-        for t in triggers:
-            PLUGIN_REGISTRY[t] = func
-            if desc:
-                PLUGIN_PREVIEWS[t] = f"🧩 {desc}"
+        # 挂载平级传统根触发器（如有）
+        if default_triggers or conf.get("triggers"):
+            triggers = conf.get("triggers", default_triggers)
+            for t in triggers:
+                PLUGIN_REGISTRY[t] = func
+                if desc:
+                    PLUGIN_PREVIEWS[t] = f"🧩 {desc}"
+                    
+        # 挂载微服务级别的 actions 动作分支
+        if actions:
+            conf_actions = conf.get("actions", {})
+            for act_name, act_conf in actions.items():
+                act_triggers = conf_actions.get(act_name, {}).get("triggers", act_conf.get("trigger", []))
+                
+                # 工厂闭包锁定目标函数的参数绑定！
+                def make_handler(target_func, target_act):
+                    return lambda text, *args, **kwargs: target_func(text, *args, action=target_act, **kwargs)
+                    
+                handler = make_handler(func, act_name)
+                
+                for t in act_triggers:
+                    PLUGIN_REGISTRY[t] = handler
+                    act_desc = act_conf.get("desc", desc)
+                    if act_desc:
+                        PLUGIN_PREVIEWS[t] = f"🧩 {act_desc}"
                 
         if match:
             PLUGIN_MATCHERS.append({"match": match, "execute": func, "desc": f"🧩 {desc}" if desc else ""})
@@ -143,12 +164,21 @@ def get_plugin_previews() -> Dict[str, str]:
 
 def execute_plugin(text: str, *args, **kwargs) -> Optional[Dict[str, Any]]:
     """执行插件，返回标准的 UI 渲染原语字典"""
+    text_strip = text.strip()
     # 优先匹配静态触发
-    if text in PLUGIN_REGISTRY:
+    if text_strip in PLUGIN_REGISTRY:
         try:
-            return PLUGIN_REGISTRY[text](text, *args, **kwargs)
+            return PLUGIN_REGISTRY[text_strip](text, *args, **kwargs)
         except Exception as e:
             return {"type": "error", "content": f"❌ 插件执行出错: {e}"}
+            
+    # 新增: 尝试带参数的前缀匹配 (例如 '番茄 25')
+    parts = text_strip.split(maxsplit=1)
+    if len(parts) > 1 and parts[0] in PLUGIN_REGISTRY:
+        try:
+            return PLUGIN_REGISTRY[parts[0]](text, *args, **kwargs)
+        except Exception as e:
+            return {"type": "error", "content": f"❌ 插件前缀带参执行出错: {e}"}
             
     # 其次尝试动态匹配
     for matcher in PLUGIN_MATCHERS:
