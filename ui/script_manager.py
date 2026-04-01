@@ -14,7 +14,17 @@ _WIN_W     = _CARD_W + _SHADOW * 2
 _SM_SHADOW = 10
 _SM_CARD_W = 840
 
-from ui.gitlab import _AdaptiveStack
+from PyQt6.QtWidgets import QStackedWidget
+
+class _AdaptiveStack(QStackedWidget):
+    """sizeHint 跟随当前页变化，使父窗口能自适应高度。"""
+    def sizeHint(self):
+        cur = self.currentWidget()
+        return cur.sizeHint() if cur else super().sizeHint()
+
+    def minimumSizeHint(self):
+        cur = self.currentWidget()
+        return cur.minimumSizeHint() if cur else super().minimumSizeHint()
 import os as _os
 import json as _json
 import uuid as _uuid
@@ -210,7 +220,9 @@ class ThemeConfirmDialog(QDialog):
         outer.addWidget(card)
 
 
-class ScriptManagerOverlay(QWidget):
+from ui.window_base import OpenHamWindowBase
+
+class ScriptManagerOverlay(OpenHamWindowBase):
     """
     原生脚本管理浮层：
       列表页  → 所有脚本，可新建/选中
@@ -229,14 +241,7 @@ class ScriptManagerOverlay(QWidget):
     run_finished = pyqtSignal(bool)
 
     def __init__(self):
-        super().__init__()
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setMinimumWidth(_SM_CARD_W + _SM_SHADOW * 2)
-
+        super().__init__(title="", shadow_size=_SM_SHADOW, min_w=_SM_CARD_W, min_h=400)
         self._drag_pos = None
         self._has_been_shown = False
         self._current_id: str | None = None   # 正在编辑的脚本 id，None = 新建
@@ -251,44 +256,31 @@ class ScriptManagerOverlay(QWidget):
         self.run_finished.connect(self._do_set_log_done)
 
         self._build_ui()
-        self._reposition()
+        self.show_window_centered(_SM_CARD_W, 500)
+        self.hide()
 
     # ── UI 构建 ────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(_SM_SHADOW, _SM_SHADOW, _SM_SHADOW, _SM_SHADOW)
-        outer.setSpacing(0)
-
-        self._card = QWidget()
-        self._card.setObjectName("smCard")
-        self._card.setStyleSheet("""
-            #smCard {
+        self.card.setStyleSheet("""
+            #card {
                 background-color: #1e1c14;
                 border-radius: 10px;
                 border: 1px solid rgba(192, 140, 30, 0.32);
             }
         """)
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(40)
-        shadow.setXOffset(0)
-        shadow.setYOffset(10)
-        shadow.setColor(QColor(0, 0, 0, 210))
-        self._card.setGraphicsEffect(shadow)
 
-        card_layout = QVBoxLayout(self._card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
-        card_layout.setSpacing(0)
-        card_layout.addWidget(self._build_title_bar())
+        self.content_layout.setContentsMargins(0, 0, 0, 0)
+        self.content_layout.setSpacing(0)
+        self.content_layout.addWidget(self._build_title_bar())
 
         self._stack = _AdaptiveStack()
         self._stack.setStyleSheet("background: transparent;")
         self._stack.addWidget(self._build_list_page())   # 0
         self._stack.addWidget(self._build_edit_page())   # 1
         self._stack.addWidget(self._build_log_page())    # 2
-        card_layout.addWidget(self._stack)
-
-        outer.addWidget(self._card)
+        
+        self.content_layout.addWidget(self._stack)
 
     # ── 标题栏 ─────────────────────────────────────────────────────────────
 
@@ -302,7 +294,6 @@ class ScriptManagerOverlay(QWidget):
                 border-bottom: 1px solid rgba(192, 140, 30, 0.22);
             }
         """)
-        self._title_bar.setCursor(Qt.CursorShape.SizeAllCursor)
         tb = QHBoxLayout(self._title_bar)
         tb.setContentsMargins(16, 9, 12, 9)
         tb.setSpacing(0)
@@ -326,8 +317,8 @@ class ScriptManagerOverlay(QWidget):
         self._back_btn.hide()
         self._back_btn.clicked.connect(self._go_list)
         tb.addWidget(self._back_btn)
+        
         tb.addSpacing(2)
-
         close_btn = QPushButton("✕")
         close_btn.setFixedSize(30, 30)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -341,6 +332,7 @@ class ScriptManagerOverlay(QWidget):
         """)
         close_btn.clicked.connect(self.hide)
         tb.addWidget(close_btn)
+        
         return self._title_bar
 
     # ── 列表页 ─────────────────────────────────────────────────────────────
@@ -666,13 +658,13 @@ class ScriptManagerOverlay(QWidget):
         info.addWidget(name_lbl)
         
         if desc:
-            desc_str = desc.strip()
-            if len(desc_str) > 130:
-                desc_str = desc_str[:127] + "..."
+            desc_str = desc.strip().replace("\n", "  ")
+            # Enforce single line truncation using ellipsis
+            if len(desc_str) > 65:
+                desc_str = desc_str[:62] + "..."
             desc_lbl = QLabel(desc_str)
-            desc_lbl.setWordWrap(True)
-            desc_lbl.setStyleSheet("color: #8a7a5a; font-size: 12px; font-weight: normal; background: transparent; border: none; line-height: 1.4;")
-            desc_lbl.setMaximumHeight(36)
+            desc_lbl.setStyleSheet("color: #8a7a5a; font-size: 12px; font-weight: normal; background: transparent; border: none;")
+            desc_lbl.setFixedHeight(18)
             info.addWidget(desc_lbl)
         
         # 移除了代码预览，仅显示名称和说明，保持卡片清爽
@@ -1141,6 +1133,12 @@ class ScriptManagerOverlay(QWidget):
         # 若编辑框为空则自动填充占位示例
         if not self._script_edit.toPlainText().strip():
             self._script_edit.setPlaceholderText(self._PLACEHOLDERS.get(stype, ""))
+
+    # ── 定位 & 拖拽 ────────────────────────────────────────────────────────
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._has_been_shown = True
 
     # ── 定位 & 拖拽 ────────────────────────────────────────────────────────
 

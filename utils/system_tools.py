@@ -6,18 +6,6 @@ import socket as _socket
 import re as _re
 import io as _io
 
-def parse_pomodoro(text: str):
-    """解析番茄钟指令。返回 ('start', minutes) 或 ('stop', 0) 或 None。"""
-    text = text.strip()
-    if text in ('番茄停', '停番茄', '番茄 停', '番茄钟 停'):
-        return ('stop', 0)
-    m = _re.match(r'^番茄(?:钟)?\s*(\d+)?$', text)
-    if m:
-        mins = int(m.group(1)) if m.group(1) else 25
-        if 1 <= mins <= 120:
-            return ('start', mins)
-    return None
-
 def get_system_info() -> str:
     """获取 CPU / 内存 / 磁盘 / 系统版本 / 本机 IP。"""
     try:

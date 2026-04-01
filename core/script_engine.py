@@ -4,9 +4,8 @@ import operator
 import os
 import json as _json
 import socket as _socket
-from gitlab.preset import GITLAB_PREVIEWS
-
-from utils.system_tools import get_system_info, parse_pomodoro
+from plugins.gitlab.preset import GITLAB_PREVIEWS
+from utils.system_tools import get_system_info
 
 _cached_scripts = None
 _cached_scripts_mtime = 0.0
@@ -110,106 +109,31 @@ def execute(text: str) -> str:
     """执行预设指令。命中返回 '✅ ...'，未命中返回 None。"""
     text = text.strip()
 
-    # 脚本管理器
-    if text == "脚本配置":
-        if _script_overlay is not None:
-            _script_overlay.open()
-        return "✅ 已打开脚本管理器"
-
     # 检查自定义脚本触发命令
     _trigger_result = check_script_trigger(text)
     if _trigger_result is not None:
         return _trigger_result
 
-    if text == "计算器":
-        subprocess.Popen("calc.exe")
-        return "✅ 已打开计算器"
-
-    if text == "记事本":
-        subprocess.Popen("notepad.exe")
-        return "✅ 已打开记事本"
-
-    if text == "cmd":
-        subprocess.Popen("cmd.exe")
-        return "✅ 已打开 CMD"
-
-    if text in ("powershell", "ps"):
-        subprocess.Popen("powershell.exe")
-        return "✅ 已打开 PowerShell"
-
-    if text in ("资源管理器", "文件管理器"):
-        subprocess.Popen("explorer.exe")
-        return "✅ 已打开资源管理器"
-
-    if text == "任务管理器":
-        subprocess.Popen("taskmgr.exe")
-        return "✅ 已打开任务管理器"
-
-    if text in ("控制面板", "control"):
-        subprocess.Popen("control.exe")
-        return "✅ 已打开控制面板"
-
-    if text in ("设置", "settings"):
-        subprocess.Popen(["explorer.exe", "ms-settings:"])
-        return "✅ 已打开设置"
-
-    if text in ("截图", "截图工具"):
-        subprocess.Popen(["explorer.exe", "ms-screenclip:"])
-        return "✅ 请框选截图区域"
-
-    if text in ("画图", "mspaint"):
-        subprocess.Popen("mspaint.exe")
-        return "✅ 已打开画图"
-
-    if text == "电脑信息":
-        return "ℹ️\n" + get_system_info()
-
     return None
 
-
-# 指令 → 预览文本的映射，与 execute 中的逻辑保持同步
-_PREVIEWS = {
-    "脚本配置": "↩ 打开脚本管理器",
-    "计算器": "↩ 打开计算器",
-    "记事本": "↩ 打开记事本",
-    "cmd": "↩ 打开 CMD",
-    "powershell": "↩ 打开 PowerShell",
-    "ps": "↩ 打开 PowerShell",
-    "资源管理器": "↩ 打开资源管理器",
-    "文件管理器": "↩ 打开资源管理器",
-    "任务管理器": "↩ 打开任务管理器",
-    "控制面板": "↩ 打开控制面板",
-    "control": "↩ 打开控制面板",
-    "设置": "↩ 打开设置",
-    "settings": "↩ 打开设置",
-    "截图": "↩ 框选截图",
-    "截图工具": "↩ 框选截图",
-    "画图": "↩ 打开画图",
-    "mspaint": "↩ 打开画图",
-    "电脑信息": "↩ 查看系统信息",
-    "转二维码": "↩ 剪贴板文字 → 二维码",
-    "ocr": "↩ 框选区域识别文字",
-    "提取文字": "↩ 框选区域识别文字",
-    "截图翻译": "↩ 框选区域识别文字",
-}
 
 def preview(text: str):
     """返回指令的预览提示字符串，无匹配则返回 None。"""
     t = text.strip()
-    p = _PREVIEWS.get(t)
-    if p:
-        return p
+    
+    from core.plugin_manager import get_plugin_previews
+    pl_previews = get_plugin_previews()
+    if t in pl_previews:
+        return pl_previews[t]
+
+    if t in ("脚本", "脚本配置"):
+        return "⚙️ 打开脚本管理器"
+
     if t == "ip":
         try:
             return f"📶 {_socket.gethostbyname(_socket.gethostname())}"
         except Exception:
             return "📶 获取失败"
-    pomo = parse_pomodoro(t)
-    if pomo:
-        action, mins = pomo
-        if action == 'stop':
-            return '↩ 停止番茄钟'
-        return f'↩ 开始 {mins} 分钟番茄钟 🍅'
     gitlab_p = GITLAB_PREVIEWS.get(t)
     if gitlab_p:
         return gitlab_p
@@ -232,9 +156,13 @@ def get_autocomplete(text: str) -> tuple[str, str] | None:
     if not t:
         return None
         
-    candidates = {}
-    for k, v in _PREVIEWS.items():
-        candidates[k] = v.lstrip("↩ ")
+    candidates = {
+        "脚本配置": "打开脚本管理器",
+        "脚本": "打开脚本管理器"
+    }
+    from core.plugin_manager import get_plugin_previews
+    for k, v in get_plugin_previews().items():
+        candidates[k] = v.lstrip("🧩 ")
     for k, v in GITLAB_PREVIEWS.items():
         candidates[k] = v.lstrip("↩ ")
         

@@ -1,0 +1,108 @@
+{
+  "plugins.help_docs.plugin_help": {
+    "enabled": true,
+    "triggers": [
+      "help",
+      "?",
+      "帮助",
+      "指令"
+    ]
+  },
+  "plugins.ocr.plugin_ocr": {
+    "enabled": true,
+    "triggers": [
+      "ocr",
+      "提取文字",
+      "截图翻译"
+    ]
+  },
+  "plugins.pomodoro.execute_pomodoro": {
+    "enabled": true,
+    "triggers": []
+  },
+  "plugins.qrcode.plugin_qrcode": {
+    "enabled": true,
+    "triggers": [
+      "转二维码",
+      "qr"
+    ]
+  },
+  "plugins.shortcuts.plugin_calc": {
+    "enabled": true,
+    "triggers": [
+      "计算器"
+    ]
+  },
+  "plugins.shortcuts.plugin_cmd": {
+    "enabled": true,
+    "triggers": [
+      "cmd"
+    ]
+  },
+  "plugins.shortcuts.plugin_control": {
+    "enabled": true,
+    "triggers": [
+      "控制面板",
+      "control"
+    ]
+  },
+  "plugins.shortcuts.plugin_explorer": {
+    "enabled": true,
+    "triggers": [
+      "资源管理器",
+      "文件管理器"
+    ]
+  },
+  "plugins.shortcuts.plugin_mspaint": {
+    "enabled": true,
+    "triggers": [
+      "画图",
+      "mspaint"
+    ]
+  },
+  "plugins.shortcuts.plugin_notepad": {
+    "enabled": true,
+    "triggers": [
+      "记事本"
+    ]
+  },
+  "plugins.shortcuts.plugin_powershell": {
+    "enabled": true,
+    "triggers": [
+      "powershell",
+      "ps"
+    ]
+  },
+  "plugins.shortcuts.plugin_screenclip": {
+    "enabled": true,
+    "triggers": [
+      "截图",
+      "截图工具"
+    ]
+  },
+  "plugins.shortcuts.plugin_settings": {
+    "enabled": true,
+    "triggers": [
+      "设置",
+      "settings"
+    ]
+  },
+  "plugins.shortcuts.plugin_taskmgr": {
+    "enabled": true,
+    "triggers": [
+      "任务管理器"
+    ]
+  },
+  "plugins.system_info.plugin_system_info": {
+    "enabled": true,
+    "triggers": [
+      "叽叽嘎嘎"
+    ]
+  },
+  "plugins.system_info - 副本.plugin_system_info": {
+    "enabled": true,
+    "triggers": [
+      "电脑信息"
+    ]
+  }
+}

@@ -12,19 +12,13 @@ from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QAction
 import keyboard as kb
 
-from ui import InputWindow, PomodoroOverlay, GitLabOverlay, ScriptManagerOverlay, ScreenCaptureOverlay
+from ui import InputWindow, ScriptManagerOverlay
+from ui.plugin_manager_window import PluginManagerWindow
 from ui.tray import _make_tray_icon, _show_toast
 from core.script_engine import execute, set_script_overlay
 from core.ai_client import call_deepseek_stream
-from utils.search import search_files
-from utils.system_tools import parse_pomodoro, get_system_info, generate_qr_bytes
 from utils.paths import _base_dir
-from utils.ocr_tools import extract_text_from_image
-import asyncio
-
-from gitlab import preset as gitlab_preset
-from gitlab.watched_repos import WatchedReposManager
-from core.signals import HotkeySignal, AISignal, FileSignal, InfoSignal, GitLabSignal, BranchResultSignal, OCRSignal
+from core.signals import HotkeySignal, AISignal, FileSignal, InfoSignal
 
 
 
@@ -69,9 +63,11 @@ def main():
     app.setQuitOnLastWindowClosed(False)
 
     window = InputWindow()
-    # ── 脚本管理器浮层 ──
+    # ── 浮层组件 ──
     script_overlay = ScriptManagerOverlay()
+    plugin_manager_overlay = PluginManagerWindow()
     set_script_overlay(script_overlay)
+    
     signal = HotkeySignal()
     ai_signal = AISignal()
     ai_signal.responded.connect(window.show_ai_result)
@@ -80,34 +76,37 @@ def main():
     info_signal = InfoSignal()
     info_signal.info.connect(window.show_info)
 
-    # -- GitLab 关注仓库管理 --
-    _gl_token = os.getenv("GITLAB_TOKEN", "").strip() or None
-    manager = WatchedReposManager(gitlab_preset.GITLAB_BASE_URL, _gl_token)
 
-    gitlab_overlay = GitLabOverlay()
-    gitlab_signal = GitLabSignal()
-    gitlab_signal.data.connect(gitlab_overlay.update_data)
-    branch_result_signal = BranchResultSignal()
-    branch_result_signal.result.connect(gitlab_overlay.show_branch_choices)
-
+    # -- 插件系统预备 --
+    from core.plugin_manager import load_plugins, plugin_api
+    plugin_api.register_handler("open_script_manager", script_overlay.open)
+    plugin_api.register_handler("open_plugin_manager", plugin_manager_overlay.show_window)
+    
     # -- 系统托盘 --
     tray = QSystemTrayIcon(_make_tray_icon(), app)
     tray.setToolTip(f"OpenHam  ({hotkey_str})")
 
     tray_menu = QMenu()
-    action_timer_label = QAction("🍅 剩余 --:--", tray_menu)
-    action_timer_label.setEnabled(False)
-    action_timer_label.setVisible(False)
-    tray_menu.addAction(action_timer_label)
-    action_timer_sep = tray_menu.addSeparator()
-    action_timer_sep.setVisible(False)
     action_show = tray_menu.addAction("呼出窗口")
     action_script_config = tray_menu.addAction("脚本配置")
+    action_plugin_config = tray_menu.addAction("插件配置")
     tray_menu.addSeparator()
     action_quit = tray_menu.addAction("退出")
+    
+    # 向插件注册底层能力
+    plugin_api.register_handler("get_tray_menu", lambda: tray_menu)
+    plugin_api.register_handler("get_tray_icon", lambda: tray)
+    plugin_api.register_handler("get_main_window", lambda: window)
+    plugin_api.register_handler("get_tray_hotkey_str", lambda: hotkey_str)
+    plugin_api.register_handler("get_config", lambda key, default=None: config.get(key, default))
+    plugin_api.register_handler("show_toast", _show_toast)
+    
+    # 全部核心依赖注册完毕，触发插件 setup 生命周期钩子
+    load_plugins()
 
     action_show.triggered.connect(window.show_window)
     action_script_config.triggered.connect(script_overlay.open)
+    action_plugin_config.triggered.connect(plugin_manager_overlay.show_window)
     action_quit.triggered.connect(app.quit)
     tray.setContextMenu(tray_menu)
     tray.activated.connect(
@@ -118,9 +117,6 @@ def main():
     tray.show()
 
     window.show_window()
-
-    # 番茄钟悬浮层
-    overlay = PomodoroOverlay()
 
     _last_hotkey_time = 0.0
     def on_hotkey():
@@ -136,155 +132,40 @@ def main():
     ))
     kb.add_hotkey(clean_hotkey, on_hotkey, suppress=True)
 
-    # -- OCR 屏幕抓取与文字识别 --
-    ocr_hotkey_str = config.get("ocr_hotkey", "ctrl+f12")
-    clean_ocr_hotkey = ocr_hotkey_str.replace("<", "").replace(">", "")
-    ocr_overlay = ScreenCaptureOverlay()
-    ocr_signal = OCRSignal()
-
-    def on_ocr_finished(text: str):
-        window.result_label.setText("")
-        if text and text.strip():
-            # 自动复制到剪贴板
-            app.clipboard().setText(text)
-            window.show_result("✅ 识别结果已复制到剪贴板")
-            window.show_window()
-        else:
-            window.show_result("❌ 本地 OCR 未识别到文本")
-            window.show_window()
-
-    def on_capture_finished(pixmap: QPixmap):
-        window.show_window()
-        window.input.clear()
-        window.result_label.setStyleSheet("color: #8a7040; font-size: 12px;")
-        window.result_label.setText("🔍 正在识别截屏文字…")
-        
-        def _bg_ocr():
-            try:
-                text = asyncio.run(extract_text_from_image(pixmap.toImage()))
-            except Exception:
-                text = ""
-            ocr_signal.finished.emit(text)
-            
-        threading.Thread(target=_bg_ocr, daemon=True).start()
-
-    ocr_overlay.capture_finished.connect(on_capture_finished)
-    ocr_signal.triggered.connect(ocr_overlay.start_capture)
-    ocr_signal.finished.connect(on_ocr_finished)
-    
-    def on_ocr_hotkey():
-        ocr_signal.triggered.emit()
-
-    kb.add_hotkey(clean_ocr_hotkey, on_ocr_hotkey, suppress=True)
-
-    # -- 番茄钟状态 --
-    _timer_gen   = 0
-    _timer_end   = 0.0
-
-    countdown_qtimer = QTimer()
-    countdown_qtimer.setInterval(1000)
-
-    def _update_countdown():
-        nonlocal _timer_end
-        if _timer_end <= 0:
-            countdown_qtimer.stop()
-            return
-        remaining = _timer_end - _time.time()
-        if remaining <= 0:
-            _timer_end = 0
-            countdown_qtimer.stop()
-            tray.setToolTip(f"OpenHam  ({hotkey_str})")
-            action_timer_label.setVisible(False)
-            action_timer_sep.setVisible(False)
-            overlay.hide()
-        else:
-            m, s = divmod(int(remaining), 60)
-            label = f"🍅 剩余 {m:02d}:{s:02d}"
-            tray.setToolTip(f"OpenHam  {label}")
-            action_timer_label.setText(label)
-            overlay.update_text(f"🍅 {m:02d}:{s:02d}")
-
-    countdown_qtimer.timeout.connect(_update_countdown)
-
     # -- AI --
     _ai_gen = 0
 
     def on_submitted(text: str):
-        nonlocal _ai_gen, _timer_gen, _timer_end
+        nonlocal _ai_gen
         print(f"[on_submitted] 收到文本: {text!r}")
 
-        # 番茄钟
-        pomo = parse_pomodoro(text)
-        if pomo is not None:
-            action, mins = pomo
-            _timer_gen += 1
-            if action == "stop":
-                _timer_end = 0
-                countdown_qtimer.stop()
-                tray.setToolTip(f"OpenHam  ({hotkey_str})")
-                action_timer_label.setVisible(False)
-                action_timer_sep.setVisible(False)
-                overlay.hide()
-                window.show_result("✅ 番茄钟已停止")
-            else:
-                my_gen = _timer_gen
-                _timer_end = _time.time() + mins * 60
-                action_timer_label.setText(f"🍅 剩余 {mins:02d}:00")
-                action_timer_label.setVisible(True)
-                action_timer_sep.setVisible(True)
-                overlay.update_text(f"🍅 {mins:02d}:00")
-                overlay.show()
-                countdown_qtimer.start()
-                window.show_result(f"✅ 🍅 {mins} 分钟，加油！")
-                def _run(gen=my_gen, m=mins):
-                    _time.sleep(m * 60)
-                    if _timer_gen == gen:
-                        _show_toast("🍅 番茄钟", f"{m} 分钟到了！好好休息一下 ☕")
-                threading.Thread(target=_run, daemon=True).start()
+        # 内置：管理面
+        if text.strip() in ("脚本", "脚本配置"):
+            script_overlay.open()
+            window.show_result("✅ 已打开脚本管理器")
             QTimer.singleShot(800, window.hide_window)
+            return
+
+        # 插件系统调度
+        from core.plugin_manager import execute_plugin
+        plugin_result = execute_plugin(text.strip())
+        if plugin_result:
+            p_type = plugin_result.get("type", "text")
+            p_content = plugin_result.get("content", "")
+            if p_type == "info":
+                window.show_info(p_content)
+            elif p_type == "qr":
+                window.show_qr(p_content)
+            else:
+                window.show_result(p_content)
+                if "✅" in str(p_content):
+                    QTimer.singleShot(800, window.hide_window)
             return
 
         # 文件搜索模式
         if text.lstrip().startswith("找 "):
             return
 
-        # 屏幕文字识别 (本地 OCR)
-        if text.lower() in ("ocr", "提取文字", "截图翻译"):
-            ocr_signal.triggered.emit()
-            window.show_result("✅ 请框选需要识别的区域（按 ESC 取消）")
-            return
-
-        # 电脑信息
-        if text == "电脑信息":
-            window.show_info(get_system_info())
-            return
-
-        # 剪贴板转二维码
-        if text == "转二维码":
-            clip = QApplication.clipboard().text().strip()
-            if not clip:
-                window.show_result("❌ 剪贴板为空")
-                return
-            png = generate_qr_bytes(clip)
-            if png is None:
-                window.show_result("❌ 请先安装 qrcode 库")
-                return
-            window.show_qr(png)
-            return
-
-        # GitLab 仓库提交查询（网络请求，异步执行）
-        if gitlab_preset.is_gitlab_query(text):
-            _ai_gen += 1
-            my_gen = _ai_gen
-            gitlab_overlay.show_loading()
-            window.input.clear()
-            window.hide_window()
-            def _gitlab_call(t=text, gen=my_gen):
-                result = manager.fetch_structured()
-                if _ai_gen == gen:
-                    gitlab_signal.data.emit(result)
-            threading.Thread(target=_gitlab_call, daemon=True).start()
-            return
 
         result = execute(text)
         print(f"[on_submitted] execute 结果: {result!r}")
@@ -344,50 +225,6 @@ def main():
 
     window.search_requested.connect(on_search_requested)
 
-    # -- GitLab 浮层信号 --
-    def _reload_edit():
-        gitlab_overlay.load_edit_repos(
-            manager.get_repos(),
-            manager.is_webhook_enabled(),
-            manager.get_webhook_url(),
-        )
-
-    def on_gitlab_refresh():
-        gitlab_overlay.show_loading()
-        def _fetch():
-            gitlab_signal.data.emit(manager.fetch_structured())
-        threading.Thread(target=_fetch, daemon=True).start()
-
-    def on_branch_fetch(url: str):
-        def _fetch():
-            branch_result_signal.result.emit(url, manager.fetch_branches(url))
-        threading.Thread(target=_fetch, daemon=True).start()
-
-    def on_repo_add(url: str, name: str, branches: list):
-        manager.add_or_update(url, name, branches)
-        _reload_edit()
-
-    def on_repo_remove(url: str):
-        manager.remove(url)
-        _reload_edit()
-
-    def on_webhook_toggle(enabled: bool):
-        manager.set_webhook_enabled(enabled)
-        if enabled:
-            manager.start_webhook_server(
-                lambda: gitlab_signal.data.emit(manager.fetch_structured())
-            )
-        _reload_edit()
-
-    gitlab_overlay.refresh_requested.connect(on_gitlab_refresh)
-    gitlab_overlay.edit_mode_opened.connect(_reload_edit)
-    gitlab_overlay.branch_fetch_requested.connect(on_branch_fetch)
-    gitlab_overlay.repo_add_requested.connect(on_repo_add)
-    gitlab_overlay.repo_remove_requested.connect(on_repo_remove)
-    gitlab_overlay.webhook_toggle.connect(on_webhook_toggle)
-
-    # 启动 ETag 后台轮询（30秒，有新提交自动刷新浮层）
-    manager.start_polling(lambda data: gitlab_signal.data.emit(data))
 
     # -- 全局快捷键 --
     kb_hotkey = re.sub(r'[<>]', '', hotkey_str).lower()

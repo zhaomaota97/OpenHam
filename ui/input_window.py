@@ -9,7 +9,7 @@ import os
 from core.script_engine import evaluate_expr, preview
 
 MAX_LENGTH = 200  # AI 模式下允许输入更长的内容
-_SHADOW    = 24          # 阴影溢出留边
+_SHADOW    = 36          # 阴影溢出留边 (在 High-DPI 下 DropShadow.blurRadius=48 可能外溢超边界)
 _CARD_W    = 640         # 卡片宽度
 _WIN_W     = _CARD_W + _SHADOW * 2
 
@@ -125,6 +125,21 @@ class InputWindow(QWidget):
                 color: #6a5a3a;
                 font-size: 12px;
             }
+            QTextEdit {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: rgba(0, 0, 0, 0);
+                width: 6px;
+                border-radius: 3px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(192, 140, 30, 0.4);
+                border-radius: 3px;
+                min-height: 20px;
+            }
         """)
 
         shadow = QGraphicsDropShadowEffect(self)
@@ -204,22 +219,18 @@ class InputWindow(QWidget):
         )
         card_layout.addWidget(self.file_list)
 
-        # AI 回答区（默认隐藏，有内容时自动展开）
-        self.ai_label = QLabel("")
-        self.ai_label.setWordWrap(True)
-        self.ai_label.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-        )
-        self.ai_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        self.ai_label.setStyleSheet(
-            "color: #d8cfb8; font-size: 13px; line-height: 1.6;"
-        )
+        from PyQt6.QtWidgets import QTextEdit
+        self.ai_label = QTextEdit()
+        self.ai_label.setReadOnly(True)
+        self.ai_label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.ai_label.setFrameShape(QFrame.Shape.NoFrame)
+        self.ai_label.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.ai_label.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.ai_label.setStyleSheet("color: #d8cfb8; font-size: 13px; line-height: 1.6;")
         self.ai_label.hide()
+        
         card_layout.addSpacing(6)
         card_layout.addWidget(self.ai_label)
-
         # QR 二维码图片（默认隐藏）
         self.qr_label = QLabel()
         self.qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -228,6 +239,20 @@ class InputWindow(QWidget):
         card_layout.addWidget(self.qr_label)
 
         outer.addWidget(self.card)
+
+    def _sync_ai_zone(self, show: bool = True):
+        """同步布局并决定是否展示"""
+        if not show:
+            self.ai_label.hide()
+            return
+            
+        doc = self.ai_label.document()
+        doc.setTextWidth(580)
+        h = int(doc.size().height())
+        target = min(h + 16, 450)
+        
+        self.ai_label.setFixedHeight(target)
+        self.ai_label.show()
 
     def _on_text_changed(self, text: str):
         count = len(text)
@@ -239,7 +264,7 @@ class InputWindow(QWidget):
             self._eval_timer.stop()
             self._dot_timer.stop()
             self.ai_label.setText("")
-            self.ai_label.hide()
+            self._sync_ai_zone(show=False)
             self.clear_qr()
             self.count_label.setStyleSheet("color: #c09030; font-size: 12px;")
             self.count_label.setText("≡ 文件搜索")
@@ -271,7 +296,9 @@ class InputWindow(QWidget):
         self._auto_complete_target = None
         
         if cmd_preview is not None:
-            self.count_label.setText(cmd_preview)
+            fm = self.count_label.fontMetrics()
+            elided = fm.elidedText(cmd_preview, Qt.TextElideMode.ElideRight, 500)
+            self.count_label.setText(elided)
             self.count_label.setStyleSheet("color: #c09030; font-size: 12px;")
             self.result_label.setText("")
             self._eval_timer.stop()
@@ -281,10 +308,9 @@ class InputWindow(QWidget):
             if ac:
                 target, desc = ac
                 self._auto_complete_target = target
-                if desc:
-                    self.count_label.setText(f"⇥ 按 Tab 补全: {target}  ({desc})")
-                else:
-                    self.count_label.setText(f"⇥ 按 Tab 补全: {target}")
+                raw_txt = f"⇥ 按 Tab 补全: {target}  ({desc})" if desc else f"⇥ 按 Tab 补全: {target}"
+                fm = self.count_label.fontMetrics()
+                self.count_label.setText(fm.elidedText(raw_txt, Qt.TextElideMode.ElideRight, 500))
                 self.count_label.setStyleSheet("color: #8a9a7a; font-size: 12px;")
             else:
                 self.count_label.setText(f"{count} / {MAX_LENGTH}")
@@ -368,7 +394,7 @@ class InputWindow(QWidget):
     def append_ai_chunk(self, text: str):
         """流式追加 AI 文本片段。首个片段停止动画并替换占位文本，末尾保持 ▌ 光标。"""
         self._dot_timer.stop()
-        current = self.ai_label.text()
+        current = self.ai_label.toPlainText()
         # 移除动画占位
         for frame in ("正在思考", "正在思考 ·", "正在思考 · ·", "正在思考 · · ·"):
             if current == frame:
@@ -378,7 +404,7 @@ class InputWindow(QWidget):
             current = current[:-1]
         self.ai_label.setStyleSheet("color: #d8cfb8; font-size: 13px; line-height: 1.6;")
         self.ai_label.setText(current + text + "▌")
-        self.ai_label.show()
+        self._sync_ai_zone()
         self.adjustSize()
         if not self.isVisible():
             print("[UI] 窗口不可见，重新 show_window")
@@ -387,7 +413,7 @@ class InputWindow(QWidget):
     def finish_ai_stream(self):
         """流式结束：停止动画，移除 ▌ 光标，清空输入框。"""
         self._dot_timer.stop()
-        current = self.ai_label.text()
+        current = self.ai_label.toPlainText()
         if current.endswith("▌"):
             self.ai_label.setText(current[:-1])
         self.adjustSize()
@@ -406,7 +432,7 @@ class InputWindow(QWidget):
         self.clear_qr()
         self.ai_label.setStyleSheet("color: #8a7040; font-size: 13px;")
         self.ai_label.setText("正在思考")
-        self.ai_label.show()
+        self._sync_ai_zone()
         self.adjustSize()
         self._dot_timer.start()
 
@@ -420,7 +446,7 @@ class InputWindow(QWidget):
             f"color: {color}; font-size: 13px; line-height: 1.6;"
         )
         self.ai_label.setText(text)
-        self.ai_label.show()
+        self._sync_ai_zone()
         self.adjustSize()
         self.input.clear()
         if not self.isVisible():
@@ -440,7 +466,7 @@ class InputWindow(QWidget):
         # 清空上次 AI 回答和 QR
         self._dot_timer.stop()
         self.ai_label.setText("")
-        self.ai_label.hide()
+        self._sync_ai_zone(show=False)
         self.clear_qr()
         self.adjustSize()
 
@@ -483,7 +509,7 @@ class InputWindow(QWidget):
             "font-size: 12px; line-height: 1.8;"
         )
         self.ai_label.setText(text)
-        self.ai_label.show()
+        self._sync_ai_zone()
         self.input.clear()
         self.adjustSize()
 
@@ -491,7 +517,7 @@ class InputWindow(QWidget):
         """展示二维码图片（清除其他结果区域）。"""
         self._dot_timer.stop()
         self.ai_label.setText("")
-        self.ai_label.hide()
+        self._sync_ai_zone(show=False)
         self.clear_file_results()
         px = QPixmap()
         px.loadFromData(png_bytes)
