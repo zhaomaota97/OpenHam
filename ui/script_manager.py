@@ -323,7 +323,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     run_finished = pyqtSignal(object, bool)
 
     def __init__(self):
-        super().__init__(title="", shadow_size=_SM_SHADOW, min_w=_SM_CARD_W, min_h=600)
+        super().__init__(title="⚡  脚本配置", shadow_size=_SM_SHADOW, min_w=_SM_CARD_W, min_h=600)
         self._drag_pos = None
         self._has_been_shown = False
         self._current_id: str | None = None
@@ -342,17 +342,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     # ── UI 构建 ────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        self.card.setStyleSheet("""
-            #card {
-                background-color: #1e1c14;
-                border-radius: 10px;
-                border: 1px solid rgba(192, 140, 30, 0.32);
-            }
-        """)
-
-        self.content_layout.setContentsMargins(0, 0, 0, 0)
-        self.content_layout.setSpacing(0)
-        self.content_layout.addWidget(self._build_title_bar())
+        self._new_btn = self._icon_btn("＋", "#8a7a5a", "新建脚本")
+        self._new_btn.clicked.connect(self._go_new)
+        self.header_tools_layout.addWidget(self._new_btn)
 
         # ── 左右分栏 ────────────────────────────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -392,8 +384,12 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             }
             QTabBar::tab:hover:!selected { background: rgba(50,44,28,0.9); }
             QTabBar::close-button {
-                image: none; subcontrol-position: right;
+                image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a7a5a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'></line><line x1='6' y1='6' x2='18' y2='18'></line></svg>");
+                subcontrol-position: right; margin-right: 4px;
                 width: 14px; height: 14px;
+            }
+            QTabBar::close-button:hover {
+                image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e66' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'></line><line x1='6' y1='6' x2='18' y2='18'></line></svg>");
             }
         """)
         self._tab_widget.tabCloseRequested.connect(self._close_run_tab)
@@ -405,21 +401,12 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._tab_widget.tabBar().setTabButton(0, self._tab_widget.tabBar().ButtonPosition.RightSide, None)
         splitter.addWidget(self._tab_widget)
 
-        splitter.setSizes([340, 620])
+        splitter.setSizes([450, 510])
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         self.content_layout.addWidget(splitter, 1)
 
-        # 右下角拖拽缩放手柄
-        from PyQt6.QtWidgets import QSizeGrip
-        grip_row = QHBoxLayout()
-        grip_row.setContentsMargins(0, 0, 4, 4)
-        grip_row.addStretch()
-        self._size_grip = QSizeGrip(self)
-        self._size_grip.setFixedSize(14, 14)
-        self._size_grip.setStyleSheet("background: transparent;")
-        grip_row.addWidget(self._size_grip)
-        self.content_layout.addLayout(grip_row)
+        self.content_layout.addWidget(splitter, 1)
 
     def _make_welcome_tab(self) -> QWidget:
         w = QWidget()
@@ -465,58 +452,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             )
 
 
-    # ── 标题栏 ─────────────────────────────────────────────────────────────
-
-    def _build_title_bar(self) -> QWidget:
-        self._title_bar = QWidget()
-        self._title_bar.setObjectName("smTitleBar")
-        self._title_bar.setStyleSheet("""
-            #smTitleBar {
-                background-color: #272416;
-                border-radius: 10px 10px 0 0;
-                border-bottom: 1px solid rgba(192, 140, 30, 0.22);
-            }
-        """)
-        tb = QHBoxLayout(self._title_bar)
-        tb.setContentsMargins(16, 9, 12, 9)
-        tb.setSpacing(0)
-
-        self._title_lbl = QLabel("⚡  脚本配置")
-        self._title_lbl.setStyleSheet(
-            "color: #c09030; font-size: 15px; font-weight: bold; "
-            "background: transparent; border: none;"
-        )
-        tb.addWidget(self._title_lbl)
-        tb.addSpacing(6)
-
-        # 列表页：新建按钮
-        self._new_btn = self._icon_btn("＋", "#8a7a5a", "新建脚本")
-        self._new_btn.clicked.connect(self._go_new)
-        tb.addWidget(self._new_btn)
-        tb.addStretch()
-
-        # 编辑/日志页：返回按钮
-        self._back_btn = self._icon_btn("←", "#5a9a5a", "返回列表")
-        self._back_btn.hide()
-        self._back_btn.clicked.connect(self._go_list)
-        tb.addWidget(self._back_btn)
-        
-        tb.addSpacing(2)
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(30, 30)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent; color: #7a6a4a;
-                font-size: 16px; border: none; border-radius: 4px;
-            }
-            QPushButton:hover { background: rgba(180, 50, 30, 0.60); color: #fff; }
-        """)
-        close_btn.clicked.connect(self.hide)
-        tb.addWidget(close_btn)
-        
-        return self._title_bar
+    # ── 列表页 ─────────────────────────────────────────────────────────────
 
     # ── 列表页 ─────────────────────────────────────────────────────────────
 
@@ -552,7 +488,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self._list_widget.setMinimumHeight(200)
-        self._list_widget.itemDoubleClicked.connect(
+        self._list_widget.itemClicked.connect(
             lambda item: self._go_edit(item.data(Qt.ItemDataRole.UserRole))
         )
         vbox.addWidget(self._list_widget)
@@ -564,7 +500,6 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         )
         self._list_empty.hide()
         vbox.addWidget(self._list_empty)
-        vbox.addStretch()
         return page
 
     # ── 编辑页 ─────────────────────────────────────────────────────────────
@@ -575,6 +510,14 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         vbox = QVBoxLayout(page)
         vbox.setContentsMargins(14, 12, 14, 14)
         vbox.setSpacing(10)
+
+        # 顶部导航行
+        header = QHBoxLayout()
+        self._back_btn = self._icon_btn("←", "#5a9a5a", "返回列表")
+        self._back_btn.clicked.connect(self._go_list)
+        header.addWidget(self._back_btn)
+        header.addStretch()
+        vbox.addLayout(header)
 
         # 基本信息
         vbox.addWidget(self._section_lbl("基本信息（触发词与功能说明）"))
@@ -728,7 +671,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
     def _go_list(self):
         self._stop_run_timer()
-        self._title_lbl.setText("⚡  脚本配置")
+        self.title_lbl.setText("⚡  脚本配置")
         self._new_btn.show()
         self._back_btn.hide()
         self._left_stack.setCurrentIndex(0)
@@ -736,7 +679,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
     def _go_new(self):
         self._current_id = None
-        self._title_lbl.setText("⚡  新建脚本")
+        self.title_lbl.setText("⚡  新建脚本")
         self._new_btn.hide()
         self._back_btn.show()
         self._trigger_input.clear()
@@ -753,7 +696,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         if not s:
             return
         self._current_id = sid
-        self._title_lbl.setText("⚡  编辑脚本")
+        self.title_lbl.setText("⚡  编辑脚本")
         self._new_btn.hide()
         self._back_btn.show()
         self._trigger_input.setText(s.get("trigger", ""))
@@ -1290,7 +1233,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            if event.pos().y() <= _SM_SHADOW + self._title_bar.height():
+            if event.pos().y() <= _SM_SHADOW + self.title_bar.height():
                 self._drag_pos = (
                     event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                 )

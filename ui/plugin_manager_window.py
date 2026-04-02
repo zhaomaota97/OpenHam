@@ -307,54 +307,21 @@ class PluginItemWidget(QWidget):
         return data
 
 
-class PluginManagerWindow(QWidget):
+from ui.window_base import OpenHamWindowBase
+
+class PluginManagerWindow(OpenHamWindowBase):
     """独立的插件管理器窗口"""
     closed = pyqtSignal()
     
     def __init__(self):
-        super().__init__()
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint | 
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(_PM_CARD_W + _SHADOW*2, _PM_CARD_H + _SHADOW*2)
+        super().__init__(title="🔌  插件管理", shadow_size=_SHADOW, min_w=_PM_CARD_W, min_h=_PM_CARD_H)
         
         self.items = []
         self._build_ui()
         self._load_data()
         
     def _build_ui(self):
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(_SHADOW, _SHADOW, _SHADOW, _SHADOW)
-        
-        self.card = QWidget()
-        self.card.setStyleSheet("""
-            #card {
-                background-color: #1c1a14;
-                border-radius: 12px;
-                border: 1px solid rgba(192, 140, 30, 0.4);
-            }
-        """)
-        self.card.setObjectName("card")
-        
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(30)
-        shadow.setXOffset(0)
-        shadow.setYOffset(10)
-        shadow.setColor(QColor(0, 0, 0, 200))
-        self.card.setGraphicsEffect(shadow)
-        
-        layout = QVBoxLayout(self.card)
-        layout.setContentsMargins(20, 20, 20, 20)
-        
-        # Header
-        header = QHBoxLayout()
-        title = QLabel("插件管理器 Plugin Manager")
-        title.setStyleSheet("color: #e8d89a; font-size: 18px; font-weight: bold;")
-        
-        self.btn_open_folder = QPushButton("📂 打开插件目录")
+        self.btn_open_folder = QPushButton("📂 打开目录")
         self.btn_open_folder.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_open_folder.setStyleSheet("""
             QPushButton {
@@ -368,11 +335,13 @@ class PluginManagerWindow(QWidget):
             QPushButton:hover { background: rgba(192, 140, 30, 0.2); }
         """)
         self.btn_open_folder.clicked.connect(self._open_plugins_folder)
-        
-        header.addWidget(title)
-        header.addStretch(1)
-        header.addWidget(self.btn_open_folder)
-        layout.addLayout(header)
+        self.header_tools_layout.addWidget(self.btn_open_folder)
+
+        # Content Wrapper for List and Footer
+        content_w = QWidget()
+        content_w.setStyleSheet("background: transparent;")
+        content_lay = QVBoxLayout(content_w)
+        content_lay.setContentsMargins(20, 10, 20, 20)
         
         # List
         self.list_widget = QListWidget()
@@ -402,7 +371,7 @@ class PluginManagerWindow(QWidget):
                 min-height: 20px;
             }
         """)
-        layout.addWidget(self.list_widget)
+        content_lay.addWidget(self.list_widget)
         
         # Footer
         footer = QHBoxLayout()
@@ -454,9 +423,9 @@ class PluginManagerWindow(QWidget):
         footer.addWidget(btn_cancel, 1)
         footer.addWidget(self.btn_refresh, 1)
         footer.addWidget(self.btn_save, 2)
-        layout.addLayout(footer)
+        content_lay.addLayout(footer)
         
-        outer.addWidget(self.card)
+        self.content_layout.addWidget(content_w)
 
     def _load_data(self):
         conf = get_plugin_config()

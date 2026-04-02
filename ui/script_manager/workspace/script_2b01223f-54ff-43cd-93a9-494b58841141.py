@@ -5,8 +5,8 @@ import sys
 # ================= 配置部分 =================
 CONFIG = {
     "PROJECT_PATH": r"C:\Users\40902\Desktop\code\hk-ai-fe",
-    "TARGET_BRANCH": "release/20260331",
-    "SOURCE_BRANCH": "test"
+    "TARGET_BRANCH": "release/20260402",
+    "SOURCE_BRANCH": "feature/卡片遮罩"
 }
 
 def update_status(step_msg):

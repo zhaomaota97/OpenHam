@@ -6,7 +6,7 @@ import sys
 CONFIG = {
     "PROJECT_PATH": r"C:\Users\40902\Desktop\code\hk-ai-fe",
     "TARGET_BRANCH": "test",
-    "SOURCE_BRANCH": "feature/货币兑换"
+    "SOURCE_BRANCH": "feature/卡片遮罩"
 }
 
 def update_status(step_msg):

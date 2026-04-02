@@ -7,17 +7,17 @@ import shutil
 CONFIG = {
     # 项目 A (前端工程) 配置
     "PROJECT_A_PATH": r"C:\Users\40902\Desktop\code\hk-ai-fe",
-    "PROJECT_A_BRANCH": "release/20260331",
+    "PROJECT_A_BRANCH": "release/20260402",
     "BUILD_COMMAND": "npm run build",
     "BUILD_DIST_DIR": r"C:\Users\40902\Desktop\code\hk-ai-fe\dist",
     
     # 项目 B (静态资源) 配置
     "PROJECT_B_PATH": r"C:\Users\40902\Desktop\code\sg-static-resource",
-    "PROJECT_B_BRANCH": "release/20260331_02",
+    "PROJECT_B_BRANCH": "release/20260402",
     "TARGET_DEPLOY_DIR": r"C:\Users\40902\Desktop\code\sg-static-resource\h5\ai-vip",
     
     # Git 提交信息
-    "COMMIT_MESSAGE": "ai对话项目3月底版本"
+    "COMMIT_MESSAGE": "ai对话项目3月底版本问题修复"
 }
 # ============================================
 
