@@ -87,7 +87,7 @@ def main():
     tray.setToolTip(f"OpenHam  ({hotkey_str})")
 
     tray_menu = QMenu()
-    action_show = tray_menu.addAction("呼出窗口")
+    action_show = tray_menu.addAction("打开OpenHam")
     action_script_config = tray_menu.addAction("脚本配置")
     action_plugin_config = tray_menu.addAction("插件配置")
     tray_menu.addSeparator()
@@ -109,11 +109,8 @@ def main():
     action_plugin_config.triggered.connect(plugin_manager_overlay.show_window)
     action_quit.triggered.connect(app.quit)
     tray.setContextMenu(tray_menu)
-    tray.activated.connect(
-        lambda reason: window.show_window()
-        if reason == QSystemTrayIcon.ActivationReason.Trigger
-        else None
-    )
+    # 忽略 PyQt6 中的 ActivationReason C++ Enum 转换 BUG
+    tray.activated.connect(lambda: window.show_window())
     tray.show()
 
     window.show_window()

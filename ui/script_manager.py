@@ -79,6 +79,32 @@ def _sm_workspace_path() -> str:
     _os.makedirs(d, exist_ok=True)
     return d
 
+def _sm_history_path() -> str:
+    base = _os.path.dirname(_os.path.abspath(__file__))
+    d = _os.path.join(base, "script_manager")
+    _os.makedirs(d, exist_ok=True)
+    return _os.path.join(d, "history.json")
+
+def _sm_load_history() -> list:
+    import json
+    p = _sm_history_path()
+    if not _os.path.exists(p): return []
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f).get("records", [])
+    except Exception: return []
+
+def _sm_save_history_record(record: dict):
+    import json
+    records = _sm_load_history()
+    records.insert(0, record)
+    if len(records) > 200: records = records[:200]
+    p = _sm_history_path()
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"records": records}, f, ensure_ascii=False, indent=2)
+    except Exception: pass
+
 
 from PyQt6.QtWidgets import QTextEdit
 from PyQt6.QtGui import QSyntaxHighlighter, QTextCharFormat, QColor
@@ -151,7 +177,7 @@ class ScriptEditor(QTextEdit):
 from PyQt6.QtWidgets import QDialog
 
 class ThemeConfirmDialog(QDialog):
-    def __init__(self, parent, title: str, text: str):
+    def __init__(self, parent, title: str, text: str, ok_text: str = "确认删除", ok_color: str = "#e66"):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -204,13 +230,13 @@ class ThemeConfirmDialog(QDialog):
         """)
         cancel_b.clicked.connect(self.reject)
         
-        ok_b = QPushButton("确认删除")
+        ok_b = QPushButton(ok_text)
         ok_b.setCursor(Qt.CursorShape.PointingHandCursor)
-        ok_b.setFixedSize(76, 30)
-        ok_b.setStyleSheet("""
-            QPushButton { background: rgba(200,60,60,0.15); color: #e66;
-                border: 1px solid rgba(170,68,68,0.3); border-radius: 6px; font-size: 12px; }
-            QPushButton:hover { background: rgba(200,60,60,0.3); border-color: rgba(238,102,102,0.4); }
+        ok_b.setFixedHeight(30)
+        ok_b.setStyleSheet(f"""
+            QPushButton {{ background: rgba(200,60,60,0.15); color: {ok_color};
+                border: 1px solid rgba(170,68,68,0.3); border-radius: 6px; font-size: 12px; padding: 0 12px; }}
+            QPushButton:hover {{ background: rgba(200,60,60,0.3); border-color: rgba(238,102,102,0.4); }}
         """)
         ok_b.clicked.connect(self.accept)
         
@@ -224,6 +250,10 @@ from PyQt6.QtWidgets import QStackedWidget, QSplitter, QTabWidget
 
 class _RunTabWidget(QWidget):
     """单个脚本运行任务的独立日志面板，嵌入 QTabWidget 的某个 Tab 中。"""
+    
+    close_requested = pyqtSignal()
+    request_ai_fix = pyqtSignal()
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.is_cancelled = False
@@ -274,6 +304,32 @@ class _RunTabWidget(QWidget):
         """)
         self.stop_btn.clicked.connect(self.cancel)
         bottom.addWidget(self.stop_btn)
+        
+        self.ai_fix_btn = QPushButton("🚑 让 AI 帮忙排错")
+        self.ai_fix_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.ai_fix_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.ai_fix_btn.setStyleSheet("""
+            QPushButton { background: rgba(220,160,80,0.15); color: #d09050;
+                border: 1px solid rgba(220,160,80,0.3); border-radius: 4px;
+                font-size: 12px; padding: 4px 10px; }
+            QPushButton:hover { background: rgba(220,160,80,0.3); border-color: rgba(240,180,100,0.4); }
+        """)
+        self.ai_fix_btn.clicked.connect(self._trigger_ai_fix)
+        self.ai_fix_btn.hide()
+        bottom.addWidget(self.ai_fix_btn)
+        
+        self.close_btn = QPushButton("关闭")
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.close_btn.setStyleSheet("""
+            QPushButton { background: rgba(100,100,100,0.15); color: #ccc;
+                border: 1px solid rgba(100,100,100,0.3); border-radius: 4px;
+                font-size: 12px; padding: 4px 10px; }
+            QPushButton:hover { background: rgba(100,100,100,0.3); border-color: rgba(150,150,150,0.4); }
+        """)
+        self.close_btn.clicked.connect(self.close_requested.emit)
+        bottom.addWidget(self.close_btn)
+        
         layout.addLayout(bottom)
 
     def cancel(self):
@@ -297,6 +353,11 @@ class _RunTabWidget(QWidget):
                 "color: #c05050; font-size: 13px; font-weight: bold; "
                 "background: transparent; border: none;"
             )
+            if not self.is_cancelled:
+                self.ai_fix_btn.show()
+
+    def _trigger_ai_fix(self):
+        self.request_ai_fix.emit()
 
     def append_line(self, text: str, color: str = "#c0b89a"):
         from PyQt6.QtGui import QTextCursor
@@ -321,6 +382,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     # 跨线程日志信号：(run_tab 引用, 文本, 颜色)
     log_appended = pyqtSignal(object, str, str)
     run_finished = pyqtSignal(object, bool)
+    ai_gen_done = pyqtSignal(dict)
+    ai_gen_error = pyqtSignal(str)
+    ai_gen_progress = pyqtSignal(int)
 
     def __init__(self):
         super().__init__(title="⚡  脚本配置", shadow_size=_SM_SHADOW, min_w=_SM_CARD_W, min_h=600)
@@ -333,6 +397,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
         self.log_appended.connect(self._do_append_log)
         self.run_finished.connect(self._do_set_log_done)
+        self.ai_gen_done.connect(self._on_ai_gen_done)
+        self.ai_gen_error.connect(self._on_ai_gen_error)
+        self.ai_gen_progress.connect(self._on_ai_gen_progress)
 
         self._build_ui()
         self.resize(_SM_CARD_W + _SM_SHADOW * 2, 760)
@@ -356,12 +423,13 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         splitter.setHandleWidth(2)
         splitter.setChildrenCollapsible(False)
 
-        # 左侧：脚本列表 / 编辑页 (始终可见)
+        # 左侧：脚本列表 / 编辑页 / 历史页 (始终可见)
         self._left_stack = QStackedWidget()
         self._left_stack.setStyleSheet("background: transparent;")
         self._left_stack.setMinimumWidth(300)
         self._left_stack.addWidget(self._build_list_page())  # 0 = 列表
         self._left_stack.addWidget(self._build_edit_page())  # 1 = 编辑
+        self._left_stack.addWidget(self._build_history_page()) # 2 = 历史
         splitter.addWidget(self._left_stack)
 
         # 右侧：多任务日志标签页
@@ -383,17 +451,12 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                 border-color: rgba(192,140,30,0.45);
             }
             QTabBar::tab:hover:!selected { background: rgba(50,44,28,0.9); }
-            QTabBar::close-button {
-                image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a7a5a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'></line><line x1='6' y1='6' x2='18' y2='18'></line></svg>");
-                subcontrol-position: right; margin-right: 4px;
-                width: 14px; height: 14px;
-            }
-            QTabBar::close-button:hover {
-                image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e66' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'></line><line x1='6' y1='6' x2='18' y2='18'></line></svg>");
-            }
         """)
         self._tab_widget.tabCloseRequested.connect(self._close_run_tab)
         self._tab_widget.setMinimumWidth(350)
+        
+        self._tab_widget.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tab_widget.tabBar().customContextMenuRequested.connect(self._show_tab_context_menu)
 
         # 欢迎占位页
         self._welcome_tab = self._make_welcome_tab()
@@ -422,7 +485,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         lay.addWidget(lbl)
         return w
 
-    def _create_run_tab(self, name: str) -> "_RunTabWidget":
+    def _create_run_tab(self, name: str, sid: str = None) -> "_RunTabWidget":
         """新建一个运行日志 Tab 并切换到它。"""
         # 若欢迎页还在，替换掉
         if self._welcome_tab is not None:
@@ -432,10 +495,35 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             self._welcome_tab = None
 
         tab = _RunTabWidget(self)
+        tab.close_requested.connect(lambda t=tab: self._close_run_tab_by_widget(t))
+        tab.request_ai_fix.connect(lambda s=sid: self._handle_ai_fix_request(s))
         short_name = name[:18] + "…" if len(name) > 18 else name
         idx = self._tab_widget.addTab(tab, f"⏳ {short_name}")
         self._tab_widget.setCurrentIndex(idx)
+        
+        btn = QPushButton("×")
+        btn.setFixedSize(16, 16)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setStyleSheet("""
+            QPushButton { background: transparent; border: none; color: #8a7a5a; font-weight: bold; font-family: Arial; font-size: 15px; margin-bottom: 2px; }
+            QPushButton:hover { color: #e66666; }
+        """)
+        btn.clicked.connect(lambda _=False, t=tab: self._close_run_tab_by_widget(t))
+        self._tab_widget.tabBar().setTabButton(idx, self._tab_widget.tabBar().ButtonPosition.RightSide, btn)
+        
         return tab
+
+    def _handle_ai_fix_request(self, sid: str = None):
+        if sid:
+            self._go_edit(sid)
+        else:
+            self._left_stack.setCurrentIndex(1)
+        self._open_ai_gen_dialog()
+
+    def _close_run_tab_by_widget(self, tab: _RunTabWidget):
+        idx = self._tab_widget.indexOf(tab)
+        if idx >= 0:
+            self._close_run_tab(idx)
 
     def _close_run_tab(self, idx: int):
         """关闭某个运行 Tab，同时 terminate 对应进程。"""
@@ -451,8 +539,54 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                 0, self._tab_widget.tabBar().ButtonPosition.RightSide, None
             )
 
+    def _show_tab_context_menu(self, pos):
+        if self._welcome_tab is not None and self._tab_widget.count() == 1:
+            return
+            
+        idx = self._tab_widget.tabBar().tabAt(pos)
+        
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtGui import QAction
+        
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #272416; color: #ede5d0;
+                border: 1px solid rgba(192,140,30,0.3); border-radius: 6px;
+                padding: 6px 0;
+            }
+            QMenu::item { padding: 8px 24px; font-size: 13px; }
+            QMenu::item:selected { background-color: rgba(192,140,30,0.25); }
+        """)
+        
+        act_close_current = menu.addAction("关闭当前标签页")
+        act_close_others = menu.addAction("关闭其他标签页")
+        act_close_right = menu.addAction("关闭右侧标签页")
+        menu.addSeparator()
+        act_close_all = menu.addAction("关闭所有标签页")
+        
+        if idx < 0:
+            act_close_current.setEnabled(False)
+            act_close_others.setEnabled(False)
+            act_close_right.setEnabled(False)
+            
+        action = menu.exec(self._tab_widget.tabBar().mapToGlobal(pos))
+        if not action:
+            return
+            
+        if action == act_close_current:
+            self._close_run_tab(idx)
+        elif action == act_close_others:
+            for i in range(self._tab_widget.count() - 1, -1, -1):
+                if i != idx:
+                    self._close_run_tab(i)
+        elif action == act_close_right:
+            for i in range(self._tab_widget.count() - 1, idx, -1):
+                self._close_run_tab(i)
+        elif action == act_close_all:
+            for i in range(self._tab_widget.count() - 1, -1, -1):
+                self._close_run_tab(i)
 
-    # ── 列表页 ─────────────────────────────────────────────────────────────
 
     # ── 列表页 ─────────────────────────────────────────────────────────────
 
@@ -517,6 +651,29 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._back_btn.clicked.connect(self._go_list)
         header.addWidget(self._back_btn)
         header.addStretch()
+
+        self._ai_gen_btn = QPushButton("✨ 描述需求生成脚本")
+        self._ai_gen_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ai_gen_btn.setStyleSheet("""
+            QPushButton { background: rgba(160,80,200,0.15); color: #d090f0;
+                border: 1px solid rgba(160,80,200,0.3); border-radius: 4px; font-weight: bold; font-size: 13px; padding: 4px 10px; }
+            QPushButton:hover { background: rgba(160,80,200,0.3); border-color: rgba(200,100,240,0.4); }
+        """)
+        self._ai_gen_btn.clicked.connect(self._open_ai_gen_dialog)
+        self._ai_gen_btn.hide()
+        header.addWidget(self._ai_gen_btn)
+
+        self._hist_btn = QPushButton("📜 历史")
+        self._hist_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._hist_btn.setStyleSheet("""
+            QPushButton { background: rgba(200,180,80,0.15); color: #d0b050;
+                border: 1px solid rgba(200,180,80,0.3); border-radius: 4px; font-weight: bold; font-size: 13px; padding: 4px 6px; }
+            QPushButton:hover { background: rgba(200,180,80,0.3); border-color: rgba(220,200,100,0.4); }
+        """)
+        self._hist_btn.clicked.connect(self._go_history)
+        self._hist_btn.hide()
+        header.addWidget(self._hist_btn)
+
         vbox.addLayout(header)
 
         # 基本信息
@@ -601,6 +758,13 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._run_btn.clicked.connect(self._run_current)
         btn_row.addWidget(self._run_btn)
 
+        self._del_btn = QPushButton("🗑  删除")
+        self._del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._del_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._del_btn.setStyleSheet(self._action_btn_ss("#e66", "rgba(200,60,60,0.15)", "rgba(200,60,60,0.3)"))
+        self._del_btn.clicked.connect(self._confirm_delete_current)
+        btn_row.addWidget(self._del_btn)
+
         btn_row.addStretch()
         vbox.addLayout(btn_row)
 
@@ -669,7 +833,35 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
     # ── 页面切换 ───────────────────────────────────────────────────────────
 
-    def _go_list(self):
+    def _has_unsaved_changes(self) -> bool:
+        trigger = self._trigger_input.text().strip()
+        desc = getattr(self, "_desc_input", QTextEdit()).toPlainText().strip()
+        commands = self._script_edit.toPlainText().strip()
+        stype = getattr(self, "_current_script_type", "shell")
+        
+        if not self._current_id:
+            return bool(trigger or desc or commands)
+            
+        scripts = _sm_load()
+        s = next((x for x in scripts if x.get("id") == self._current_id), None)
+        if not s:
+            return False
+            
+        return (
+            s.get("trigger", "") != trigger or
+            s.get("description", "") != desc or
+            s.get("commands", "") != commands or
+            s.get("script_type", "shell") != stype
+        )
+
+    def _go_list(self, force=False):
+        # 兼容信号槽传递的 checked (bool) 参数
+        if isinstance(force, bool) and not force and getattr(self, "_left_stack", None) and self._left_stack.currentIndex() == 1:
+            if self._has_unsaved_changes():
+                dlg = ThemeConfirmDialog(self, "放弃更改", "当前面板有尚未保存的内容，确定要返回并放弃这些更改吗？", ok_text="确认返回")
+                if dlg.exec() != QDialog.DialogCode.Accepted:
+                    return
+
         self._stop_run_timer()
         self.title_lbl.setText("⚡  脚本配置")
         self._new_btn.show()
@@ -678,7 +870,8 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._reload_list()
 
     def _go_new(self):
-        self._current_id = None
+        import uuid
+        self._current_id = str(uuid.uuid4())
         self.title_lbl.setText("⚡  新建脚本")
         self._new_btn.hide()
         self._back_btn.show()
@@ -687,6 +880,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._script_edit.clear()
         self._edit_status.setText("")
         self._set_script_type("shell")
+        self._del_btn.hide()
+        self._ai_gen_btn.show()
+        self._hist_btn.show()
         self._left_stack.setCurrentIndex(1)
         self._trigger_input.setFocus()
 
@@ -704,15 +900,282 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._script_edit.setPlainText(s.get("commands", ""))
         self._set_script_type(s.get("script_type", "shell"))
         self._edit_status.setText("")
+        self._del_btn.show()
+        self._ai_gen_btn.setText("✨ AI助手修改脚本")
+        self._ai_gen_btn.show()
+        self._hist_btn.show()
         self._left_stack.setCurrentIndex(1)
         self._trigger_input.setFocus()
+        
+    def _go_history(self):
+        records = _sm_load_history()
+        self._hist_list.clear()
+        sid = getattr(self, "_current_id", None)
+        
+        for r in records:
+            if r.get('target_script_id') == sid:
+                from PyQt6.QtWidgets import QListWidgetItem
+                pt = r.get('prompt', '')[:14]
+                item = QListWidgetItem(f"{r.get('timestamp', '')[5:16]} | {pt}")
+                item.setData(Qt.ItemDataRole.UserRole, r)
+                self._hist_list.addItem(item)
+                
+        if self._hist_list.count() == 0:
+            self._hist_detail_prompt.setText("暂无本脚本的专属历史记录...")
+        else:
+            self._hist_detail_prompt.setText("点击选中历史条目查看详情...")
+            
+        self._hist_detail_code.clear()
+        self._left_stack.setCurrentIndex(2)
 
 
     # ── 数据操作 ───────────────────────────────────────────────────────────
 
+    def _open_ai_gen_dialog(self, prefix_req: str = ""):
+        if isinstance(prefix_req, bool):  # 防御 clicked 信号掺入 bool 参数
+            prefix_req = ""
+            
+        from PyQt6.QtWidgets import QInputDialog
+        import os
+        from dotenv import load_dotenv
+        load_dotenv()
+        api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+        if not api_key:
+            self._edit_status.setText("❌ 缺失 DEEPSEEK_API_KEY 环境变量")
+            self._edit_status.setStyleSheet("color: #e66666;")
+            return
+            
+        is_edit = bool(self._back_btn.isVisible() and self._script_edit.toPlainText().strip())
+        dlg_title = "AI 脚本助手 (重写模式)" if is_edit else "AI 脚本助手"
+        dlg_label = "请基于脚本描述或诉求生成一份全新且完整的脚本代码：" if is_edit else "请用自然语言描述你要做什么（例如：重启服务）："
+        
+        if not prefix_req and is_edit:
+            prefix_req = getattr(self, "_desc_input", None).toPlainText().strip() if hasattr(self, "_desc_input") else ""
+
+        req, ok = QInputDialog.getMultiLineText(self, dlg_title, dlg_label, text=prefix_req)
+        if ok and req.strip():
+            self._generate_script_from_ai(req.strip(), api_key)
+
+    def _generate_script_from_ai(self, req: str, api_key: str):
+        self._edit_status.setText("⏳ AI 正在生成中，请稍候...")
+        self._edit_status.setStyleSheet("color: #c09030;")
+        self._ai_gen_btn.setEnabled(False)
+        self._ai_gen_btn.setText("✨ 生成中...")
+        
+        def _worker():
+            try:
+                from core.ai_client import call_deepseek_stream
+                import platform
+                os_info = f"{platform.system()} {platform.release()}"
+                
+                sys_prompt = (
+                    f"你是一个资深的计算机专家与自动化脚本开发者。当前终端用户的真实操作系统环境是：{os_info}。\n"
+                    "用户将输入自然语言需求，你需要基于其系统类型，直接从零开始重新写一份完美健壮的全新全量可用脚本返回，不要留空！\n"
+                    "重要指示：如果是多步骤执行的脚本，请务必包含清晰可读的步骤日志打印，并拥有完善的异常报错与退出处理机制！\n"
+                    "请使用纯文本 Markdown 标签格式输出，不要输出解释废话。必须包含四个区域：\n"
+                    "[TRIGGER]: 适合调用的简短命令字(纯英文小写，不超10字，无空格)\n"
+                    "[DESCRIPTION]: 详细说明该脚本的作用\n"
+                    "[TYPE]: shell, python, powershell, 或 batch\n"
+                    "[COMMANDS]:\n"
+                    "```\n"
+                    "在此书写源码。切记生成的脚本必须严丝合缝地兼容用户的这段操作系统环境字符串！\n"
+                    "```"
+                )
+                
+                full_text = ""
+                for chunk in call_deepseek_stream(req, api_key, sys_prompt):
+                    if chunk.startswith("❌ AI 请求失败："):
+                        raise Exception(chunk)
+                    full_text += chunk
+                    self.ai_gen_progress.emit(len(full_text))
+                
+                import re
+                t_m = re.search(r"\[TRIGGER\]:\s*(.*?)(?:\n\[|$)", full_text, re.IGNORECASE | re.DOTALL)
+                d_m = re.search(r"\[DESCRIPTION\]:\s*(.*?)(?:\n\[|$)", full_text, re.IGNORECASE | re.DOTALL)
+                type_m = re.search(r"\[TYPE\]:\s*(.*?)(?:\n\[|$)", full_text, re.IGNORECASE | re.DOTALL)
+                cmd_m = re.search(r"\[COMMANDS\]:\s*```(?:\w+)?\n?(.*?)```", full_text, re.IGNORECASE | re.DOTALL)
+                
+                trigger = t_m.group(1).strip() if t_m else "aigen"
+                desc = d_m.group(1).strip() if d_m else ""
+                stype = type_m.group(1).strip().lower() if type_m else "shell"
+                if stype not in ("shell", "python", "powershell", "batch"):
+                    stype = "python"
+                
+                if cmd_m:
+                    commands = cmd_m.group(1).strip()
+                else:
+                    c_m = re.search(r"\[COMMANDS\]:\s*(.*)", full_text, re.IGNORECASE | re.DOTALL)
+                    commands = c_m.group(1).strip() if c_m else full_text
+
+                data = {
+                    "__prompt__": req,
+                    "trigger": trigger,
+                    "description": desc,
+                    "script_type": stype,
+                    "commands": commands
+                }
+                self.ai_gen_done.emit(data)
+            except Exception as e:
+                self.ai_gen_error.emit(str(e))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_ai_gen_progress(self, length: int):
+        self._edit_status.setText(f"⏳ AI 正在生成中 (已接收 {length} 字符)")
+
+    def _on_ai_gen_done(self, data: dict):
+        req = data.pop("__prompt__", "")
+        if req:
+            import time, uuid
+            rec = {
+                "id": str(uuid.uuid4()),
+                "target_script_id": getattr(self, "_current_id", ""),
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "prompt": req,
+                "data": dict(data)
+            }
+            _sm_save_history_record(rec)
+            
+        self._ai_gen_btn.setEnabled(True)
+        is_edit = bool(self._back_btn.isVisible() and self._script_edit.toPlainText().strip())
+        self._ai_gen_btn.setText("✨ AI助手修改脚本" if is_edit else "✨ 描述需求生成脚本")
+        self._trigger_input.setText(data.get("trigger", ""))
+        
+        # If the generated description is a bit long, ensure it's not a tuple or something weird
+        new_desc = str(data.get("description", ""))
+        self._desc_input.setPlainText(new_desc)
+        
+        # Automatically select the type
+        self._set_script_type(data.get("script_type", "shell"))
+        
+        # Fill script text
+        self._script_edit.setPlainText(str(data.get("commands", "")))
+        
+        self._edit_status.setText("✅ AI 脚本已生成完毕（请检查并保存）")
+        self._edit_status.setStyleSheet("color: #50c870;")
+
+    def _on_ai_gen_error(self, err: str):
+        self._ai_gen_btn.setEnabled(True)
+        is_edit = bool(self._back_btn.isVisible() and self._script_edit.toPlainText().strip())
+        self._ai_gen_btn.setText("✨ AI助手修改脚本" if is_edit else "✨ 描述需求生成脚本")
+        self._edit_status.setText(f"❌ 生成失败: {err}")
+        self._edit_status.setStyleSheet("color: #e66666;")
+
+    def _cleanup_orphaned_scripts(self, scripts: list):
+        """清理 workspace 目录下没有被确保存档的游离脚本"""
+        import os, re
+        wd = _sm_workspace_path()
+        if not os.path.exists(wd): return
+        
+        valid_ids = {s.get("id") for s in scripts if s.get("id")}
+        if getattr(self, "_current_id", None):
+            valid_ids.add(self._current_id)
+            
+        try:
+            for f in os.listdir(wd):
+                m = re.match(r"^script_([a-f0-9\-]{36})\.(py|bat|ps1|txt)$", f, re.IGNORECASE)
+                if m:
+                    sid = m.group(1)
+                    if sid not in valid_ids:
+                        try: os.remove(os.path.join(wd, f))
+                        except Exception: pass
+        except Exception:
+            pass
+
+    def _build_history_page(self) -> QWidget:
+        page = QWidget()
+        page.setStyleSheet("background: transparent;")
+        vbox = QVBoxLayout(page)
+        vbox.setContentsMargins(14, 10, 14, 14)
+        vbox.setSpacing(12)
+
+        # 头部
+        header = QHBoxLayout()
+        self._hist_back_btn = self._icon_btn("←", "#5a9a5a", "返回编辑")
+        self._hist_back_btn.clicked.connect(lambda: self._left_stack.setCurrentIndex(1))
+        header.addWidget(self._hist_back_btn)
+        
+        lbl = QLabel("📜 本地历史草稿库")
+        lbl.setStyleSheet("color: #d090f0; font-weight: bold; font-size: 14px;")
+        header.addWidget(lbl)
+        header.addStretch()
+        
+        self._hist_recall_btn = QPushButton("↩ 召回至当前草稿")
+        self._hist_recall_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._hist_recall_btn.setStyleSheet("""
+            QPushButton { background: rgba(80,200,112,0.15); color: #50c870;
+                border: 1px solid rgba(80,200,112,0.3); border-radius: 4px; font-weight: bold; font-size: 13px; padding: 4px 10px; }
+            QPushButton:hover { background: rgba(80,200,112,0.3); border-color: rgba(100,220,132,0.4); }
+        """)
+        self._hist_recall_btn.clicked.connect(self._recall_history_record)
+        header.addWidget(self._hist_recall_btn)
+        vbox.addLayout(header)
+
+        # 列表与详情的分割
+        from PyQt6.QtWidgets import QSplitter
+        split = QSplitter(Qt.Orientation.Vertical)
+        split.setStyleSheet("QSplitter::handle { background: rgba(192,140,30,0.1); margin: 4px 0; }")
+        
+        self._hist_list = QListWidget()
+        self._hist_list.setStyleSheet("""
+            QListWidget { background: rgba(20,18,16,0.6); border: 1px solid rgba(192,140,30,0.18); border-radius: 6px; }
+            QListWidget::item { padding: 6px; border-bottom: 1px solid rgba(192,140,30,0.1); color: #c0b89a; font-size: 11px; }
+            QListWidget::item:selected { background: rgba(192,140,30,0.2); color: #e8d89a; }
+        """)
+        self._hist_list.itemSelectionChanged.connect(self._on_history_select)
+        split.addWidget(self._hist_list)
+        
+        detail_w = QWidget()
+        detail_lay = QVBoxLayout(detail_w)
+        detail_lay.setContentsMargins(0, 4, 0, 0)
+        self._hist_detail_prompt = QLabel()
+        self._hist_detail_prompt.setWordWrap(True)
+        self._hist_detail_prompt.setStyleSheet("color: #8a7a5a; font-size: 12px; margin-bottom: 4px;")
+        detail_lay.addWidget(self._hist_detail_prompt)
+        
+        self._hist_detail_code = QTextEdit()
+        self._hist_detail_code.setReadOnly(True)
+        self._hist_detail_code.setStyleSheet("background: #141210; border: 1px solid rgba(192,140,30,0.18); border-radius: 6px; color: #c0b89a; font-family: Consolas; font-size: 12px; padding: 6px;")
+        detail_lay.addWidget(self._hist_detail_code)
+        split.addWidget(detail_w)
+        
+        split.setSizes([100, 400])
+        vbox.addWidget(split)
+        
+        return page
+
+    def _on_history_select(self):
+        sel = self._hist_list.selectedItems()
+        if not sel: return
+        r = sel[0].data(Qt.ItemDataRole.UserRole)
+        p = r.get("prompt", "")
+        self._hist_detail_prompt.setText(f"💡 需求: {p}")
+        d = r.get("data", {})
+        c = d.get("commands", "")
+        self._hist_detail_code.setPlainText(c)
+
+    def _recall_history_record(self):
+        sel = self._hist_list.selectedItems()
+        if not sel: return
+        r = sel[0].data(Qt.ItemDataRole.UserRole)
+        d = r.get("data", {})
+        
+        self._trigger_input.setText(d.get("trigger", ""))
+        self._desc_input.setPlainText(d.get("description", ""))
+        self._set_script_type(d.get("script_type", "shell"))
+        self._script_edit.setPlainText(d.get("commands", ""))
+        
+        self._edit_status.setText("✅ 已召回所选历史草稿")
+        self._edit_status.setStyleSheet("color: #50c870;")
+        self._left_stack.setCurrentIndex(1)
+
+
     def _reload_list(self):
         self._list_widget.clear()
         scripts = _sm_load()
+        self._cleanup_orphaned_scripts(scripts)
+        
         if not scripts:
             self._list_empty.show()
             self._list_widget.hide()
@@ -722,7 +1185,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             for s in scripts:
                 item = QListWidgetItem()
                 item.setData(Qt.ItemDataRole.UserRole, s.get("id"))
-                item.setSizeHint(QSize(_SM_CARD_W - 28, 64))
+                item.setSizeHint(QSize(400, 64))
                 self._list_widget.addItem(item)
                 self._list_widget.setItemWidget(item, self._make_script_row(s))
     def _make_script_row(self, s: dict) -> QWidget:
@@ -772,49 +1235,19 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         h.addLayout(info, 1)
 
         # 运行按钮
-        run_b = QPushButton("▶ 运行")
-        run_b.setFixedHeight(28)
+        run_b = QPushButton("▶")
+        run_b.setToolTip("运行脚本")
+        run_b.setFixedSize(28, 28)
         run_b.setCursor(Qt.CursorShape.PointingHandCursor)
         run_b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         run_b.setStyleSheet("""
             QPushButton { background: rgba(50,140,80,0.18); color: #50a850;
-                border: 1px solid rgba(50,140,80,0.30); border-radius: 4px; font-size: 13px; padding: 0 10px; }
+                border: 1px solid rgba(50,140,80,0.30); border-radius: 4px; font-size: 14px; padding: 0; }
             QPushButton:hover { background: rgba(50,140,80,0.35); }
         """)
         run_b.clicked.connect(lambda _, sid=s.get("id"): self._run_by_id(sid))
         h.addWidget(run_b)
 
-        # 编辑按钮
-        edit_b = QPushButton("✎ 编辑")
-        edit_b.setFixedHeight(28)
-        edit_b.setCursor(Qt.CursorShape.PointingHandCursor)
-        edit_b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        edit_b.setStyleSheet("""
-            QPushButton { background: transparent; color: #6a7a8a;
-                border: 1px solid rgba(106,122,138,0.2); border-radius: 4px; font-size: 13px; padding: 0 10px; }
-            QPushButton:hover { background: rgba(88,130,160,0.20); color: #aac8e0; border-color: rgba(170,200,224,0.3); }
-        """)
-        edit_b.clicked.connect(lambda _, sid=s.get("id"): self._go_edit(sid))
-        h.addWidget(edit_b)
-
-        # 删除按钮
-        del_b = QPushButton("🗑 删除")
-        del_b.setFixedHeight(28)
-        del_b.setCursor(Qt.CursorShape.PointingHandCursor)
-        del_b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        del_b.setStyleSheet("""
-            QPushButton { background: transparent; color: #a44;
-                border: 1px solid rgba(170,68,68,0.2); border-radius: 4px; font-size: 13px; padding: 0 10px; }
-            QPushButton:hover { background: rgba(200,60,60,0.2); color: #e66; border-color: rgba(238,102,102,0.3); }
-        """)
-        def _confirm_delete():
-            dlg = ThemeConfirmDialog(self, "确认删除",
-                f"确定要永久删除脚本「{s.get('trigger', '未命名')}」吗？")
-            if dlg.exec() == QDialog.DialogCode.Accepted:
-                self._current_id = s.get("id")
-                self._delete_script()
-        del_b.clicked.connect(_confirm_delete)
-        h.addWidget(del_b)
         return row
 
     def _run_by_id(self, sid: str, silent: bool = False):
@@ -824,7 +1257,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             return
         trigger = s.get("trigger", sid)
         if not silent:
-            run_tab = self._create_run_tab(trigger)
+            run_tab = self._create_run_tab(trigger, sid)
             if not self.isVisible():
                 if not self._has_been_shown:
                     self._reposition()
@@ -849,7 +1282,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         if not trigger:
             self._show_edit_status("❌  请填写触发命令", error=True)
             return
+            
         scripts = _sm_load()
+        found = False
         if self._current_id:
             for s in scripts:
                 if s.get("id") == self._current_id:
@@ -857,17 +1292,38 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                     s["description"] = desc
                     s["commands"] = commands
                     s["script_type"] = stype
+                    found = True
                     break
-        else:
+                    
+        if not found:
+            if not self._current_id:
+                import uuid
+                self._current_id = str(uuid.uuid4())
             scripts.append({
-                "id": str(_uuid.uuid4()),
+                "id": self._current_id,
                 "trigger": trigger,
                 "description": desc,
                 "commands": commands,
                 "script_type": stype,
             })
-            self._current_id = scripts[-1]["id"]
+            
         _sm_save(scripts)
+        
+        import time, uuid
+        rec = {
+            "id": str(uuid.uuid4()),
+            "target_script_id": self._current_id,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "prompt": "💾 手动存档",
+            "data": {
+                "trigger": trigger,
+                "description": desc,
+                "script_type": stype,
+                "commands": commands
+            }
+        }
+        _sm_save_history_record(rec)
+        
         self._show_edit_status("✅  已保存")
         self.triggers_changed.emit()
 
@@ -878,6 +1334,18 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         _sm_save(scripts)
         self.triggers_changed.emit()
         self._go_list()
+
+    def _confirm_delete_current(self):
+        if not self._current_id:
+            return
+        scripts = _sm_load()
+        s = next((x for x in scripts if x.get("id") == self._current_id), None)
+        trigger = s.get('trigger', '未命名') if s else '未命名'
+        
+        dlg = ThemeConfirmDialog(self, "确认删除",
+            f"确定要永久删除脚本「{trigger}」吗？")
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._delete_script()
 
     def _start_run(self, s: dict, run_tab: _RunTabWidget):
         self._stop_run_timer()

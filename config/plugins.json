@@ -6,7 +6,6 @@
       "?",
       "帮助",
       "指令",
-      "ip",
       "？"
     ]
   },
@@ -15,8 +14,7 @@
     "triggers": [
       "ocr",
       "提取文字",
-      "截图翻译",
-      "ip"
+      "截图翻译"
     ]
   },
   "plugins.pomodoro.execute_pomodoro": {

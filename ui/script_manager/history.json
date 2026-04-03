@@ -1,0 +1,289 @@
+{
+  "records": [
+    {
+      "id": "930dee4b-27a9-4516-8958-f17fddb79476",
+      "target_script_id": "ba03996b-8ab6-4f1b-bbc4-535fe50d7469",
+      "timestamp": "2026-04-03 18:00:14",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "asciiart",
+        "description": "使用Python将图像或文本转换为ASCII艺术字符画。支持从图像文件生成ASCII艺术，也支持将纯文本转换为ASCII艺术风格。对于图像转换，使用PIL/Pillow库处理图像并映射灰度值到ASCII字符集；对于文本转换，使用pyfiglet库生成艺术字体效果。包含错误处理、进度日志和多种输出选项。",
+        "script_type": "python",
+        "commands": "```python\n#!/usr/bin/env python3\n\"\"\"\nASCII Art Generator - 将图像或文本转换为ASCII艺术字符画\n支持功能：\n1. 图像转ASCII：将图像文件转换为灰度图并映射到ASCII字符\n2. 文本转ASCII：将文本转换为艺术字体效果\n\"\"\"\n\nimport sys\nimport os\nimport argparse\nfrom typing import Optional, Tuple, List\nimport subprocess\nimport platform\n\n# 检查并安装必要依赖\ndef check_and_install_dependencies():\n    \"\"\"检查并安装必要的Python包\"\"\"\n    required_packages = []\n    \n    # 检查Pillow（用于图像处理）\n    try:\n        from PIL import Image\n        print(\"[INFO] Pillow 库已安装\")\n    except ImportError:\n        print(\"[WARN] Pillow 库未安装，将尝试安装...\")\n        required_packages.append(\"pillow\")\n    \n    # 检查pyfiglet（用于文本艺术字）\n    try:\n        import pyfiglet\n        print(\"[INFO] pyfiglet 库已安装\")\n    except ImportError:\n        print(\"[WARN] pyfiglet 库未安装，将尝试安装...\")\n        required_packages.append(\"pyfiglet\")\n    \n    # 如果有需要安装的包\n    if required_packages:\n        print(f\"[INFO] 正在安装依赖包: {', '.join(required_packages)}\")\n        try:\n            # 使用pip安装\n            subprocess.check_call([sys.executable, \"-m\", \"pip\", \"install\"] + required_packages)\n            print(\"[SUCCESS] 依赖包安装完成\")\n        except subprocess.CalledProcessError as e:\n            print(f\"[ERROR] 安装依赖包失败: {e}\")\n            print(\"[INFO] 请手动运行: pip install pillow pyfiglet\")\n            return False\n    \n    return True\n\n# 现在导入库（确保在检查依赖后）\ntry:\n    from PIL import Image, ImageDraw, ImageFont\nexcept ImportError:\n    print(\"[ERROR] Pillow 库未正确安装\")\n    sys.exit(1)\n\ntry:\n    import pyfiglet\nexcept ImportError:\n    print(\"[ERROR] pyfiglet 库未正确安装\")\n    sys.exit(1)\n\nclass ASCIIArtGenerator:\n    \"\"\"ASCII艺术生成器主类\"\"\"\n    \n    # ASCII字符集，从暗到亮排列\n    ASCII_CHARS = [\"@\", \"#\", \"S\", \"%\", \"?\", \"*\", \"+\", \";\", \":\", \",\", \".\", \" \"]\n    \n    def __init__(self, width: int = 100, charset: Optional[List[str]] = None):\n        \"\"\"\n        初始化ASCII艺术生成器\n        \n        Args:\n            width: 输出ASCII艺术的宽度（字符数）\n            charset: 自定义ASCII字符集，从暗到亮排列\n        \"\"\"\n        self.width = width\n        self.charset = charset or self.ASCII_CHARS\n        self.charset_length = len(self.charset)\n        \n        print(f\"[INFO] 初始化ASCII生成器，宽度: {width}字符，字符集长度: {self.charset_length}\")\n    \n    def resize_image(self, image: Image.Image) -> Image.Image:\n        \"\"\"调整图像大小，保持宽高比\"\"\"\n        original_width, original_height = image.size\n        aspect_ratio"
+      }
+    },
+    {
+      "id": "184db372-3d73-45ad-97b1-677f3ae55c88",
+      "target_script_id": "ba03996b-8ab6-4f1b-bbc4-535fe50d7469",
+      "timestamp": "2026-04-03 18:00:11",
+      "prompt": "使用Python生成字符画，将图像或文本转换为ASCII艺术。",
+      "data": {
+        "trigger": "asciiart",
+        "description": "使用Python将图像或文本转换为ASCII艺术字符画。支持从图像文件生成ASCII艺术，也支持将纯文本转换为ASCII艺术风格。对于图像转换，使用PIL/Pillow库处理图像并映射灰度值到ASCII字符集；对于文本转换，使用pyfiglet库生成艺术字体效果。包含错误处理、进度日志和多种输出选项。",
+        "script_type": "python",
+        "commands": "```python\n#!/usr/bin/env python3\n\"\"\"\nASCII Art Generator - 将图像或文本转换为ASCII艺术字符画\n支持功能：\n1. 图像转ASCII：将图像文件转换为灰度图并映射到ASCII字符\n2. 文本转ASCII：将文本转换为艺术字体效果\n\"\"\"\n\nimport sys\nimport os\nimport argparse\nfrom typing import Optional, Tuple, List\nimport subprocess\nimport platform\n\n# 检查并安装必要依赖\ndef check_and_install_dependencies():\n    \"\"\"检查并安装必要的Python包\"\"\"\n    required_packages = []\n    \n    # 检查Pillow（用于图像处理）\n    try:\n        from PIL import Image\n        print(\"[INFO] Pillow 库已安装\")\n    except ImportError:\n        print(\"[WARN] Pillow 库未安装，将尝试安装...\")\n        required_packages.append(\"pillow\")\n    \n    # 检查pyfiglet（用于文本艺术字）\n    try:\n        import pyfiglet\n        print(\"[INFO] pyfiglet 库已安装\")\n    except ImportError:\n        print(\"[WARN] pyfiglet 库未安装，将尝试安装...\")\n        required_packages.append(\"pyfiglet\")\n    \n    # 如果有需要安装的包\n    if required_packages:\n        print(f\"[INFO] 正在安装依赖包: {', '.join(required_packages)}\")\n        try:\n            # 使用pip安装\n            subprocess.check_call([sys.executable, \"-m\", \"pip\", \"install\"] + required_packages)\n            print(\"[SUCCESS] 依赖包安装完成\")\n        except subprocess.CalledProcessError as e:\n            print(f\"[ERROR] 安装依赖包失败: {e}\")\n            print(\"[INFO] 请手动运行: pip install pillow pyfiglet\")\n            return False\n    \n    return True\n\n# 现在导入库（确保在检查依赖后）\ntry:\n    from PIL import Image, ImageDraw, ImageFont\nexcept ImportError:\n    print(\"[ERROR] Pillow 库未正确安装\")\n    sys.exit(1)\n\ntry:\n    import pyfiglet\nexcept ImportError:\n    print(\"[ERROR] pyfiglet 库未正确安装\")\n    sys.exit(1)\n\nclass ASCIIArtGenerator:\n    \"\"\"ASCII艺术生成器主类\"\"\"\n    \n    # ASCII字符集，从暗到亮排列\n    ASCII_CHARS = [\"@\", \"#\", \"S\", \"%\", \"?\", \"*\", \"+\", \";\", \":\", \",\", \".\", \" \"]\n    \n    def __init__(self, width: int = 100, charset: Optional[List[str]] = None):\n        \"\"\"\n        初始化ASCII艺术生成器\n        \n        Args:\n            width: 输出ASCII艺术的宽度（字符数）\n            charset: 自定义ASCII字符集，从暗到亮排列\n        \"\"\"\n        self.width = width\n        self.charset = charset or self.ASCII_CHARS\n        self.charset_length = len(self.charset)\n        \n        print(f\"[INFO] 初始化ASCII生成器，宽度: {width}字符，字符集长度: {self.charset_length}\")\n    \n    def resize_image(self, image: Image.Image) -> Image.Image:\n        \"\"\"调整图像大小，保持宽高比\"\"\"\n        original_width, original_height = image.size\n        aspect_ratio"
+      }
+    },
+    {
+      "id": "79ccc6ec-5b55-46ea-997e-77a3fcd944a9",
+      "target_script_id": "ba03996b-8ab6-4f1b-bbc4-535fe50d7469",
+      "timestamp": "2026-04-03 17:59:50",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "ascii_art",
+        "description": "使用Python生成字符画，将图像或文本转换为ASCII艺术。",
+        "script_type": "python",
+        "commands": "import sys\nimport argparse\nfrom PIL import Image\n\ndef image_to_ascii(image_path, width=100, chars='@%#*+=-:. '):\n    try:\n        img = Image.open(image_path)\n    except FileNotFoundError:\n        print(f\"错误: 文件 '{image_path}' 未找到。\")\n        sys.exit(1)\n    except Exception as e:\n        print(f\"打开图像时出错: {e}\")\n        sys.exit(1)\n    \n    aspect_ratio = img.height / img.width\n    height = int(width * aspect_ratio * 0.55)  # 调整纵横比以适应字符\n    img = img.resize((width, height)).convert('L')  # 转换为灰度\n    \n    pixels = img.getdata()\n    ascii_str = ''\n    for i, pixel in enumerate(pixels):\n        ascii_str += chars[pixel * (len(chars) - 1) // 255]\n        if (i + 1) % width == 0:\n            ascii_str += '\\n'\n    return ascii_str\n\ndef text_to_ascii(text, font='standard'):\n    # 简单示例，实际可使用pyfiglet库\n    try:\n        import pyfiglet\n        ascii_art = pyfiglet.figlet_format(text, font=font)\n        return ascii_art\n    except ImportError:\n        return f\"未安装pyfiglet库，请运行 'pip install pyfiglet' 安装。\\n文本: {text}\"\n\ndef main():\n    parser = argparse.ArgumentParser(description='生成字符画')\n    parser.add_argument('input', help='输入文件路径或文本字符串')\n    parser.add_argument('--type', choices=['image', 'text'], default='image',\n                        help='输入类型: image 或 text (默认: image)')\n    parser.add_argument('--width', type=int, default=100, help='输出宽度 (默认: 100)')\n    parser.add_argument('--chars', default='@%#*+=-:. ', help='字符集，从暗到亮 (默认: \"@%#*+=-:. \")')\n    parser.add_argument('--font', default='standard', help='文本字体 (当 type=text 时使用)')\n    \n    args = parser.parse_args()\n    \n    if args.type == 'image':\n        result = image_to_ascii(args.input, args.width, args.chars)\n    else:  # text\n        result = text_to_ascii(args.input, args.font)\n    \n    print(result)\n\nif __name__ == '__main__':\n    main()"
+      }
+    },
+    {
+      "id": "89cb4dad-9688-44b4-8c3f-ccd981bec6cd",
+      "target_script_id": "ba03996b-8ab6-4f1b-bbc4-535fe50d7469",
+      "timestamp": "2026-04-03 17:57:29",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "ascii_art",
+        "description": "使用Python生成字符画，将图像或文本转换为ASCII艺术。",
+        "script_type": "python",
+        "commands": "import sys\nimport argparse\nfrom PIL import Image\n\ndef image_to_ascii(image_path, width=100, chars='@%#*+=-:. '):\n    try:\n        img = Image.open(image_path)\n    except FileNotFoundError:\n        print(f\"错误: 文件 '{image_path}' 未找到。\")\n        sys.exit(1)\n    except Exception as e:\n        print(f\"打开图像时出错: {e}\")\n        sys.exit(1)\n    \n    aspect_ratio = img.height / img.width\n    height = int(width * aspect_ratio * 0.55)  # 调整纵横比以适应字符\n    img = img.resize((width, height)).convert('L')  # 转换为灰度\n    \n    pixels = img.getdata()\n    ascii_str = ''\n    for i, pixel in enumerate(pixels):\n        ascii_str += chars[pixel * (len(chars) - 1) // 255]\n        if (i + 1) % width == 0:\n            ascii_str += '\\n'\n    return ascii_str\n\ndef text_to_ascii(text, font='standard'):\n    # 简单示例，实际可使用pyfiglet库\n    try:\n        import pyfiglet\n        ascii_art = pyfiglet.figlet_format(text, font=font)\n        return ascii_art\n    except ImportError:\n        return f\"未安装pyfiglet库，请运行 'pip install pyfiglet' 安装。\\n文本: {text}\"\n\ndef main():\n    parser = argparse.ArgumentParser(description='生成字符画')\n    parser.add_argument('input', help='输入文件路径或文本字符串')\n    parser.add_argument('--type', choices=['image', 'text'], default='image',\n                        help='输入类型: image 或 text (默认: image)')\n    parser.add_argument('--width', type=int, default=100, help='输出宽度 (默认: 100)')\n    parser.add_argument('--chars', default='@%#*+=-:. ', help='字符集，从暗到亮 (默认: \"@%#*+=-:. \")')\n    parser.add_argument('--font', default='standard', help='文本字体 (当 type=text 时使用)')\n    \n    args = parser.parse_args()\n    \n    if args.type == 'image':\n        result = image_to_ascii(args.input, args.width, args.chars)\n    else:  # text\n        result = text_to_ascii(args.input, args.font)\n    \n    print(result)\n\nif __name__ == '__main__':\n    main()"
+      }
+    },
+    {
+      "id": "5c4ed954-8584-4c47-8bae-86127e31945b",
+      "target_script_id": "ee9c2fd2-7ff5-4b7c-8acf-d74e4c211aec",
+      "timestamp": "2026-04-03 17:34:54",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "printheart",
+        "description": "使用Python打印一个ASCII艺术风格的心形图案，并在图案下方输出数字123",
+        "script_type": "python",
+        "commands": "#!/usr/bin/env python3\n\"\"\"\nASCII心形图案打印脚本\n功能：打印ASCII艺术风格的心形图案，并在图案下方输出数字123\n\"\"\"\n\nimport sys\n\ndef print_ascii_heart():\n    \"\"\"打印ASCII心形图案\"\"\"\n    try:\n        # ASCII心形图案数据\n        heart_lines = [\n            \"  ****     ****  \",\n            \" ******   ****** \",\n            \"******** ********\",\n            \" *************** \",\n            \"  *************  \",\n            \"   ***********   \",\n            \"    *********    \",\n            \"     *******     \",\n            \"      *****      \",\n            \"       ***       \",\n            \"        *        \"\n        ]\n        \n        print(\"[INFO] 开始打印ASCII心形图案...\")\n        \n        # 打印心形图案\n        for line in heart_lines:\n            print(line)\n            \n        print(\"[INFO] ASCII心形图案打印完成！\")\n        \n    except Exception as e:\n        print(f\"[ERROR] 打印心形图案时发生错误: {e}\", file=sys.stderr)\n        sys.exit(1)\n\ndef print_number_123():\n    \"\"\"打印数字123\"\"\"\n    try:\n        print(\"[INFO] 开始打印数字123...\")\n        print(\"123\")\n        print(\"[INFO] 数字123打印完成！\")\n    except Exception as e:\n        print(f\"[ERROR] 打印数字时发生错误: {e}\", file=sys.stderr)\n        sys.exit(1)\n\ndef main():\n    \"\"\"主函数\"\"\"\n    print(\"=\" * 50)\n    print(\"ASCII心形图案与数字打印程序\")\n    print(\"=\" * 50)\n    \n    try:\n        # 打印心形图案\n        print_ascii_heart()\n        \n        # 添加空行分隔\n        print()\n        \n        # 打印数字123\n        print_number_123()\n        \n        print(\"=\" * 50)\n        print(\"[SUCCESS] 程序执行完成！\")\n        print(\"=\" * 50)\n        \n    except KeyboardInterrupt:\n        print(\"\\n[INFO] 用户中断程序执行\")\n        sys.exit(0)\n    except Exception as e:\n        print(f\"[ERROR] 程序执行过程中发生未预期错误: {e}\", file=sys.stderr)\n        sys.exit(1)\n\nif __name__ == \"__main__\":\n    main()"
+      }
+    },
+    {
+      "id": "6ca3ef84-d8cc-4d0b-bf3f-d2ce2cfda55d",
+      "target_script_id": "ee9c2fd2-7ff5-4b7c-8acf-d74e4c211aec",
+      "timestamp": "2026-04-03 17:34:51",
+      "prompt": "使用Python打印一个ASCII艺术风格的心形图案和123",
+      "data": {
+        "trigger": "printheart",
+        "description": "使用Python打印一个ASCII艺术风格的心形图案，并在图案下方输出数字123",
+        "script_type": "python",
+        "commands": "#!/usr/bin/env python3\n\"\"\"\nASCII心形图案打印脚本\n功能：打印ASCII艺术风格的心形图案，并在图案下方输出数字123\n\"\"\"\n\nimport sys\n\ndef print_ascii_heart():\n    \"\"\"打印ASCII心形图案\"\"\"\n    try:\n        # ASCII心形图案数据\n        heart_lines = [\n            \"  ****     ****  \",\n            \" ******   ****** \",\n            \"******** ********\",\n            \" *************** \",\n            \"  *************  \",\n            \"   ***********   \",\n            \"    *********    \",\n            \"     *******     \",\n            \"      *****      \",\n            \"       ***       \",\n            \"        *        \"\n        ]\n        \n        print(\"[INFO] 开始打印ASCII心形图案...\")\n        \n        # 打印心形图案\n        for line in heart_lines:\n            print(line)\n            \n        print(\"[INFO] ASCII心形图案打印完成！\")\n        \n    except Exception as e:\n        print(f\"[ERROR] 打印心形图案时发生错误: {e}\", file=sys.stderr)\n        sys.exit(1)\n\ndef print_number_123():\n    \"\"\"打印数字123\"\"\"\n    try:\n        print(\"[INFO] 开始打印数字123...\")\n        print(\"123\")\n        print(\"[INFO] 数字123打印完成！\")\n    except Exception as e:\n        print(f\"[ERROR] 打印数字时发生错误: {e}\", file=sys.stderr)\n        sys.exit(1)\n\ndef main():\n    \"\"\"主函数\"\"\"\n    print(\"=\" * 50)\n    print(\"ASCII心形图案与数字打印程序\")\n    print(\"=\" * 50)\n    \n    try:\n        # 打印心形图案\n        print_ascii_heart()\n        \n        # 添加空行分隔\n        print()\n        \n        # 打印数字123\n        print_number_123()\n        \n        print(\"=\" * 50)\n        print(\"[SUCCESS] 程序执行完成！\")\n        print(\"=\" * 50)\n        \n    except KeyboardInterrupt:\n        print(\"\\n[INFO] 用户中断程序执行\")\n        sys.exit(0)\n    except Exception as e:\n        print(f\"[ERROR] 程序执行过程中发生未预期错误: {e}\", file=sys.stderr)\n        sys.exit(1)\n\nif __name__ == \"__main__\":\n    main()"
+      }
+    },
+    {
+      "id": "91011ff1-1eae-40c3-9820-f209145455a4",
+      "target_script_id": "ee9c2fd2-7ff5-4b7c-8acf-d74e4c211aec",
+      "timestamp": "2026-04-03 17:34:28",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "heart",
+        "description": "使用Python打印一个ASCII艺术风格的心形图案",
+        "script_type": "python",
+        "commands": "import 312312sys\n\nheart = '''\n    ******       ******\n  **********   **********\n ************* *************\n*****************************\n*****************************\n ***************************\n   ***********************\n     *******************\n       ***************\n         ***********\n           *******\n             ***\n              *\n'''\n\nprint(heart)"
+      }
+    },
+    {
+      "id": "645841b7-628e-4147-90bf-670fb3f728b6",
+      "target_script_id": "31289d1d-ad6b-416a-bc26-808940c8255e",
+      "timestamp": "2026-04-03 16:42:57",
+      "prompt": "运行遇到了崩溃，请帮我分析这份报错日志并重新写一份完好的正确版本。报错如下：\n```\nmanager\\workspace\\script_31289d1d-ad6b-416a-bc26-808940c8255e.bat\n========================================\n       ASCII Art Printer\n========================================\n\n[INFO] 步骤 1: 检查Python环境...\n[SUCCESS] Python已找到。\n[INFO] 步骤 2: 生成字符画...\n'import' is not recognized as an internal or external command,\noperable program or batch file.\n'try:' is not recognized as an internal or external command,\noperable program or batch file.\n'ascii_art' is not recognized as an internal or external command,\noperable program or batch file.\n'____' is not recognized as an internal or external command,\noperable program or batch file.\nThe system cannot find the path specified.\n'_\\' is not recognized as an internal or external command,\noperable program or batch file.\n'/' is not recognized as an internal or external command,\noperable program or batch file.\n'\\' is not recognized as an internal or external command,\noperable program or batch file.\n'\\_' is not recognized as an internal or external command,\noperable program or batch file.\n''''' is not recognized as an internal or external command,\noperable program or batch file.\nUnable to initialize device PRN\n'except' is not recognized as an internal or external command,\noperable program or batch file.\nUnable to initialize device PRN\n'sys.exit' is not recognized as an internal or external command,\noperable program or batch file.\n'\"' is not recognized as an internal or external command,\noperable program or batch file.\n[ERROR] 字符画打印失败。\n❌ 执行失败（退出码 9009）\n\n```",
+      "data": {
+        "trigger": "fixasciiart",
+        "description": "修复原批处理脚本中Python代码执行问题，重新生成一个健壮的ASCII艺术打印脚本。原脚本错误地将Python代码直接嵌入批处理文件导致语法错误，新版将Python代码保存为独立文件并正确调用。",
+        "script_type": "batch",
+        "commands": "```batch\n@echo off\nchcp 65001 >nul\nsetlocal enabledelayedexpansion\n\nset \"SCRIPT_NAME=%~nx0\"\nset \"VERSION=2.0\"\nset \"PYTHON_SCRIPT=ascii_art_generator.py\"\n\necho ========================================\necho        ASCII Art Printer v%VERSION%\necho ========================================\necho.\n\n:: 步骤1: 检查Python环境\necho [INFO] 步骤1: 检查Python环境...\nwhere python >nul 2>&1\nif %errorlevel% neq 0 (\n    echo [ERROR] 未找到Python。请安装Python并确保已添加到PATH环境变量。\n    exit /b 1\n)\nfor /f \"tokens=*\" %%i in ('python --version 2^>^&1') do set \"PYTHON_VERSION=%%i\"\necho [SUCCESS] Python已找到: !PYTHON_VERSION!\necho.\n\n:: 步骤2: 创建Python脚本\necho [INFO] 步骤2: 生成字符画脚本...\n(\necho import sys\necho import traceback\necho.\necho def generate_ascii_art():\necho     try:\necho         ascii_art = r\"\"\"\necho   _____   _____   _____   _____   _____\necho  /\\    \\ /\\    \\ /\\    \\ /\\    \\ /\\    \\\necho /::\\    /::\\    /::\\    /::\\    /::\\    \\\necho \\:::\\  /::::\\  /::::\\  /::::\\  /::::\\  /\necho  \\:::\\/::::::\\/::::::\\/::::::\\/::::::\\/\necho   \\::::/~~~~  ~~~~~~~  ~~~~~~~ ~~~~~~~/\necho    \\::/      /::\\    \\ /\\    \\ /\\    \\\necho     \\/____/  \\:::\\    /::\\    /::\\    \\\necho               \\:::\\  /::::\\  /::::\\  /\necho                \\:::\\/::::::\\/::::::\\/\necho                 \\::::/~~~~  ~~~~~~~/\necho                  \\::/      /::\\    \\\necho                   \\/____/  \\:::\\    \\\necho                            \\:::\\  /\necho                             \\:::\\/\necho                              \\:::/\necho                               \\//\necho \"\"\"\necho         return ascii_art\necho     except Exception as e:\necho         print(f\"[PYTHON_ERROR] 生成ASCII艺术时出错: {e}\")\necho         traceback.print_exc()\necho         return None\necho.\necho if __name__ == \"__main__\":\necho     try:\necho         art = generate_ascii_art()\necho         if art:\necho             print(art)\necho             sys.exit(0)\necho         else:\necho             sys.exit(1)\necho     except SystemExit:\necho         raise\necho     except Exception as e:\necho         print(f\"[PYTHON_CRITICAL] 脚本执行失败: {e}\")\necho         traceback.print_exc()\necho         sys.exit(1)\n) > \"%PYTHON_SCRIPT%\"\n\nif not exist \"%PYTHON_SCRIPT%\" (\n    echo [ERROR] 无法创建Python脚本文件。\n    exit /b 1\n)\necho [SUCCESS] Python脚本创建完成。\necho.\n\n:: 步骤3: 执行Python脚本\necho [INFO] 步骤3: 执行字符画生成...\npython"
+      }
+    },
+    {
+      "id": "80cbf881-bac7-4c52-8517-25f21e0f8f6f",
+      "target_script_id": "31289d1d-ad6b-416a-bc26-808940c8255e",
+      "timestamp": "2026-04-03 16:42:16",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "print_ascii_art",
+        "description": "在Windows 11系统上，使用Python打印一个预定义的字符画（ASCII艺术）。脚本会检查Python是否可用，并处理常见的执行错误。",
+        "script_type": "batch",
+        "commands": "@echo off\nchcp 65001 >nul\nsetlocal enabledelayedexpansion\n\necho ========================================\necho        ASCII Art Printer\necho ========================================\necho.\n\n:: 步骤 1: 检查Python是否可用\necho [INFO] 步骤 1: 检查Python环境...\nwhere python >nul 2>nul\nif %errorlevel% neq 0 (\n    echo [ERROR] 未找到Python。请确保Python已安装并添加到PATH环境变量中。\n    echo [INFO] 您可以从 https://www.python.org/downloads/ 下载Python。\n    exit /b 1\n)\necho [SUCCESS] Python已找到。\n\n:: 步骤 2: 定义并打印字符画\necho [INFO] 步骤 2: 生成字符画...\npython -c \"\nimport sys\ntry:\n    ascii_art = '''\n        ____\n       /___/\\_\n      _\\   \\/_/__\n     / / \\_/___/ \\\n     \\/________/\n        \\_/\n    '''\n    print(ascii_art)\nexcept Exception as e:\n    print(f'[PYTHON ERROR] 打印字符画时发生错误: {e}', file=sys.stderr)\n    sys.exit(1)\n\"\n\nif %errorlevel% neq 0 (\n    echo [ERROR] 字符画打印失败。\n    exit /b %errorlevel%\n)\n\necho [SUCCESS] 字符画打印完成。\necho.\necho ========================================\necho             执行完毕\necho ========================================\npause"
+      }
+    },
+    {
+      "id": "7d313f65-b569-42fc-b4f5-7986f7f775d2",
+      "target_script_id": "31289d1d-ad6b-416a-bc26-808940c8255e",
+      "timestamp": "2026-04-03 16:40:26",
+      "prompt": "运行遇到了崩溃，请帮我分析这份报错日志并重新写一份完好的正确版本。报错如下：\n```\n⏳ [1/1]  21312python打印一个字符画\n'21312python打印一个字符画' 不是内部或外部命令，也不是可运行的程序\n或批处理文件。\n❌ 步骤 1 失败（退出码 1）\nℹ️  已完成 0 / 1 步\n\n```",
+      "data": {
+        "trigger": "print_ascii_art",
+        "description": "在Windows 11系统上，使用Python打印一个预定义的字符画（ASCII艺术）。脚本会检查Python是否可用，并处理常见的执行错误。",
+        "script_type": "batch",
+        "commands": "@echo off\nchcp 65001 >nul\nsetlocal enabledelayedexpansion\n\necho ========================================\necho        ASCII Art Printer\necho ========================================\necho.\n\n:: 步骤 1: 检查Python是否可用\necho [INFO] 步骤 1: 检查Python环境...\nwhere python >nul 2>nul\nif %errorlevel% neq 0 (\n    echo [ERROR] 未找到Python。请确保Python已安装并添加到PATH环境变量中。\n    echo [INFO] 您可以从 https://www.python.org/downloads/ 下载Python。\n    exit /b 1\n)\necho [SUCCESS] Python已找到。\n\n:: 步骤 2: 定义并打印字符画\necho [INFO] 步骤 2: 生成字符画...\npython -c \"\nimport sys\ntry:\n    ascii_art = '''\n        ____\n       /___/\\_\n      _\\   \\/_/__\n     / / \\_/___/ \\\n     \\/________/\n        \\_/\n    '''\n    print(ascii_art)\nexcept Exception as e:\n    print(f'[PYTHON ERROR] 打印字符画时发生错误: {e}', file=sys.stderr)\n    sys.exit(1)\n\"\n\nif %errorlevel% neq 0 (\n    echo [ERROR] 字符画打印失败。\n    exit /b %errorlevel%\n)\n\necho [SUCCESS] 字符画打印完成。\necho.\necho ========================================\necho             执行完毕\necho ========================================\npause"
+      }
+    },
+    {
+      "id": "6e56fd1d-3e3b-4898-8a2f-528d43f28a8f",
+      "target_script_id": "31289d1d-ad6b-416a-bc26-808940c8255e",
+      "timestamp": "2026-04-03 16:40:10",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "字符画",
+        "description": "python打印一个字符画",
+        "script_type": "shell",
+        "commands": "21312python打印一个字符画"
+      }
+    },
+    {
+      "id": "929a2c3d-7bec-4333-b2a5-6b8dff46f63a",
+      "target_script_id": "31289d1d-ad6b-416a-bc26-808940c8255e",
+      "timestamp": "2026-04-03 16:33:03",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "字符画",
+        "description": "python打印一个字符画",
+        "script_type": "shell",
+        "commands": "21312python打印一个字符画"
+      }
+    },
+    {
+      "id": "62ce86c0-18e1-412a-b1cc-1c81ee501d9a",
+      "target_script_id": "31289d1d-ad6b-416a-bc26-808940c8255e",
+      "timestamp": "2026-04-03 16:33:03",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "字符画",
+        "description": "python打印一个字符画",
+        "script_type": "shell",
+        "commands": "21312python打印一个字符画"
+      }
+    },
+    {
+      "id": "e6605627-4d18-4e30-be25-6d8e63401d48",
+      "target_script_id": "31289d1d-ad6b-416a-bc26-808940c8255e",
+      "timestamp": "2026-04-03 16:13:26",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "字符画",
+        "description": "python打印一个字符画",
+        "script_type": "shell",
+        "commands": "21312python打印一个字符画"
+      }
+    },
+    {
+      "id": "0c216cb8-7e89-48c3-a9f9-c40e08d121c6",
+      "target_script_id": "31289d1d-ad6b-416a-bc26-808940c8255e",
+      "timestamp": "2026-04-03 15:40:33",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "字符画",
+        "description": "python打印一个字符画",
+        "script_type": "shell",
+        "commands": "21312python打印一个字符画"
+      }
+    },
+    {
+      "id": "9dfae1a5-0955-44f4-9dd3-da73d470073f",
+      "target_script_id": "31289d1d-ad6b-416a-bc26-808940c8255e",
+      "timestamp": "2026-04-03 15:40:32",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "字符画",
+        "description": "python打印一个字符画",
+        "script_type": "shell",
+        "commands": "21312python打印一个字符画"
+      }
+    },
+    {
+      "id": "066dca4b-c95d-4cf0-9e71-08869fe3fa7d",
+      "target_script_id": "331b5951-f0bf-4b19-9ade-46107ad1c491",
+      "timestamp": "2026-04-03 15:35:15",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "hk-ai-fe",
+        "description": "用Antigravity打开hk-ai-fe的文件夹",
+        "script_type": "python",
+        "commands": "import subprocess\nimport os\nimport sys\n\n# ================= 配置部分 =================\n# 目标文件夹路径\nTARGET_DIR = r\"C:\\Users\\40902\\Desktop\\code\\hk-ai-fe\"\n\n# Antigravity 可执行文件路径\nANTIGRAVITY_EXE = r\"C:\\Users\\40902\\AppData\\Local\\Programs\\Antigravity\\Antigravity.exe\"\n# ===========================================\n\ndef launch_ide():\n    # 1. 检查文件夹是否存在\n    if not os.path.exists(TARGET_DIR):\n        print(f\"❌ 错误：找不到目标文件夹 -> {TARGET_DIR}\", flush=True)\n        return\n\n    # 2. 检查 IDE 是否存在\n    if not os.path.exists(ANTIGRAVITY_EXE):\n        print(f\"❌ 错误：在路径下找不到 Antigravity.exe\", flush=True)\n        print(f\"当前配置路径: {ANTIGRAVITY_EXE}\", flush=True)\n        return\n\n    print(f\"🚀 正在调用 Antigravity 开启项目...\", flush=True)\n    print(f\"📂 项目路径: {TARGET_DIR}\", flush=True)\n\n    try:\n        # 使用 Popen 异步启动，脚本执行完后 IDE 不会随之关闭\n        # 将文件夹路径作为第一个参数传递给 exe\n        subprocess.Popen([ANTIGRAVITY_EXE, TARGET_DIR])\n        print(\"✅ 启动指令已发送，请检查任务栏。\", flush=True)\n    except Exception as e:\n        print(f\"❌ 启动过程中发生意外错误: {e}\", flush=True)\n\nif __name__ == \"__main__\":\n    launch_ide()"
+      }
+    },
+    {
+      "id": "99b0699f-f075-4b65-ac09-93a8fef1e94c",
+      "target_script_id": "9914a2df-c9ec-4a95-8df0-54c1e2cd02de",
+      "timestamp": "2026-04-03 15:35:07",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "方舟后台合test",
+        "description": "方舟后台hk代码merge到test，build后发到static的test",
+        "script_type": "python",
+        "commands": "import os\nimport subprocess\nimport shutil\nimport sys\n\n# ================= 配置部分 =================\nCONFIG = {\n    \"PROJECT_A\": {\n        \"name\": \"app-config-manage\",\n        \"path\": r\"C:\\Users\\40902\\Desktop\\code\\app-config-manage\",\n        \"build_cmd\": \"npm run build-w\",\n        \"out_dir\": \"fz-platform\"\n    },\n    \"PROJECT_B\": {\n        \"name\": \"static-resource\",\n        \"path\": r\"C:\\Users\\40902\\Desktop\\code\\static-resource\",\n        \"target_dir\": os.path.join(\"h5\", \"fz-platform\")\n    },\n    \"BRANCH_TEST\": \"test\",\n    \"FEATURE_BRANCH\": \"feature/证券定投\"\n}\n\ndef update_status(step_msg):\n    \"\"\"更新当前进度文字\"\"\"\n    print(f\"\\n>>>>>>> 【当前进度】 {step_msg} <<<<<<<\", flush=True)\n\ndef run_command(cmd, cwd, step_name):\n    \"\"\"执行命令并实时打印流式日志\"\"\"\n    print(f\"  [执行命令]: {cmd}\", flush=True)\n    process = subprocess.Popen(\n        cmd,\n        cwd=cwd,\n        shell=True,\n        stdout=subprocess.PIPE,\n        stderr=subprocess.STDOUT,\n        bufsize=0,\n        text=False\n    )\n\n    while True:\n        line = process.stdout.readline()\n        if not line and process.poll() is not None:\n            break\n        if line:\n            try:\n                decoded = line.decode('utf-8').strip()\n            except UnicodeDecodeError:\n                decoded = line.decode('gbk', errors='replace').strip()\n            if decoded:\n                print(f\"    | {decoded}\", flush=True)\n\n    process.wait()\n    \n    if process.returncode != 0:\n        print(f\"\\n!!!!!!!! ERROR: {step_name} 失败 (退出码: {process.returncode}) !!!!!!!!\", flush=True)\n        if \"项目B拉取最新\" in step_name:\n            print(\"💡 提示: 请检查项目B本地是否有未提交的修改，建议执行 git checkout . 清理后再运行。\", flush=True)\n        elif \"项目A代码合并\" in step_name:\n            print(\"💡 提示: 可能存在合并冲突，请手动解决冲突后重新运行。\", flush=True)\n        sys.exit(1)\n\ndef main():\n    # --- 0. 提前获取指定分支的 Commit 信息 ---\n    update_status(f\"准备工作: 获取 {CONFIG['FEATURE_BRANCH']} 的最新 Commit\")\n    try:\n        subprocess.run(\"git fetch\", cwd=CONFIG['PROJECT_A']['path'], shell=True, capture_output=True, check=True)\n        commit_msg = subprocess.check_output(\n            f\"git log -1 --pretty=%B {CONFIG['FEATURE_BRANCH']}\", \n            cwd=CONFIG['PROJECT_A']['path'], \n            shell=True\n        ).decode('utf-8', errors='replace').strip()\n        print(f\"    [目标Commit]: {commit_msg}\", flush=True)\n    except Exception as e:\n        print(f\"    ❌ 无法获取分支信息: {e}\", flush=True)\n        sys.exit(1)\n\n    # --- 1. 项目 A 操作 ---\n    update_status(\"项目 A: 切换分支并同步\")\n    run_command(f\"git checkout {CONFIG['BRANCH_TEST']}\", CONFIG['PROJECT_A']['path'], \"项目A切换分支\")\n    run_command(\"git pull\", CONFIG['PROJECT_A']['path'], \"项目A拉取代码\")\n\n    update_status(f\"项目 A: 合并 {CONFIG['FEATURE_BRANCH']}\")\n    run_command(f\"git merge {CONFIG['FEATURE_BRANCH']} --no-edit\", CONFIG['PROJECT_A']['path'], \"项目A代码合并\")\n\n    update_status(\"项目 A: 推送合并结果\")\n    run_command(\"git push\", CONFIG['PROJECT_A']['path'], \"项目A推送代码\")\n\n    update_status(\"项目 A: 执行打包 (Build)\")\n    run_command(CONFIG[\"PROJECT_A\"][\"build_cmd\"], CONFIG[\"PROJECT_A\"][\"path\"], \"项目A构建编译\")\n\n    # --- 2. 验证构建产物是否存在 ---\n    src = os.path.join(CONFIG[\"PROJECT_A\"][\"path\"], CONFIG[\"PROJECT_A\"][\"out_dir\"])\n    if not os.path.exists(src):\n        print(f\"\\n!!!!!!!! ERROR: 构建产物目录不存在: {src} !!!!!!!!\", flush=True)\n        sys.exit(1)\n\n    # --- 3. 项目 B 准备工作 (先 Pull 再 替换) ---\n    update_status(\"项目 B: 切换分支并拉取远程最新代码\")\n    run_command(f\"git checkout {CONFIG['BRANCH_TEST']}\", CONFIG['PROJECT_B']['path'], \"项目B切换分支\")\n    run_command(\"git pull\", CONFIG['PROJECT_B']['path'], \"项目B拉取最新\")\n\n    # --- 4. 文件替换操作 ---\n    update_status(\"文件操作: 将 A 的产物覆盖到 B\")\n    dst = os.path.join(CONFIG[\"PROJECT_B\"][\"path\"], CONFIG[\"PROJECT_B\"][\"target_dir\"])\n    \n    try:\n        if os.path.exists(dst):\n            shutil.rmtree(dst)\n        shutil.copytree(src, dst)\n        print(f\"    ✅ 产物已同步: {src} -> {dst}\", flush=True)\n    except Exception as e:\n        print(f\"    ❌ 文件操作失败: {e}\", flush=True)\n        sys.exit(1)\n\n    # --- 5. 项目 B 提交与推送 ---\n    update_status(\"项目 B: 提交变更并推送\")\n    run_command(\"git add .\", CONFIG['PROJECT_B']['path'], \"项目B暂存文件\")\n    \n    try:\n        status = subprocess.check_output(\n            \"git status --porcelain\", \n            cwd=CONFIG['PROJECT_B']['path'], \n            shell=True\n        ).decode('utf-8')\n        \n        if status.strip():\n            run_command(f'git commit -m \"{commit_msg}\"', CONFIG['PROJECT_B']['path'], \"项目B提交代码\")\n            run_command(\"git push\", CONFIG['PROJECT_B']['path'], \"项目B推送远端\")\n            update_status(\"🎉 【全流程成功完成】\")\n        else:\n            update_status(\"✨ 检查发现产物无变化，无需提交推送\")\n    except Exception as e:\n        print(f\"    ❌ Git状态检查失败: {e}\", flush=True)\n        sys.exit(1)\n\nif __name__ == \"__main__\":\n    try:\n        main()\n    except KeyboardInterrupt:\n        print(\"\\n🛑 用户手动停止\")\n        sys.exit(0)\n    except Exception as e:\n        print(f\"\\n💥 未预期的错误: {e}\", flush=True)\n        sys.exit(1)"
+      }
+    },
+    {
+      "id": "e48de335-1bdb-4501-bfc2-47d5e0d28ab3",
+      "target_script_id": "331b5951-f0bf-4b19-9ade-46107ad1c491",
+      "timestamp": "2026-04-03 15:34:56",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "hk-ai-fe",
+        "description": "用Antigravity打开hk-ai-fe的文件夹",
+        "script_type": "python",
+        "commands": "import subprocess\nimport os\nimport sys\n\n# ================= 配置部分 =================\n# 目标文件夹路径123\nTARGET_DIR = r\"C:\\Users\\40902\\Desktop\\code\\hk-ai-fe\"\n\n# Antigravity 可执行文件路径\nANTIGRAVITY_EXE = r\"C:\\Users\\40902\\AppData\\Local\\Programs\\Antigravity\\Antigravity.exe\"\n# ===========================================\n\ndef launch_ide():\n    # 1. 检查文件夹是否存在\n    if not os.path.exists(TARGET_DIR):\n        print(f\"❌ 错误：找不到目标文件夹 -> {TARGET_DIR}\", flush=True)\n        return\n\n    # 2. 检查 IDE 是否存在\n    if not os.path.exists(ANTIGRAVITY_EXE):\n        print(f\"❌ 错误：在路径下找不到 Antigravity.exe\", flush=True)\n        print(f\"当前配置路径: {ANTIGRAVITY_EXE}\", flush=True)\n        return\n\n    print(f\"🚀 正在调用 Antigravity 开启项目...\", flush=True)\n    print(f\"📂 项目路径: {TARGET_DIR}\", flush=True)\n\n    try:\n        # 使用 Popen 异步启动，脚本执行完后 IDE 不会随之关闭\n        # 将文件夹路径作为第一个参数传递给 exe\n        subprocess.Popen([ANTIGRAVITY_EXE, TARGET_DIR])\n        print(\"✅ 启动指令已发送，请检查任务栏。\", flush=True)\n    except Exception as e:\n        print(f\"❌ 启动过程中发生意外错误: {e}\", flush=True)\n\nif __name__ == \"__main__\":\n    launch_ide()"
+      }
+    },
+    {
+      "id": "68d2a0d6-0fac-4a41-8023-4d4d45ce019f",
+      "target_script_id": "9914a2df-c9ec-4a95-8df0-54c1e2cd02de",
+      "timestamp": "2026-04-03 15:34:42",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "方舟后台合test",
+        "description": "方舟后台hk代码merge到test，build后发到static的test",
+        "script_type": "python",
+        "commands": "import os\nimport subprocess\nimport shutil\nimport sys\n#12333123123\n# ================= 配置部分 =================\nCONFIG = {\n    \"PROJECT_A\": {\n        \"name\": \"app-config-manage\",\n        \"path\": r\"C:\\Users\\40902\\Desktop\\code\\app-config-manage\",\n        \"build_cmd\": \"npm run build-w\",\n        \"out_dir\": \"fz-platform\"\n    },\n    \"PROJECT_B\": {\n        \"name\": \"static-resource\",\n        \"path\": r\"C:\\Users\\40902\\Desktop\\code\\static-resource\",\n        \"target_dir\": os.path.join(\"h5\", \"fz-platform\")\n    },\n    \"BRANCH_TEST\": \"test\",\n    \"FEATURE_BRANCH\": \"feature/证券定投\"\n}\n\ndef update_status(step_msg):\n    \"\"\"更新当前进度文字\"\"\"\n    print(f\"\\n>>>>>>> 【当前进度】 {step_msg} <<<<<<<\", flush=True)\n\ndef run_command(cmd, cwd, step_name):\n    \"\"\"执行命令并实时打印流式日志\"\"\"\n    print(f\"  [执行命令]: {cmd}\", flush=True)\n    process = subprocess.Popen(\n        cmd,\n        cwd=cwd,\n        shell=True,\n        stdout=subprocess.PIPE,\n        stderr=subprocess.STDOUT,\n        bufsize=0,\n        text=False\n    )\n\n    while True:\n        line = process.stdout.readline()\n        if not line and process.poll() is not None:\n            break\n        if line:\n            try:\n                decoded = line.decode('utf-8').strip()\n            except UnicodeDecodeError:\n                decoded = line.decode('gbk', errors='replace').strip()\n            if decoded:\n                print(f\"    | {decoded}\", flush=True)\n\n    process.wait()\n    \n    if process.returncode != 0:\n        print(f\"\\n!!!!!!!! ERROR: {step_name} 失败 (退出码: {process.returncode}) !!!!!!!!\", flush=True)\n        if \"项目B拉取最新\" in step_name:\n            print(\"💡 提示: 请检查项目B本地是否有未提交的修改，建议执行 git checkout . 清理后再运行。\", flush=True)\n        elif \"项目A代码合并\" in step_name:\n            print(\"💡 提示: 可能存在合并冲突，请手动解决冲突后重新运行。\", flush=True)\n        sys.exit(1)\n\ndef main():\n    # --- 0. 提前获取指定分支的 Commit 信息 ---\n    update_status(f\"准备工作: 获取 {CONFIG['FEATURE_BRANCH']} 的最新 Commit\")\n    try:\n        subprocess.run(\"git fetch\", cwd=CONFIG['PROJECT_A']['path'], shell=True, capture_output=True, check=True)\n        commit_msg = subprocess.check_output(\n            f\"git log -1 --pretty=%B {CONFIG['FEATURE_BRANCH']}\", \n            cwd=CONFIG['PROJECT_A']['path'], \n            shell=True\n        ).decode('utf-8', errors='replace').strip()\n        print(f\"    [目标Commit]: {commit_msg}\", flush=True)\n    except Exception as e:\n        print(f\"    ❌ 无法获取分支信息: {e}\", flush=True)\n        sys.exit(1)\n\n    # --- 1. 项目 A 操作 ---\n    update_status(\"项目 A: 切换分支并同步\")\n    run_command(f\"git checkout {CONFIG['BRANCH_TEST']}\", CONFIG['PROJECT_A']['path'], \"项目A切换分支\")\n    run_command(\"git pull\", CONFIG['PROJECT_A']['path'], \"项目A拉取代码\")\n\n    update_status(f\"项目 A: 合并 {CONFIG['FEATURE_BRANCH']}\")\n    run_command(f\"git merge {CONFIG['FEATURE_BRANCH']} --no-edit\", CONFIG['PROJECT_A']['path'], \"项目A代码合并\")\n\n    update_status(\"项目 A: 推送合并结果\")\n    run_command(\"git push\", CONFIG['PROJECT_A']['path'], \"项目A推送代码\")\n\n    update_status(\"项目 A: 执行打包 (Build)\")\n    run_command(CONFIG[\"PROJECT_A\"][\"build_cmd\"], CONFIG[\"PROJECT_A\"][\"path\"], \"项目A构建编译\")\n\n    # --- 2. 验证构建产物是否存在 ---\n    src = os.path.join(CONFIG[\"PROJECT_A\"][\"path\"], CONFIG[\"PROJECT_A\"][\"out_dir\"])\n    if not os.path.exists(src):\n        print(f\"\\n!!!!!!!! ERROR: 构建产物目录不存在: {src} !!!!!!!!\", flush=True)\n        sys.exit(1)\n\n    # --- 3. 项目 B 准备工作 (先 Pull 再 替换) ---\n    update_status(\"项目 B: 切换分支并拉取远程最新代码\")\n    run_command(f\"git checkout {CONFIG['BRANCH_TEST']}\", CONFIG['PROJECT_B']['path'], \"项目B切换分支\")\n    run_command(\"git pull\", CONFIG['PROJECT_B']['path'], \"项目B拉取最新\")\n\n    # --- 4. 文件替换操作 ---\n    update_status(\"文件操作: 将 A 的产物覆盖到 B\")\n    dst = os.path.join(CONFIG[\"PROJECT_B\"][\"path\"], CONFIG[\"PROJECT_B\"][\"target_dir\"])\n    \n    try:\n        if os.path.exists(dst):\n            shutil.rmtree(dst)\n        shutil.copytree(src, dst)\n        print(f\"    ✅ 产物已同步: {src} -> {dst}\", flush=True)\n    except Exception as e:\n        print(f\"    ❌ 文件操作失败: {e}\", flush=True)\n        sys.exit(1)\n\n    # --- 5. 项目 B 提交与推送 ---\n    update_status(\"项目 B: 提交变更并推送\")\n    run_command(\"git add .\", CONFIG['PROJECT_B']['path'], \"项目B暂存文件\")\n    \n    try:\n        status = subprocess.check_output(\n            \"git status --porcelain\", \n            cwd=CONFIG['PROJECT_B']['path'], \n            shell=True\n        ).decode('utf-8')\n        \n        if status.strip():\n            run_command(f'git commit -m \"{commit_msg}\"', CONFIG['PROJECT_B']['path'], \"项目B提交代码\")\n            run_command(\"git push\", CONFIG['PROJECT_B']['path'], \"项目B推送远端\")\n            update_status(\"🎉 【全流程成功完成】\")\n        else:\n            update_status(\"✨ 检查发现产物无变化，无需提交推送\")\n    except Exception as e:\n        print(f\"    ❌ Git状态检查失败: {e}\", flush=True)\n        sys.exit(1)\n\nif __name__ == \"__main__\":\n    try:\n        main()\n    except KeyboardInterrupt:\n        print(\"\\n🛑 用户手动停止\")\n        sys.exit(0)\n    except Exception as e:\n        print(f\"\\n💥 未预期的错误: {e}\", flush=True)\n        sys.exit(1)"
+      }
+    },
+    {
+      "id": "dd5476d7-9e02-4d66-b668-c393ea16b9ff",
+      "target_script_id": "9914a2df-c9ec-4a95-8df0-54c1e2cd02de",
+      "timestamp": "2026-04-03 15:34:32",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "方舟后台合test",
+        "description": "方舟后台hk代码merge到test，build后发到static的test",
+        "script_type": "python",
+        "commands": "import os\nimport subprocess\nimport shutil\nimport sys\n#12333\n# ================= 配置部分 =================\nCONFIG = {\n    \"PROJECT_A\": {\n        \"name\": \"app-config-manage\",\n        \"path\": r\"C:\\Users\\40902\\Desktop\\code\\app-config-manage\",\n        \"build_cmd\": \"npm run build-w\",\n        \"out_dir\": \"fz-platform\"\n    },\n    \"PROJECT_B\": {\n        \"name\": \"static-resource\",\n        \"path\": r\"C:\\Users\\40902\\Desktop\\code\\static-resource\",\n        \"target_dir\": os.path.join(\"h5\", \"fz-platform\")\n    },\n    \"BRANCH_TEST\": \"test\",\n    \"FEATURE_BRANCH\": \"feature/证券定投\"\n}\n\ndef update_status(step_msg):\n    \"\"\"更新当前进度文字\"\"\"\n    print(f\"\\n>>>>>>> 【当前进度】 {step_msg} <<<<<<<\", flush=True)\n\ndef run_command(cmd, cwd, step_name):\n    \"\"\"执行命令并实时打印流式日志\"\"\"\n    print(f\"  [执行命令]: {cmd}\", flush=True)\n    process = subprocess.Popen(\n        cmd,\n        cwd=cwd,\n        shell=True,\n        stdout=subprocess.PIPE,\n        stderr=subprocess.STDOUT,\n        bufsize=0,\n        text=False\n    )\n\n    while True:\n        line = process.stdout.readline()\n        if not line and process.poll() is not None:\n            break\n        if line:\n            try:\n                decoded = line.decode('utf-8').strip()\n            except UnicodeDecodeError:\n                decoded = line.decode('gbk', errors='replace').strip()\n            if decoded:\n                print(f\"    | {decoded}\", flush=True)\n\n    process.wait()\n    \n    if process.returncode != 0:\n        print(f\"\\n!!!!!!!! ERROR: {step_name} 失败 (退出码: {process.returncode}) !!!!!!!!\", flush=True)\n        if \"项目B拉取最新\" in step_name:\n            print(\"💡 提示: 请检查项目B本地是否有未提交的修改，建议执行 git checkout . 清理后再运行。\", flush=True)\n        elif \"项目A代码合并\" in step_name:\n            print(\"💡 提示: 可能存在合并冲突，请手动解决冲突后重新运行。\", flush=True)\n        sys.exit(1)\n\ndef main():\n    # --- 0. 提前获取指定分支的 Commit 信息 ---\n    update_status(f\"准备工作: 获取 {CONFIG['FEATURE_BRANCH']} 的最新 Commit\")\n    try:\n        subprocess.run(\"git fetch\", cwd=CONFIG['PROJECT_A']['path'], shell=True, capture_output=True, check=True)\n        commit_msg = subprocess.check_output(\n            f\"git log -1 --pretty=%B {CONFIG['FEATURE_BRANCH']}\", \n            cwd=CONFIG['PROJECT_A']['path'], \n            shell=True\n        ).decode('utf-8', errors='replace').strip()\n        print(f\"    [目标Commit]: {commit_msg}\", flush=True)\n    except Exception as e:\n        print(f\"    ❌ 无法获取分支信息: {e}\", flush=True)\n        sys.exit(1)\n\n    # --- 1. 项目 A 操作 ---\n    update_status(\"项目 A: 切换分支并同步\")\n    run_command(f\"git checkout {CONFIG['BRANCH_TEST']}\", CONFIG['PROJECT_A']['path'], \"项目A切换分支\")\n    run_command(\"git pull\", CONFIG['PROJECT_A']['path'], \"项目A拉取代码\")\n\n    update_status(f\"项目 A: 合并 {CONFIG['FEATURE_BRANCH']}\")\n    run_command(f\"git merge {CONFIG['FEATURE_BRANCH']} --no-edit\", CONFIG['PROJECT_A']['path'], \"项目A代码合并\")\n\n    update_status(\"项目 A: 推送合并结果\")\n    run_command(\"git push\", CONFIG['PROJECT_A']['path'], \"项目A推送代码\")\n\n    update_status(\"项目 A: 执行打包 (Build)\")\n    run_command(CONFIG[\"PROJECT_A\"][\"build_cmd\"], CONFIG[\"PROJECT_A\"][\"path\"], \"项目A构建编译\")\n\n    # --- 2. 验证构建产物是否存在 ---\n    src = os.path.join(CONFIG[\"PROJECT_A\"][\"path\"], CONFIG[\"PROJECT_A\"][\"out_dir\"])\n    if not os.path.exists(src):\n        print(f\"\\n!!!!!!!! ERROR: 构建产物目录不存在: {src} !!!!!!!!\", flush=True)\n        sys.exit(1)\n\n    # --- 3. 项目 B 准备工作 (先 Pull 再 替换) ---\n    update_status(\"项目 B: 切换分支并拉取远程最新代码\")\n    run_command(f\"git checkout {CONFIG['BRANCH_TEST']}\", CONFIG['PROJECT_B']['path'], \"项目B切换分支\")\n    run_command(\"git pull\", CONFIG['PROJECT_B']['path'], \"项目B拉取最新\")\n\n    # --- 4. 文件替换操作 ---\n    update_status(\"文件操作: 将 A 的产物覆盖到 B\")\n    dst = os.path.join(CONFIG[\"PROJECT_B\"][\"path\"], CONFIG[\"PROJECT_B\"][\"target_dir\"])\n    \n    try:\n        if os.path.exists(dst):\n            shutil.rmtree(dst)\n        shutil.copytree(src, dst)\n        print(f\"    ✅ 产物已同步: {src} -> {dst}\", flush=True)\n    except Exception as e:\n        print(f\"    ❌ 文件操作失败: {e}\", flush=True)\n        sys.exit(1)\n\n    # --- 5. 项目 B 提交与推送 ---\n    update_status(\"项目 B: 提交变更并推送\")\n    run_command(\"git add .\", CONFIG['PROJECT_B']['path'], \"项目B暂存文件\")\n    \n    try:\n        status = subprocess.check_output(\n            \"git status --porcelain\", \n            cwd=CONFIG['PROJECT_B']['path'], \n            shell=True\n        ).decode('utf-8')\n        \n        if status.strip():\n            run_command(f'git commit -m \"{commit_msg}\"', CONFIG['PROJECT_B']['path'], \"项目B提交代码\")\n            run_command(\"git push\", CONFIG['PROJECT_B']['path'], \"项目B推送远端\")\n            update_status(\"🎉 【全流程成功完成】\")\n        else:\n            update_status(\"✨ 检查发现产物无变化，无需提交推送\")\n    except Exception as e:\n        print(f\"    ❌ Git状态检查失败: {e}\", flush=True)\n        sys.exit(1)\n\nif __name__ == \"__main__\":\n    try:\n        main()\n    except KeyboardInterrupt:\n        print(\"\\n🛑 用户手动停止\")\n        sys.exit(0)\n    except Exception as e:\n        print(f\"\\n💥 未预期的错误: {e}\", flush=True)\n        sys.exit(1)"
+      }
+    },
+    {
+      "id": "b494ffaa-c3da-4e67-890e-3cd2da22c0b4",
+      "timestamp": "2026-04-03 14:46:04",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "方舟后台合test",
+        "description": "方舟后台hk代码merge到test，build后发到static的test",
+        "script_type": "python",
+        "commands": "import os\nimport subprocess\nimport shutil\nimport sys\n#123\n# ================= 配置部分 =================\nCONFIG = {\n    \"PROJECT_A\": {\n        \"name\": \"app-config-manage\",\n        \"path\": r\"C:\\Users\\40902\\Desktop\\code\\app-config-manage\",\n        \"build_cmd\": \"npm run build-w\",\n        \"out_dir\": \"fz-platform\"\n    },\n    \"PROJECT_B\": {\n        \"name\": \"static-resource\",\n        \"path\": r\"C:\\Users\\40902\\Desktop\\code\\static-resource\",\n        \"target_dir\": os.path.join(\"h5\", \"fz-platform\")\n    },\n    \"BRANCH_TEST\": \"test\",\n    \"FEATURE_BRANCH\": \"feature/证券定投\"\n}\n\ndef update_status(step_msg):\n    \"\"\"更新当前进度文字\"\"\"\n    print(f\"\\n>>>>>>> 【当前进度】 {step_msg} <<<<<<<\", flush=True)\n\ndef run_command(cmd, cwd, step_name):\n    \"\"\"执行命令并实时打印流式日志\"\"\"\n    print(f\"  [执行命令]: {cmd}\", flush=True)\n    process = subprocess.Popen(\n        cmd,\n        cwd=cwd,\n        shell=True,\n        stdout=subprocess.PIPE,\n        stderr=subprocess.STDOUT,\n        bufsize=0,\n        text=False\n    )\n\n    while True:\n        line = process.stdout.readline()\n        if not line and process.poll() is not None:\n            break\n        if line:\n            try:\n                decoded = line.decode('utf-8').strip()\n            except UnicodeDecodeError:\n                decoded = line.decode('gbk', errors='replace').strip()\n            if decoded:\n                print(f\"    | {decoded}\", flush=True)\n\n    process.wait()\n    \n    if process.returncode != 0:\n        print(f\"\\n!!!!!!!! ERROR: {step_name} 失败 (退出码: {process.returncode}) !!!!!!!!\", flush=True)\n        if \"项目B拉取最新\" in step_name:\n            print(\"💡 提示: 请检查项目B本地是否有未提交的修改，建议执行 git checkout . 清理后再运行。\", flush=True)\n        elif \"项目A代码合并\" in step_name:\n            print(\"💡 提示: 可能存在合并冲突，请手动解决冲突后重新运行。\", flush=True)\n        sys.exit(1)\n\ndef main():\n    # --- 0. 提前获取指定分支的 Commit 信息 ---\n    update_status(f\"准备工作: 获取 {CONFIG['FEATURE_BRANCH']} 的最新 Commit\")\n    try:\n        subprocess.run(\"git fetch\", cwd=CONFIG['PROJECT_A']['path'], shell=True, capture_output=True, check=True)\n        commit_msg = subprocess.check_output(\n            f\"git log -1 --pretty=%B {CONFIG['FEATURE_BRANCH']}\", \n            cwd=CONFIG['PROJECT_A']['path'], \n            shell=True\n        ).decode('utf-8', errors='replace').strip()\n        print(f\"    [目标Commit]: {commit_msg}\", flush=True)\n    except Exception as e:\n        print(f\"    ❌ 无法获取分支信息: {e}\", flush=True)\n        sys.exit(1)\n\n    # --- 1. 项目 A 操作 ---\n    update_status(\"项目 A: 切换分支并同步\")\n    run_command(f\"git checkout {CONFIG['BRANCH_TEST']}\", CONFIG['PROJECT_A']['path'], \"项目A切换分支\")\n    run_command(\"git pull\", CONFIG['PROJECT_A']['path'], \"项目A拉取代码\")\n\n    update_status(f\"项目 A: 合并 {CONFIG['FEATURE_BRANCH']}\")\n    run_command(f\"git merge {CONFIG['FEATURE_BRANCH']} --no-edit\", CONFIG['PROJECT_A']['path'], \"项目A代码合并\")\n\n    update_status(\"项目 A: 推送合并结果\")\n    run_command(\"git push\", CONFIG['PROJECT_A']['path'], \"项目A推送代码\")\n\n    update_status(\"项目 A: 执行打包 (Build)\")\n    run_command(CONFIG[\"PROJECT_A\"][\"build_cmd\"], CONFIG[\"PROJECT_A\"][\"path\"], \"项目A构建编译\")\n\n    # --- 2. 验证构建产物是否存在 ---\n    src = os.path.join(CONFIG[\"PROJECT_A\"][\"path\"], CONFIG[\"PROJECT_A\"][\"out_dir\"])\n    if not os.path.exists(src):\n        print(f\"\\n!!!!!!!! ERROR: 构建产物目录不存在: {src} !!!!!!!!\", flush=True)\n        sys.exit(1)\n\n    # --- 3. 项目 B 准备工作 (先 Pull 再 替换) ---\n    update_status(\"项目 B: 切换分支并拉取远程最新代码\")\n    run_command(f\"git checkout {CONFIG['BRANCH_TEST']}\", CONFIG['PROJECT_B']['path'], \"项目B切换分支\")\n    run_command(\"git pull\", CONFIG['PROJECT_B']['path'], \"项目B拉取最新\")\n\n    # --- 4. 文件替换操作 ---\n    update_status(\"文件操作: 将 A 的产物覆盖到 B\")\n    dst = os.path.join(CONFIG[\"PROJECT_B\"][\"path\"], CONFIG[\"PROJECT_B\"][\"target_dir\"])\n    \n    try:\n        if os.path.exists(dst):\n            shutil.rmtree(dst)\n        shutil.copytree(src, dst)\n        print(f\"    ✅ 产物已同步: {src} -> {dst}\", flush=True)\n    except Exception as e:\n        print(f\"    ❌ 文件操作失败: {e}\", flush=True)\n        sys.exit(1)\n\n    # --- 5. 项目 B 提交与推送 ---\n    update_status(\"项目 B: 提交变更并推送\")\n    run_command(\"git add .\", CONFIG['PROJECT_B']['path'], \"项目B暂存文件\")\n    \n    try:\n        status = subprocess.check_output(\n            \"git status --porcelain\", \n            cwd=CONFIG['PROJECT_B']['path'], \n            shell=True\n        ).decode('utf-8')\n        \n        if status.strip():\n            run_command(f'git commit -m \"{commit_msg}\"', CONFIG['PROJECT_B']['path'], \"项目B提交代码\")\n            run_command(\"git push\", CONFIG['PROJECT_B']['path'], \"项目B推送远端\")\n            update_status(\"🎉 【全流程成功完成】\")\n        else:\n            update_status(\"✨ 检查发现产物无变化，无需提交推送\")\n    except Exception as e:\n        print(f\"    ❌ Git状态检查失败: {e}\", flush=True)\n        sys.exit(1)\n\nif __name__ == \"__main__\":\n    try:\n        main()\n    except KeyboardInterrupt:\n        print(\"\\n🛑 用户手动停止\")\n        sys.exit(0)\n    except Exception as e:\n        print(f\"\\n💥 未预期的错误: {e}\", flush=True)\n        sys.exit(1)"
+      }
+    },
+    {
+      "id": "015d6b6e-67ab-4191-ad59-dd517df9774f",
+      "timestamp": "2026-04-03 14:10:22",
+      "prompt": "python给我一个打印当前时间的",
+      "data": {
+        "trigger": "printtime",
+        "description": "使用Python打印当前系统时间，格式为YYYY-MM-DD HH:MM:SS",
+        "script_type": "python",
+        "commands": "import datetime\nimport sys\n\ndef main():\n    \"\"\"\n    主函数：获取并打印当前时间\n    \"\"\"\n    try:\n        # 获取当前时间\n        current_time = datetime.datetime.now()\n        \n        # 格式化为易读的字符串\n        formatted_time = current_time.strftime(\"%Y-%m-%d %H:%M:%S\")\n        \n        # 打印结果\n        print(f\"当前系统时间: {formatted_time}\")\n        \n        # 成功退出\n        sys.exit(0)\n        \n    except Exception as e:\n        # 捕获并处理所有异常\n        print(f\"错误: 无法获取当前时间 - {e}\", file=sys.stderr)\n        sys.exit(1)\n\nif __name__ == \"__main__\":\n    main()"
+      }
+    },
+    {
+      "id": "906f3cee-822c-4b56-a415-d2d7a4d1cb88",
+      "timestamp": "2026-04-03 14:09:40",
+      "prompt": "123",
+      "data": {
+        "trigger": "systeminfo",
+        "description": "显示当前Windows 11系统的详细信息，包括操作系统版本、系统启动时间、处理器、内存、网络适配器等配置信息。",
+        "script_type": "batch",
+        "commands": "@echo off\nchcp 65001 >nul\necho ========================================\necho Windows 11 系统信息查询脚本\necho ========================================\necho.\n\nREM 检查系统版本\nver | findstr /i \"Windows 11\" >nul\nif %errorlevel% neq 0 (\n    echo [错误] 当前系统不是Windows 11，脚本将退出。\n    exit /b 1\n)\n\necho [步骤1/4] 正在获取系统基本信息...\nsysteminfo | findstr /c:\"OS 名称\" /c:\"OS 版本\" /c:\"系统制造商\" /c:\"系统型号\" /c:\"系统类型\" /c:\"系统启动时间\" /c:\"处理器\" /c:\"物理内存总量\"\nif %errorlevel% neq 0 (\n    echo [警告] 获取系统基本信息时遇到问题。\n)\n\necho.\necho [步骤2/4] 正在获取磁盘信息...\nwmic logicaldisk get caption,size,freespace\nif %errorlevel% neq 0 (\n    echo [警告] 获取磁盘信息时遇到问题。\n)\n\necho.\necho [步骤3/4] 正在获取网络适配器信息...\nipconfig | findstr /c:\"IPv4\" /c:\"适配器\"\nif %errorlevel% neq 0 (\n    echo [警告] 获取网络适配器信息时遇到问题。\n)\n\necho.\necho [步骤4/4] 正在获取用户信息...\necho 用户名: %USERNAME%\necho 计算机名: %COMPUTERNAME%\necho 用户域: %USERDOMAIN%\n\necho.\necho ========================================\necho 系统信息查询完成。\necho ========================================"
+      }
+    }
+  ]
+}
