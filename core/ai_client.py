@@ -22,14 +22,18 @@ def call_deepseek_stream(text: str, api_key: str, sys_prompt: str = None):
                 },
                 {"role": "user", "content": text},
             ],
-            max_tokens=800 if sys_prompt else 160,
+            max_tokens=4096 if sys_prompt else 160,
             stream=True,
         )
         for chunk in stream:
+            if not chunk.choices:
+                continue
             delta = chunk.choices[0].delta.content
             if delta:
                 print(f"[DeepSeek] chunk: {delta!r}")
                 yield delta
+            if chunk.choices[0].finish_reason == "length":
+                yield "❌ AI 请求失败：生成内容遭到阶段截断，当前需求过于复杂（超出了模型单次最大输出限制），建议将其拆分为更小的任务步骤。"
         print("[DeepSeek] 流式完成")
     except Exception as e:
         import traceback
@@ -49,10 +53,12 @@ def call_deepseek_sync(prompt: str, api_key: str, sys_prompt: str) -> str:
                 {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=800,
+            max_tokens=4096,
             stream=False,
         )
         result = resp.choices[0].message.content
+        if resp.choices[0].finish_reason == "length":
+            raise Exception("生成内容遭到阶段截断，当前需求过于复杂（超出了模型单次最大输出限制），建议拆分需求。")
         print("[DeepSeek] 同步请求完成")
         return result
     except Exception as e:

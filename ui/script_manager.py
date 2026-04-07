@@ -246,6 +246,118 @@ class ThemeConfirmDialog(QDialog):
         outer.addWidget(card)
 
 
+class ThemeInputDialog(QDialog):
+    def __init__(self, parent, title: str, text: str, default_input: str = "", ok_text: str = "确定", ok_color: str = "#d090f0"):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedSize(600, 450)
+        
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+        
+        card = QWidget()
+        card.setStyleSheet("""
+            QWidget {
+                background-color: #1c1a14;
+                border-radius: 12px;
+                border: 1px solid rgba(192, 140, 30, 0.3);
+            }
+            QLabel { border: none; background: transparent; }
+        """)
+        
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(24)
+        shadow.setXOffset(0)
+        shadow.setYOffset(8)
+        shadow.setColor(QColor(0, 0, 0, 180))
+        card.setGraphicsEffect(shadow)
+        
+        vbox = QVBoxLayout(card)
+        vbox.setContentsMargins(20, 20, 20, 16)
+        vbox.setSpacing(14)
+        
+        title_lay = QHBoxLayout()
+        title_lay.setContentsMargins(0, 0, 0, 0)
+        title_lay.setSpacing(8)
+        
+        try:
+            from PyQt6.QtGui import QPixmap
+            import os
+            logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logo.png")
+            if os.path.exists(logo_path):
+                logo_lbl = QLabel()
+                pix = QPixmap(logo_path)
+                logo_lbl.setPixmap(pix.scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                title_lay.addWidget(logo_lbl)
+        except Exception:
+            pass
+
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet("color: #e8d89a; font-size: 15px; font-weight: bold;")
+        title_lay.addWidget(title_lbl)
+        title_lay.addStretch()
+        vbox.addLayout(title_lay)
+        
+        text_lbl = QLabel(text)
+        text_lbl.setWordWrap(True)
+        text_lbl.setStyleSheet("color: #c0b89a; font-size: 13px;")
+        vbox.addWidget(text_lbl)
+        
+        self.input_edit = QTextEdit()
+        self.input_edit.setPlainText(default_input)
+        self.input_edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.input_edit.setStyleSheet("""
+            QTextEdit {
+                background: #141210; border: 1px solid rgba(192,140,30,0.18);
+                border-radius: 6px; color: #ede5d0; font-size: 13px;
+                padding: 10px; font-family: Consolas, 'Courier New', monospace;
+            }
+            QTextEdit:focus { border-color: rgba(192,140,30,0.65); }
+            QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
+            QScrollBar::handle:vertical { background: rgba(192,140,30,0.28); border-radius: 3px; min-height: 20px; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+        """)
+        vbox.addWidget(self.input_edit)
+        
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        
+        cancel_b = QPushButton("取消")
+        cancel_b.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_b.setFixedSize(64, 30)
+        cancel_b.setStyleSheet("""
+            QPushButton { background: transparent; color: #8a7a5a;
+                border: 1px solid rgba(138,122,90,0.3); border-radius: 6px; font-size: 12px; }
+            QPushButton:hover { background: rgba(138,122,90,0.1); color: #c0b89a; }
+        """)
+        cancel_b.clicked.connect(self.reject)
+        
+        ok_b = QPushButton(ok_text)
+        ok_b.setCursor(Qt.CursorShape.PointingHandCursor)
+        ok_b.setFixedHeight(30)
+        ok_b.setStyleSheet(f"""
+            QPushButton {{ background: rgba(160,80,200,0.15); color: {ok_color};
+                border: 1px solid rgba(160,80,200,0.3); border-radius: 6px; font-size: 12px; padding: 0 16px; font-weight: bold; }}
+            QPushButton:hover {{ background: rgba(160,80,200,0.3); border-color: rgba(200,100,240,0.4); }}
+        """)
+        ok_b.clicked.connect(self.accept)
+        
+        btn_row.addWidget(cancel_b)
+        btn_row.addWidget(ok_b)
+        vbox.addLayout(btn_row)
+        outer.addWidget(card)
+        
+    def getText(self) -> str:
+        return self.input_edit.toPlainText()
+    
+    @classmethod
+    def getMultiLineText(cls, parent, title, label, text=""):
+        dlg = cls(parent, title, label, text)
+        ok = dlg.exec() == QDialog.DialogCode.Accepted
+        return dlg.getText(), ok
+
+
 from PyQt6.QtWidgets import QStackedWidget, QSplitter, QTabWidget
 
 class _RunTabWidget(QWidget):
@@ -935,7 +1047,6 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         if isinstance(prefix_req, bool):  # 防御 clicked 信号掺入 bool 参数
             prefix_req = ""
             
-        from PyQt6.QtWidgets import QInputDialog
         import os
         from dotenv import load_dotenv
         load_dotenv()
@@ -952,7 +1063,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         if not prefix_req and is_edit:
             prefix_req = getattr(self, "_desc_input", None).toPlainText().strip() if hasattr(self, "_desc_input") else ""
 
-        req, ok = QInputDialog.getMultiLineText(self, dlg_title, dlg_label, text=prefix_req)
+        req, ok = ThemeInputDialog.getMultiLineText(self, dlg_title, dlg_label, text=prefix_req)
         if ok and req.strip():
             self._generate_script_from_ai(req.strip(), api_key)
 
