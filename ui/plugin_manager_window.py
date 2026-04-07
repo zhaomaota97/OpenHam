@@ -314,7 +314,7 @@ class PluginManagerWindow(OpenHamWindowBase):
     closed = pyqtSignal()
     
     def __init__(self):
-        super().__init__(title="🔌  插件管理", shadow_size=_SHADOW, min_w=_PM_CARD_W, min_h=_PM_CARD_H)
+        super().__init__(title="🔌  插件管理", shadow_size=0, min_w=_PM_CARD_W, min_h=_PM_CARD_H)
         
         self.items = []
         self._build_ui()

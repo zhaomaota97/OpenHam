@@ -11,7 +11,7 @@ _SHADOW    = 24          # 阴影溢出留边
 _CARD_W    = 640         # 卡片宽度
 _WIN_W     = _CARD_W + _SHADOW * 2
 
-_SM_SHADOW = 10
+_SM_SHADOW = 0
 _SM_CARD_W = 960
 
 from PyQt6.QtWidgets import QStackedWidget
@@ -179,29 +179,27 @@ from PyQt6.QtWidgets import QDialog
 class ThemeConfirmDialog(QDialog):
     def __init__(self, parent, title: str, text: str, ok_text: str = "确认删除", ok_color: str = "#e66"):
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog |
+            Qt.WindowType.NoDropShadowWindowHint
+        )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        
+            
         self.setFixedSize(340, 180)
         
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setContentsMargins(0, 0, 0, 0)
         
         card = QWidget()
         card.setStyleSheet("""
             QWidget {
                 background-color: #1c1a14;
                 border-radius: 12px;
-                border: 1px solid rgba(192, 140, 30, 0.3);
+                border: 1px solid rgba(192, 140, 30, 0.45);
             }
             QLabel { border: none; background: transparent; }
         """)
-        
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(24)
-        shadow.setXOffset(0)
-        shadow.setYOffset(8)
-        shadow.setColor(QColor(0, 0, 0, 180))
-        card.setGraphicsEffect(shadow)
         
         vbox = QVBoxLayout(card)
         vbox.setContentsMargins(20, 20, 20, 16)
@@ -249,29 +247,27 @@ class ThemeConfirmDialog(QDialog):
 class ThemeInputDialog(QDialog):
     def __init__(self, parent, title: str, text: str, default_input: str = "", ok_text: str = "确定", ok_color: str = "#d090f0"):
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog |
+            Qt.WindowType.NoDropShadowWindowHint
+        )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        
+            
         self.setFixedSize(600, 450)
         
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setContentsMargins(0, 0, 0, 0)
         
         card = QWidget()
         card.setStyleSheet("""
             QWidget {
                 background-color: #1c1a14;
                 border-radius: 12px;
-                border: 1px solid rgba(192, 140, 30, 0.3);
+                border: 1px solid rgba(192, 140, 30, 0.45);
             }
             QLabel { border: none; background: transparent; }
         """)
-        
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(24)
-        shadow.setXOffset(0)
-        shadow.setYOffset(8)
-        shadow.setColor(QColor(0, 0, 0, 180))
-        card.setGraphicsEffect(shadow)
         
         vbox = QVBoxLayout(card)
         vbox.setContentsMargins(20, 20, 20, 16)
@@ -499,7 +495,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     ai_gen_progress = pyqtSignal(int)
 
     def __init__(self):
-        super().__init__(title="⚡  脚本配置", shadow_size=_SM_SHADOW, min_w=_SM_CARD_W, min_h=600)
+        super().__init__(title="⚡  脚本配置", shadow_size=0, min_w=_SM_CARD_W, min_h=600)
         self._drag_pos = None
         self._has_been_shown = False
         self._current_id: str | None = None
@@ -514,9 +510,13 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self.ai_gen_progress.connect(self._on_ai_gen_progress)
 
         self._build_ui()
-        self.resize(_SM_CARD_W + _SM_SHADOW * 2, 760)
-        self.show_window_centered(_SM_CARD_W, 760)
-        self.hide()
+        self.resize(_SM_CARD_W, 760)
+        # 仅预设位置，不调用 show()，避免启动时闪烁
+        from PyQt6.QtWidgets import QApplication
+        screen = QApplication.primaryScreen().availableGeometry()
+        x = (screen.width()  - _SM_CARD_W) // 2
+        y = max(50, (screen.height() - 760) // 2 - 50)
+        self.move(x, y)
 
     # ── UI 构建 ────────────────────────────────────────────────────────────
 
@@ -1521,9 +1521,20 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
         else:
             import sys as _sys
+            import os as _os
+            
+            base_dir = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            portable_py = _os.path.join(base_dir, "runtime", "python.exe")
+            if _os.path.exists(portable_py):
+                py_exe = portable_py
+            elif getattr(_sys, 'frozen', False):
+                py_exe = "python"
+            else:
+                py_exe = _sys.executable
+
             _EXT   = {"python": ".py", "powershell": ".ps1", "batch": ".bat"}
             _CMD   = {
-                "python":     [_sys.executable],
+                "python":     [py_exe],
                 "powershell": ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"],
                 "batch":      [],
             }

@@ -24,7 +24,11 @@ def _show_toast(title: str, message: str):
 def _make_tray_icon() -> QIcon:
     logo_path = os.path.join(_base_dir(), "logo.png")
     if os.path.exists(logo_path):
-        return QIcon(logo_path)
+        from PyQt6.QtCore import Qt
+        pixmap = QPixmap(logo_path)
+        # 平滑缩放消除硬截图产生的毛边现象
+        pixmap = pixmap.scaled(64, 64, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        return QIcon(pixmap)
     size = 64
     px = QPixmap(size, size)
     px.fill(QColor(0, 0, 0, 0))

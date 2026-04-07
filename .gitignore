@@ -4,3 +4,18 @@ build/
 __pycache__/
 .env
 watched.json
+
+# 便携 Python 运行时的第三方依赖（用户自行安装）
+runtime/Lib/site-packages/
+# runtime 目录下的 Scripts（pip 等工具生成）
+runtime/Scripts/
+# 依赖已安装标记（用户本地生成）
+runtime/.deps_ok
+
+# 脚本工作区（用户数据）
+ui/script_manager/workspace/
+
+# 编译产出的启动器和辅助脚本
+OpenHam.exe
+make_ico.py
+logo.ico

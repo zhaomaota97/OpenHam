@@ -1,17 +1,17 @@
 from PyQt6.QtWidgets import (QWidget, QLineEdit, QLabel, QVBoxLayout,
                              QHBoxLayout, QApplication,
-                             QGraphicsDropShadowEffect, QFrame,
+                             QFrame,
                              QListWidget, QListWidgetItem)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import QKeyEvent, QColor, QPixmap
+from PyQt6.QtGui import QKeyEvent, QPixmap
 import ctypes
 import os
 from core.script_engine import evaluate_expr, preview
 
 MAX_LENGTH = 200  # AI 模式下允许输入更长的内容
-_SHADOW    = 36          # 阴影溢出留边 (在 High-DPI 下 DropShadow.blurRadius=48 可能外溢超边界)
+_SHADOW    = 0           # 无阴影留边，窗口矩形 = 卡片本身
 _CARD_W    = 640         # 卡片宽度
-_WIN_W     = _CARD_W + _SHADOW * 2
+_WIN_W     = _CARD_W
 
 
 def _win_force_foreground(hwnd: int):
@@ -92,16 +92,20 @@ class InputWindow(QWidget):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
+            Qt.WindowType.Tool |
+            Qt.WindowType.NoDropShadowWindowHint
         )
-        # 透明背景，让投影可以渲染到窗口边界之外
+        # 必须保留：使卡片 border-radius 圆角区域真正透明（DWM 合成）
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
         self.setFixedWidth(_WIN_W)
+        
+        
 
     def _build_ui(self):
-        # 外层留出阴影空间
+        # 外层无留边，窗口矩形 = 卡片本身
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(_SHADOW, _SHADOW, _SHADOW, _SHADOW)
+        outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
         # ── 卡片 ──────────────────────────────────────────
@@ -111,7 +115,7 @@ class InputWindow(QWidget):
             #card {
                 background-color: #1c1a14;
                 border-radius: 12px;
-                border: 1px solid rgba(192, 140, 30, 0.22);
+                border: 1px solid rgba(192, 140, 30, 0.45);
             }
             QLineEdit {
                 background: transparent;
@@ -141,13 +145,6 @@ class InputWindow(QWidget):
                 min-height: 20px;
             }
         """)
-
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(48)
-        shadow.setXOffset(0)
-        shadow.setYOffset(12)
-        shadow.setColor(QColor(8, 5, 0, 220))
-        self.card.setGraphicsEffect(shadow)
 
         card_layout = QVBoxLayout(self.card)
         card_layout.setContentsMargins(20, 14, 20, 12)

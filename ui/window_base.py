@@ -1,10 +1,10 @@
 import os
 import ctypes
 import ctypes.wintypes
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QGraphicsDropShadowEffect,
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout,
                               QApplication, QHBoxLayout, QLabel, QPushButton, QSizeGrip)
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QIcon
+from PyQt6.QtGui import QIcon
 
 def _base_dir() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -35,7 +35,7 @@ class OpenHamWindowBase(QWidget):
     置顶（无闪烁 Win32 API）、任务栏图标及注入式子类标题按钮区。
     """
 
-    def __init__(self, title: str = "", shadow_size: int = 10,
+    def __init__(self, title: str = "", shadow_size: int = 0,
                  min_w: int = 600, min_h: int = 400):
         super().__init__()
 
@@ -45,11 +45,18 @@ class OpenHamWindowBase(QWidget):
         self.setWindowFlags(
             Qt.WindowType.Window |
             Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.NoDropShadowWindowHint
         )
+        # 必须保留：使卡片 border-radius 圆角区域真正透明（DWM 合成）
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setMinimumWidth(min_w + shadow_size * 2)
-        self.setMinimumHeight(min_h + shadow_size * 2)
+
+        self.setObjectName("OpenHamWindowBase")
+        self.setStyleSheet("#OpenHamWindowBase { background: transparent; }")
+
+        self.setMinimumWidth(min_w)
+        self.setMinimumHeight(min_h)
+        
 
         # 任务栏标题 & 图标
         self.setWindowTitle(title)
@@ -57,13 +64,13 @@ class OpenHamWindowBase(QWidget):
         if os.path.exists(logo):
             self.setWindowIcon(QIcon(logo))
 
-        self.shadow_size = shadow_size
+        self.shadow_size = 0
         self._drag_pos = None
         self.is_pinned = True   # 初始置顶
 
-        # ── 外层布局（留阴影空白） ─────────────────────────────────
+        # ── 外层布局 ─────────────────────────────────────────────
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(shadow_size, shadow_size, shadow_size, shadow_size)
+        outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
         # ── 卡片 ──────────────────────────────────────────────────
@@ -73,15 +80,9 @@ class OpenHamWindowBase(QWidget):
             #card {
                 background-color: #1e1c14;
                 border-radius: 10px;
-                border: 1px solid rgba(192, 140, 30, 0.32);
+                border: 1px solid rgba(192, 140, 30, 0.45);
             }
         """)
-        shadow_eff = QGraphicsDropShadowEffect(self)
-        shadow_eff.setBlurRadius(40)
-        shadow_eff.setXOffset(0)
-        shadow_eff.setYOffset(10)
-        shadow_eff.setColor(QColor(0, 0, 0, 210))
-        self.card.setGraphicsEffect(shadow_eff)
 
         self.card_layout = QVBoxLayout(self.card)
         self.card_layout.setContentsMargins(0, 0, 0, 0)
