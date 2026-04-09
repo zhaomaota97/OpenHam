@@ -7,6 +7,7 @@ from PyQt6.QtGui import QKeyEvent, QPixmap
 import ctypes
 import os
 from core.script_engine import evaluate_expr, preview
+from utils.window_effects import disable_native_window_effects
 
 MAX_LENGTH = 200  # AI 模式下允许输入更长的内容
 _SHADOW    = 0           # 无阴影留边，窗口矩形 = 卡片本身
@@ -44,6 +45,7 @@ class InputWindow(QWidget):
     def __init__(self):
         super().__init__()
         self._hiding = False
+        self._native_effects_disabled = False
         self._history: list[str] = []   # 提交历史，用于 ↑ 键回调
         self._history_idx = -1          # -1 = 当前未浏览历史
         self._build_ui()
@@ -480,6 +482,9 @@ class InputWindow(QWidget):
         self.move(x, y)
         self._just_shown = True
         self.show()
+        if not self._native_effects_disabled:
+            disable_native_window_effects(int(self.winId()))
+            self._native_effects_disabled = True
         self.raise_()
         # 延迟激活，确保窗口完全渲染后再抢夺焦点（解决 Windows 下 Tool 窗口无法获得输入的问题）
         QTimer.singleShot(50, self._force_focus)

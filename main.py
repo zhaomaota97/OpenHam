@@ -9,11 +9,12 @@ import re
 from dotenv import load_dotenv
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QAction
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QAction, QKeySequence
 import keyboard as kb
 
 from ui import InputWindow, ScriptManagerOverlay
 from ui.plugin_manager_window import PluginManagerWindow
+from ui.settings_window import SettingsWindow
 from ui.tray import _make_tray_icon, _show_toast
 from core.script_engine import execute, set_script_overlay
 from core.ai_client import call_deepseek_stream
@@ -48,13 +49,30 @@ def load_api_key():
     return api_key
 
 
+def _format_hotkey_label(hotkey: str) -> str:
+    text = hotkey.replace("<", "").replace(">", "")
+    parts = [p.strip() for p in text.split("+") if p.strip()]
+    pretty = []
+    for part in parts:
+        lower = part.lower()
+        if lower == "ctrl":
+            pretty.append("Ctrl")
+        elif lower == "alt":
+            pretty.append("Alt")
+        elif lower == "shift":
+            pretty.append("Shift")
+        elif lower == "space":
+            pretty.append("Space")
+        else:
+            pretty.append(part.upper() if lower.startswith("f") else part.capitalize())
+    return "+".join(pretty)
 
 
 def main():
     _mutex = _ensure_single_instance()
 
     config = load_config()
-    hotkey_str = config.get("hotkey", "ctrl+f11")
+    hotkey_str = config.get("hotkey", "<alt>+<space>")
     # 兼容 pynput 风格的配置（如果在 config.json 里写了 <alt> 需要剥离尖括号）
     clean_hotkey = hotkey_str.replace("<", "").replace(">", "")
     api_key = load_api_key()
@@ -66,6 +84,7 @@ def main():
     # ── 浮层组件 ──
     script_overlay = ScriptManagerOverlay()
     plugin_manager_overlay = PluginManagerWindow()
+    settings_window = SettingsWindow(config)
     set_script_overlay(script_overlay)
     
     signal = HotkeySignal()
@@ -85,13 +104,47 @@ def main():
     # -- 系统托盘 --
     tray = QSystemTrayIcon(_make_tray_icon(), app)
     tray.setToolTip(f"OpenHam  ({hotkey_str})")
+    hotkey_label = _format_hotkey_label(hotkey_str)
 
     tray_menu = QMenu()
-    action_show = tray_menu.addAction("打开OpenHam")
+    tray_menu.setStyleSheet("""
+        QMenu {
+            background-color: #fcfcfc;
+            color: #111111;
+            border: none;
+            border-radius: 8px;
+            padding: 4px 0;
+        }
+        QMenu::item {
+            background-color: transparent;
+            padding: 4px 14px;
+            margin: 0 3px;
+            border-radius: 4px;
+        }
+        QMenu::item:selected {
+            background-color: #e6e6e6;
+            color: #111111;
+        }
+        QMenu::item:disabled {
+            color: #8f8f8f;
+            background-color: transparent;
+        }
+        QMenu::separator {
+            height: 1px;
+            background: #dddddd;
+            margin: 6px 10px;
+        }
+    """)
+    action_title = tray_menu.addAction("OpenHam 0.1.0")
+    action_title.setEnabled(False)
+    action_show = tray_menu.addAction("打开主窗口")
+    action_show.setShortcut(QKeySequence(hotkey_label))
+    action_show.setShortcutVisibleInContextMenu(True)
     action_script_config = tray_menu.addAction("脚本配置")
-    action_plugin_config = tray_menu.addAction("插件配置")
+    action_plugin_config = tray_menu.addAction("插件管理")
+    action_settings = tray_menu.addAction("设置...")
     tray_menu.addSeparator()
-    action_quit = tray_menu.addAction("退出")
+    action_quit = tray_menu.addAction("Exit")
     
     # 向插件注册底层能力
     plugin_api.register_handler("get_tray_menu", lambda: tray_menu)
@@ -107,10 +160,17 @@ def main():
     action_show.triggered.connect(window.show_window)
     action_script_config.triggered.connect(script_overlay.open)
     action_plugin_config.triggered.connect(plugin_manager_overlay.show_window)
+    action_settings.triggered.connect(settings_window.show_window)
     action_quit.triggered.connect(app.quit)
     tray.setContextMenu(tray_menu)
-    # 忽略 PyQt6 中的 ActivationReason C++ Enum 转换 BUG
-    tray.activated.connect(lambda: window.show_window())
+    def _on_tray_activated(reason):
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            window.show_window()
+
+    tray.activated.connect(_on_tray_activated)
     tray.show()
 
     window.show_window()

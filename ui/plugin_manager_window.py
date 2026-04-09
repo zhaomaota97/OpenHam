@@ -11,8 +11,8 @@ from core.plugin_manager import (ALL_PLUGINS_META, get_plugin_config,
 from utils.paths import _base_dir
 
 _SHADOW = 20
-_PM_CARD_W = 800
-_PM_CARD_H = 700
+_PM_CARD_W = 960
+_PM_CARD_H = 760
 
 def _win_force_foreground(hwnd: int):
     """强制获取焦点的系统级钩子"""
@@ -319,6 +319,9 @@ class PluginManagerWindow(OpenHamWindowBase):
         self.items = []
         self._build_ui()
         self._load_data()
+        self.resize(_PM_CARD_W, _PM_CARD_H)
+        self.setWindowTitle("插件管理")
+        self.title_lbl.setText("插件管理")
         
     def _build_ui(self):
         self.btn_open_folder = QPushButton("📂 打开目录")
@@ -485,6 +488,7 @@ class PluginManagerWindow(OpenHamWindowBase):
         self.move(x, y)
         
         self.show()
+        self._apply_native_window_state()
         self.raise_()
         import threading
         # Call force foreground after a tiny delay

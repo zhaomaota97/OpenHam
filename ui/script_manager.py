@@ -496,6 +496,8 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
     def __init__(self):
         super().__init__(title="⚡  脚本配置", shadow_size=0, min_w=_SM_CARD_W, min_h=600)
+        self.setWindowTitle("脚本配置")
+        self.title_lbl.setText("脚本配置")
         self._drag_pos = None
         self._has_been_shown = False
         self._current_id: str | None = None
@@ -975,7 +977,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                     return
 
         self._stop_run_timer()
-        self.title_lbl.setText("⚡  脚本配置")
+        self.title_lbl.setText("脚本配置")
         self._new_btn.show()
         self._back_btn.hide()
         self._left_stack.setCurrentIndex(0)
@@ -984,7 +986,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     def _go_new(self):
         import uuid
         self._current_id = str(uuid.uuid4())
-        self.title_lbl.setText("⚡  新建脚本")
+        self.title_lbl.setText("新建脚本")
         self._new_btn.hide()
         self._back_btn.show()
         self._trigger_input.clear()
@@ -1004,7 +1006,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         if not s:
             return
         self._current_id = sid
-        self.title_lbl.setText("⚡  编辑脚本")
+        self.title_lbl.setText("编辑脚本")
         self._new_btn.hide()
         self._back_btn.show()
         self._trigger_input.setText(s.get("trigger", ""))
@@ -1373,6 +1375,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                 if not self._has_been_shown:
                     self._reposition()
                 self.show()
+                self._apply_native_window_state()
                 self.raise_()
         else:
             run_tab = _RunTabWidget()  # silent: create but don't add to tab widget
@@ -1669,6 +1672,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         if not self._has_been_shown:
             self._reposition()
         self.show()
+        self._apply_native_window_state()
         self.raise_()
 
     def run_trigger(self, trigger: str, silent: bool = False) -> bool:

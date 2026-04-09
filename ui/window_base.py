@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout,
                               QApplication, QHBoxLayout, QLabel, QPushButton, QSizeGrip)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
+from utils.window_effects import disable_native_window_effects
 
 def _base_dir() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -44,8 +45,9 @@ class OpenHamWindowBase(QWidget):
         # WindowStaysOnTopHint  → 初始置顶（可通过 toggle_pin 切换）
         self.setWindowFlags(
             Qt.WindowType.Window |
+            Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowMinimizeButtonHint |
             Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint |
             Qt.WindowType.NoDropShadowWindowHint
         )
         # 必须保留：使卡片 border-radius 圆角区域真正透明（DWM 合成）
@@ -65,8 +67,9 @@ class OpenHamWindowBase(QWidget):
             self.setWindowIcon(QIcon(logo))
 
         self.shadow_size = 0
+        self._native_effects_disabled = False
         self._drag_pos = None
-        self.is_pinned = True   # 初始置顶
+        self.is_pinned = False   # 默认不置顶
 
         # ── 外层布局 ─────────────────────────────────────────────
         outer = QVBoxLayout(self)
@@ -118,7 +121,7 @@ class OpenHamWindowBase(QWidget):
         tb.addStretch()
 
         # 固定按钮
-        self.pin_btn = QPushButton("📌")
+        self.pin_btn = QPushButton("📍")
         self.pin_btn.setFixedSize(30, 30)
         self.pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.pin_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -185,6 +188,14 @@ class OpenHamWindowBase(QWidget):
         y = max(50, (screen.height() - self.height()) // 2 - 50)
         self.move(x, y)
         self.show()
+        self._apply_native_window_state()
+
+    def _apply_native_window_state(self):
+        hwnd = int(self.winId())
+        _set_topmost_native(hwnd, self.is_pinned)
+        if not self._native_effects_disabled:
+            disable_native_window_effects(hwnd)
+            self._native_effects_disabled = True
 
     # ── 拖拽 ──────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 Add-Type -AssemblyName System.Drawing
 
-# 1. 用 Python 无损封装 PNG 为 ICO（保持原图各种透明度与色彩）
-& ".\runtime\python.exe" make_ico.py
+# 1. 内存级手动生成 100% 确保画质和全系 Windows 兼容性的 32位 ICO
+& .\make_ico.ps1
 
 # 2. Find csc.exe
 $csc = (Get-ChildItem "C:\Windows\Microsoft.NET\Framework64" -Recurse -Filter "csc.exe" |

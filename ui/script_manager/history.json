@@ -1,6 +1,18 @@
 {
   "records": [
     {
+      "id": "ab7e37cf-d8fb-460c-8322-a2e766d4551c",
+      "target_script_id": "ee9c2fd2-7ff5-4b7c-8acf-d74e4c211aec",
+      "timestamp": "2026-04-08 18:34:05",
+      "prompt": "💾 手动存档",
+      "data": {
+        "trigger": "printheart",
+        "description": "使用Python打印一个ASCII艺术风格的心形图案，并在图案下方输出数字123",
+        "script_type": "python",
+        "commands": "#!/usr/bin/env python3\n\"\"\"\nASCII心形图案打印脚本\n功能：打印ASCII艺术风格的心形图案，并在图案下方输出数字123\n\"\"\"\n\nimport sys\n\ndef print_ascii_heart():\n    \"\"\"打印ASCII心形图案\"\"\"\n    try:\n        # ASCII心形图案数据\n        heart_lines = [\n            \"  ****     ****  \",\n            \" ******   ****** \",\n            \"******** ********\",\n            \" *************** \",\n            \"  *************  \",\n            \"   ***********   \",\n            \"    *********    \",\n            \"     *******     \",\n            \"      *****      \",\n            \"       ***       \",\n            \"        *        \"\n        ]\n        \n        print(\"[INFO] 开始打印ASCII心形图案...\")\n        \n        # 打印心形图案\n        for line in heart_lines:\n            print(line)\n            \n        print(\"[INFO] ASCII心形图案打印完成！\")\n        \n    except Exception as e:\n        print(f\"[ERROR] 打印心形图案时发生错误: {e}\", file=sys.stderr)\n        sys.exit(1)\n\ndef print_number_123():\n    \"\"\"打印数字123\"\"\"\n    try:\n        print(\"[INFO] 开始打印数字123...\")\n        print(\"123\")\n        print(\"[INFO] 数字123打印完成！\")\n    except Exception as e:\n        print(f\"[ERROR] 打印数字时发生错误: {e}\", file=sys.stderr)\n        sys.exit(1)\n\ndef main():\n    \"\"\"主函数\"\"\"\n    print(\"=\" * 50)\n    print(\"ASCII心形图案与数字打印程序\")\n    print(\"=\" * 50)\n    \n    try:\n        # 打印心形图案\n        print_ascii_heart()\n        \n        # 添加空行分隔\n        print()\n        \n        # 打印数字123\n        print_number_123()\n        \n        print(\"=\" * 50)\n        print(\"[SUCCESS] 程序执行完成！\")\n        print(\"=\" * 50)\n        \n    except KeyboardInterrupt:\n        print(\"\\n[INFO] 用户中断程序执行\")\n        sys.exit(0)\n    except Exception as e:\n        print(f\"[ERROR] 程序执行过程中发生未预期错误: {e}\", file=sys.stderr)\n        sys.exit(1)\n\nif __name__ == \"__main__\":\n    main()"
+      }
+    },
+    {
       "id": "2792a5bb-5327-45b6-802d-ec8b2e79d2ee",
       "target_script_id": "eafb38aa-9f81-4b14-ba8f-af38583e6e99",
       "timestamp": "2026-04-07 11:07:06",
