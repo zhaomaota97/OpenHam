@@ -94,7 +94,7 @@ const $=id=>document.getElementById(id);
 function setStatus(t){ $("status").textContent=t; }
 
 // ── 主流程 ────────────────────────────────────────────────────
-let ws=null, selfId=null, room=null;
+let ws=null, selfId=null, room=null, myNick="玩家";
 let meta=null, parts={}, partCount=0;
 
 $("join").onclick=connect;
@@ -104,7 +104,7 @@ const qcode=new URLSearchParams(location.search).get("code");
 if (qcode) $("code").value=qcode;
 
 function connect(){
-  const nick=$("nick").value.trim()||"玩家";
+  const nick=$("nick").value.trim()||"玩家"; myNick=nick;
   let roomCode;
   try { roomCode=decodeMeow($("code").value); }
   catch(e){ setStatus("⚠️ "+e.message); return; }
@@ -192,7 +192,7 @@ async function runGame(buf){
 
   // 注入 OpenHam 桥（与桌面端同形）。iframe 与父页用 postMessage 通信（跨域安全）
   const bridge=`<script>
-    window.OpenHam={me:${JSON.stringify(selfId)},isHost:false,_cbs:[],
+    window.OpenHam={me:${JSON.stringify(selfId)},name:${JSON.stringify(myNick)},isHost:false,_cbs:[],
       send:function(o){ parent.postMessage({__oh:1,payload:o},"*"); },
       on:function(cb){ this._cbs.push(cb); }};
     window.addEventListener("message",function(e){

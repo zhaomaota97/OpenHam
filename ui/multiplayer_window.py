@@ -294,7 +294,8 @@ class MultiplayerWindow(OpenHamWindowBase):
             from ui.game_window import GameWindow  # 延迟加载，避免未玩游戏时也载入 WebEngine
             self._game_win = GameWindow(self._on_game_send, self._broadcast_chat)
         self._game_win.load_game(
-            info["entry_path"], self.client.self_id or "", self.client.is_host, info["name"]
+            info["entry_path"], self.client.self_id or "", self.client.is_host,
+            info["name"], self._nickname()
         )
         self._game_win.show_window_centered()
         self._game_win.raise_()

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>打仓鼠</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;margin:0;overflow:hidden;touch-action:manipulation;
+    font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;
+    background:linear-gradient(#2a2516,#14130d);color:#ede5d0;
+    display:flex;flex-direction:column;align-items:center;}
+  #top{width:100%;max-width:560px;padding:8px 12px;display:flex;align-items:center;gap:10px;}
+  #timer{font-size:22px;font-weight:bold;color:#c09030;min-width:64px;}
+  #scores{flex:1;display:flex;gap:6px;overflow-x:auto;}
+  .sc{background:rgba(192,140,30,.14);border:1px solid rgba(192,140,30,.3);
+    border-radius:14px;padding:4px 10px;font-size:13px;white-space:nowrap;}
+  .sc b{color:#f0d89a;}
+  .sc.me{background:rgba(192,140,30,.32);}
+  #grid{flex:1;width:100%;max-width:560px;padding:10px;display:grid;
+    grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:min(3vw,18px);}
+  .hole{position:relative;border-radius:50%/40%;overflow:hidden;
+    background:radial-gradient(ellipse at 50% 35%,#3a3119,#241d0e);
+    box-shadow:inset 0 -8px 14px rgba(0,0,0,.55);}
+  .ham{position:absolute;left:8%;bottom:0;width:84%;transform:translateY(105%);
+    transition:transform .12s cubic-bezier(.3,1.4,.6,1);}
+  .hole.up .ham{transform:translateY(8%);}
+  .lip{position:absolute;left:0;right:0;bottom:-2px;height:30%;border-radius:50%;
+    background:linear-gradient(#5a4a24,#3a2f16);box-shadow:0 -2px 6px rgba(0,0,0,.4);}
+  .bonk{position:absolute;left:50%;top:30%;transform:translate(-50%,-50%) scale(0);
+    font-size:min(11vw,52px);pointer-events:none;}
+  .bonk.show{animation:pop .4s ease-out;}
+  @keyframes pop{0%{transform:translate(-50%,-50%) scale(.2);opacity:1;}
+    100%{transform:translate(-50%,-90%) scale(1.3);opacity:0;}}
+  #banner{position:fixed;inset:0;display:none;flex-direction:column;gap:14px;
+    align-items:center;justify-content:center;background:rgba(20,19,13,.92);z-index:5;}
+  #banner h2{color:#c09030;font-size:30px;margin:0;}
+  #banner button{background:#c08c1e;color:#1c1a14;border:none;border-radius:10px;
+    padding:14px 28px;font-size:17px;font-weight:bold;}
+  #hint{color:#8a7c5c;font-size:13px;padding-bottom:8px;}
+</style>
+</head>
+<body>
+  <div id="top"><div id="timer">--</div><div id="scores"></div></div>
+  <div id="grid"></div>
+  <div id="hint">点冒出来的仓鼠得分！</div>
+  <div id="banner"><h2 id="winner"></h2><button id="again">再来一局</button></div>
+
+<script>
+const N=9, ROUND=60;
+const grid=document.getElementById("grid"), scoresEl=document.getElementById("scores");
+const timerEl=document.getElementById("timer"), banner=document.getElementById("banner");
+
+// 仓鼠 SVG（内联美术，矢量自适应高清屏）
+function hamSVG(){
+  return `<svg class="ham" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <ellipse cx="26" cy="34" rx="13" ry="13" fill="#b78a4e"/>
+    <ellipse cx="74" cy="34" rx="13" ry="13" fill="#b78a4e"/>
+    <ellipse cx="26" cy="34" rx="7" ry="7" fill="#e9c89a"/>
+    <ellipse cx="74" cy="34" rx="7" ry="7" fill="#e9c89a"/>
+    <ellipse cx="50" cy="60" rx="38" ry="36" fill="#caa46a"/>
+    <ellipse cx="50" cy="74" rx="24" ry="20" fill="#ecd6ad"/>
+    <circle cx="30" cy="70" r="9" fill="#f0b6b0" opacity=".75"/>
+    <circle cx="70" cy="70" r="9" fill="#f0b6b0" opacity=".75"/>
+    <ellipse cx="37" cy="55" rx="6.5" ry="7.5" fill="#2c2218"/>
+    <ellipse cx="63" cy="55" rx="6.5" ry="7.5" fill="#2c2218"/>
+    <circle cx="39" cy="52" r="2.2" fill="#fff"/>
+    <circle cx="65" cy="52" r="2.2" fill="#fff"/>
+    <ellipse cx="50" cy="66" rx="4.5" ry="3.2" fill="#7a3b3b"/>
+    <path d="M50 69 q-6 6 -12 4 M50 69 q6 6 12 4" stroke="#7a3b3b" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <rect x="46" y="71" width="3.4" height="6" rx="1" fill="#fff"/>
+    <rect x="50.6" y="71" width="3.4" height="6" rx="1" fill="#fff"/>
+  </svg>`;
+}
+const holes=[];
+for (let i=0;i<N;i++){
+  const h=document.createElement("div"); h.className="hole";
+  h.innerHTML=hamSVG()+'<div class="lip"></div><div class="bonk">💥</div>';
+  h.addEventListener("pointerdown",()=>tap(i));
+  grid.appendChild(h); holes.push(h);
+}
+function setUp(i,up){ holes[i].classList.toggle("up",up); }
+function bonk(i){ const b=holes[i].querySelector(".bonk"); b.classList.remove("show"); void b.offsetWidth; b.classList.add("show"); }
+
+// ── 游戏状态 ──
+let players={};   // id -> {name, score}
+let up=Array(N).fill(false);
+let tLeft=ROUND, over=false, started=false;
+
+function isPlayer(id){ return !!players[id]; }
+function tap(i){
+  if (over || !up[i] || !isPlayer(OpenHam.me)) return;
+  bonk(i); setUp(i,false);                 // 本地即时反馈
+  OpenHam.send({k:"hit", i:i});
+}
+
+// ── OpenHam 接入 ──
+window.OpenHamReady=function(){
+  OpenHam.on(onMsg);
+  if (OpenHam.isHost){
+    players[OpenHam.me]={name:OpenHam.name||"房主",score:0};
+    started=true; hostStart();
+  } else {
+    OpenHam.send({k:"hello", name:OpenHam.name});
+  }
+  render();
+};
+
+function onMsg(m){
+  if (OpenHam.isHost){
+    if (m.k==="hello"){
+      if (!players[m._id] && Object.keys(players).length<6)
+        players[m._id]={name:m.name||m._from||"玩家",score:0};
+    } else if (m.k==="hit" && players[m._id] && up[m.i] && !over){
+      up[m.i]=false; players[m._id].score++;
+    }
+  } else {
+    if (m.k==="st"){
+      up=m.up; tLeft=m.t; over=m.over;
+      players={}; m.pl.forEach(p=>players[p.id]={name:p.name,score:p.score});
+      render();
+      if (over) showBanner(m.win);
+    }
+  }
+}
+
+// ── 房主：出鼠 / 计时 / 广播 ──
+function hostStart(){
+  setInterval(()=>{                                   // 出鼠
+    if (over) return;
+    const empty=[]; for(let i=0;i<N;i++) if(!up[i]) empty.push(i);
+    if (empty.length){
+      const i=empty[Math.floor(Math.random()*empty.length)];
+      up[i]=true; setTimeout(()=>{ up[i]=false; }, 750+Math.random()*500);
+    }
+  }, 650);
+  setInterval(()=>{ if(!over){ tLeft--; if(tLeft<=0){ tLeft=0; over=true; } } }, 1000); // 计时
+  setInterval(broadcast, 100);                         // 广播
+  setInterval(()=>{ if(OpenHam.isHost){ for(let i=0;i<N;i++) setUp(i,up[i]); } }, 100); // 房主自渲染洞
+  setInterval(()=>{ if(OpenHam.isHost){ render(); if(over) showBanner(winnerName()); } }, 250);
+}
+function broadcast(){
+  if (!OpenHam.isHost) return;
+  const pl=Object.keys(players).map(id=>({id,name:players[id].name,score:players[id].score}));
+  OpenHam.send({k:"st", up:up, pl:pl, t:tLeft, over:over, win:over?winnerName():""});
+}
+function winnerName(){
+  let best=null; for(const id in players) if(!best||players[id].score>best.score) best=players[id];
+  return best?best.name+"（"+best.score+"分）":"无人";
+}
+
+// ── 渲染 ──
+function render(){
+  timerEl.textContent="⏱ "+tLeft;
+  if (!OpenHam.isHost) for(let i=0;i<N;i++) setUp(i,up[i]);
+  const arr=Object.keys(players).map(id=>({id,...players[id]})).sort((a,b)=>b.score-a.score);
+  scoresEl.innerHTML=arr.map(p=>
+    `<div class="sc${p.id===OpenHam.me?' me':''}">${esc(p.name)} <b>${p.score}</b></div>`).join("");
+}
+function showBanner(win){
+  document.getElementById("winner").textContent="🏆 "+win;
+  banner.style.display="flex";
+}
+document.getElementById("again").onclick=function(){
+  if (!OpenHam.isHost){ banner.style.display="none"; return; }
+  for(const id in players) players[id].score=0;
+  up=Array(N).fill(false); tLeft=ROUND; over=false; banner.style.display="none";
+};
+function esc(s){ return (s+"").replace(/[<>&]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[c])); }
+</script>
+</body>
+</html>

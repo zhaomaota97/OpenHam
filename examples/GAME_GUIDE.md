@@ -44,6 +44,7 @@
 // 桥就绪后回调——在这里初始化你的游戏，别在全局直接用 OpenHam（可能还没就绪）
 window.OpenHamReady = function () {
   OpenHam.me;        // 字符串：自己的玩家 id（唯一）
+  OpenHam.name;      // 字符串：自己的昵称（可用于记分榜显示）
   OpenHam.isHost;    // 布尔：自己是不是房主（建房的人 = 第一个进来的）
 
   // 接收其他玩家发来的消息
@@ -93,6 +94,12 @@ OpenHam.send({ k: "move", x: 1, y: 2 });
 - 自适应屏幕：canvas 用固定内部坐标 + CSS `max-width/max-height` 缩放，坐标换算用 `getBoundingClientRect()`。
 - 只用标准 Web API，别用需要联网的 CDN/外链资源。
 
+### 美术素材
+
+优先**内联 SVG**（矢量，高清屏锐利、随屏幕缩放、零外部文件，最适合手机）。
+也可用 emoji 当贴图，或把图片转成 `data:` URI 内联。
+尽量别用单独的图片文件——沙箱 iframe 里外链资源不一定能加载，单文件最稳。
+
 ---
 
 ## 5. 最小模板（可直接改）
@@ -135,5 +142,6 @@ window.OpenHamReady = function () {
 
 - `games/tictactoe/` —— 回合制（井字棋），最简单的双人同步。
 - `games/pong/` —— 实时动作（弹球对战），演示房主当裁判 + hello 握手 + 超员观战。
+- `games/whack/` —— 移动端优先（打仓鼠），演示内联 SVG 美术 + 多人抢分 + 记分榜。
 
 照着这两个例子改，是最快的方式。

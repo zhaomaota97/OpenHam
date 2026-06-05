@@ -34,13 +34,14 @@ def _qwebchannel_js() -> str:
     return ""
 
 
-def _bridge_init_js(self_id: str, is_host: bool) -> str:
+def _bridge_init_js(self_id: str, is_host: bool, name: str = "玩家") -> str:
     return _qwebchannel_js() + """
     (function(){
       new QWebChannel(qt.webChannelTransport, function(channel){
         var bridge = channel.objects.openham_bridge;
         window.OpenHam = {
           me: %s,
+          name: %s,
           isHost: %s,
           _cbs: [],
           send: function(obj){ bridge.send(JSON.stringify(obj)); },
@@ -53,7 +54,7 @@ def _bridge_init_js(self_id: str, is_host: bool) -> str:
         if (typeof window.OpenHamReady === 'function') window.OpenHamReady();
       });
     })();
-    """ % (json.dumps(self_id), "true" if is_host else "false")
+    """ % (json.dumps(self_id), json.dumps(name), "true" if is_host else "false")
 
 
 class _Bridge(QObject):
@@ -152,7 +153,8 @@ class GameWindow(OpenHamWindowBase):
         if not self._chat_panel.isVisible():
             self._chat_btn.setText("🔴")
 
-    def load_game(self, entry_path: str, self_id: str, is_host: bool, name: str = "游戏"):
+    def load_game(self, entry_path: str, self_id: str, is_host: bool,
+                  name: str = "游戏", player_name: str = "玩家"):
         self.title_lbl.setText(f"游戏 · {name}")
         # 注入桥脚本（DocumentCreation 时机，确保游戏脚本运行前 OpenHam 就绪）
         self.page.scripts().clear()
@@ -161,7 +163,7 @@ class GameWindow(OpenHamWindowBase):
         script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
         script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         script.setRunsOnSubFrames(False)
-        script.setSourceCode(_bridge_init_js(self_id, is_host))
+        script.setSourceCode(_bridge_init_js(self_id, is_host, player_name))
         self.page.scripts().insert(script)
 
         self.view.load(QUrl.fromLocalFile(entry_path))
