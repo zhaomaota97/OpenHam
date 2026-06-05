@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>OpenHam 联机</title>
+<style>
+  html,body{height:100%;margin:0;background:#1c1a14;color:#ede5d0;
+    font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;}
+  #lobby{max-width:420px;margin:0 auto;padding:32px 20px;display:flex;flex-direction:column;gap:16px;}
+  h1{color:#c09030;font-size:22px;margin:8px 0 4px;text-align:center;}
+  .hint{color:#8a7c5c;font-size:13px;text-align:center;line-height:1.6;}
+  input{background:#272416;color:#ede5d0;border:1px solid rgba(192,140,30,.45);
+    border-radius:10px;padding:14px;font-size:17px;outline:none;}
+  input:focus{border-color:#c09030;}
+  button{background:#c08c1e;color:#1c1a14;border:none;border-radius:10px;
+    padding:15px;font-size:17px;font-weight:bold;cursor:pointer;}
+  button:disabled{background:#6f6247;color:#2a251a;}
+  #status{color:#9fd0c0;font-size:14px;text-align:center;min-height:20px;}
+  #stage{position:fixed;inset:0;background:#1c1a14;display:none;}
+  #game{width:100%;height:100%;border:none;}
+  #bar{position:fixed;top:0;left:0;right:0;height:0;}
+  /* 游戏内聊天浮层 */
+  #chatBtn{position:fixed;bottom:14px;left:14px;z-index:20;width:50px;height:50px;border-radius:25px;
+    background:rgba(192,140,30,.92);color:#1c1a14;font-size:22px;border:none;display:none;
+    box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:pointer;}
+  #chatPanel{position:fixed;bottom:74px;left:14px;z-index:20;width:min(86vw,330px);height:min(52vh,380px);
+    background:rgba(28,25,18,.97);border:1px solid rgba(192,140,30,.5);border-radius:12px;
+    display:none;flex-direction:column;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.5);}
+  #chatLog{flex:1;overflow-y:auto;padding:10px;font-size:14px;color:#d8cfb8;line-height:1.5;}
+  #chatLog .sys{color:#6f6a55;}
+  #chatRow{display:flex;border-top:1px solid rgba(192,140,30,.3);}
+  #chatText{flex:1;background:transparent;border:none;color:#ede5d0;padding:13px;font-size:15px;outline:none;}
+  #chatSend{background:transparent;border:none;color:#c09030;font-weight:bold;padding:0 16px;cursor:pointer;}
+</style>
+</head>
+<body>
+  <div id="lobby">
+    <h1>🐹 OpenHam 联机</h1>
+    <div class="hint">输入房间口令，加入朋友的房间一起玩。<br>无需安装，浏览器直接玩。</div>
+    <input id="nick" placeholder="你的昵称" autocomplete="off">
+    <input id="code" placeholder="粘贴房间口令（喵～…～喵）" autocomplete="off">
+    <button id="join">进入游戏</button>
+    <div id="status"></div>
+  </div>
+  <div id="stage"><iframe id="game" sandbox="allow-scripts"></iframe></div>
+  <button id="chatBtn">💬</button>
+  <div id="chatPanel">
+    <div id="chatLog"></div>
+    <div id="chatRow"><input id="chatText" placeholder="发言…" autocomplete="off"><button id="chatSend">发送</button></div>
+  </div>
+
+<script>
+// ── 喵咪密码解码 ──────────────────────────────────────────────
+const MEOW = {"0":"喵喵","1":"喵咪","2":"喵呜","3":"喵嗷","4":"咪喵",
+              "5":"咪咪","6":"咪呜","7":"咪嗷","8":"呜喵","9":"呜咪"};
+const RMEOW = {}; for (const k in MEOW) RMEOW[MEOW[k]] = k;
+function decodeMeow(s){
+  s = (s||"").replace(/\s+/g,"");
+  if (s.startsWith("喵～")) s = s.slice(2);
+  if (s.endsWith("～喵")) s = s.slice(0,-2);
+  if (s.length !== 12) throw new Error("口令长度不对");
+  let out = "";
+  for (let i=0;i<12;i+=2){ const t=s.substr(i,2); if(!(t in RMEOW)) throw new Error("无法识别的口令"); out+=RMEOW[t]; }
+  return out;
+}
+
+// ── 工具 ──────────────────────────────────────────────────────
+function b64ToU8(b64){ const bin=atob(b64); const u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i); return u; }
+async function inflateRaw(u8){
+  const ds=new DecompressionStream("deflate-raw");
+  const ab=await new Response(new Response(u8).body.pipeThrough(ds)).arrayBuffer();
+  return new Uint8Array(ab);
+}
+// 解析 Python zipfile(ZIP_DEFLATED) 生成的 zip：逐个本地文件头读取
+async function unzip(buf){
+  const dv=new DataView(buf), td=new TextDecoder(); let off=0; const files={};
+  while (off+4 <= buf.byteLength){
+    if (dv.getUint32(off,true) !== 0x04034b50) break;     // 到中央目录则停止
+    const method=dv.getUint16(off+8,true);
+    const compSize=dv.getUint32(off+18,true);
+    const nameLen=dv.getUint16(off+26,true);
+    const extraLen=dv.getUint16(off+28,true);
+    const name=td.decode(new Uint8Array(buf,off+30,nameLen));
+    const dataStart=off+30+nameLen+extraLen;
+    const comp=new Uint8Array(buf,dataStart,compSize);
+    files[name]= method===0 ? comp : await inflateRaw(comp);
+    off=dataStart+compSize;
+  }
+  return files;
+}
+
+const $=id=>document.getElementById(id);
+function setStatus(t){ $("status").textContent=t; }
+
+// ── 主流程 ────────────────────────────────────────────────────
+let ws=null, selfId=null, room=null;
+let meta=null, parts={}, partCount=0;
+
+$("join").onclick=connect;
+$("code").addEventListener("keydown",e=>{ if(e.key==="Enter") connect(); });
+// 支持链接带口令：?code=喵～…～喵
+const qcode=new URLSearchParams(location.search).get("code");
+if (qcode) $("code").value=qcode;
+
+function connect(){
+  const nick=$("nick").value.trim()||"玩家";
+  let roomCode;
+  try { roomCode=decodeMeow($("code").value); }
+  catch(e){ setStatus("⚠️ "+e.message); return; }
+  $("join").disabled=true; setStatus("正在连接…");
+
+  ws=new WebSocket("ws://"+location.host+"/");
+  ws.onopen=()=>{ ws.send(JSON.stringify({type:"join",room:roomCode,name:nick})); };
+  ws.onmessage=ev=>onMsg(JSON.parse(ev.data));
+  ws.onclose=()=>{ setStatus("连接已断开"); $("join").disabled=false; };
+  ws.onerror=()=>{ setStatus("连接失败，检查网络或服务器"); $("join").disabled=false; };
+}
+
+function onMsg(m){
+  if (m.type==="welcome") return;
+  if (m.type==="joined"){
+    selfId=m.self_id; room=m.room;
+    $("chatBtn").style.display="block";
+    setStatus("已进房，等待房主发布游戏…（房主请在电脑上点「发布游戏」）");
+  } else if (m.type==="peer_join"){
+    addChat(null, (m.name||"有人")+" 加入了房间");
+  } else if (m.type==="peer_leave"){
+    addChat(null, "有人离开了房间");
+  } else if (m.type==="error"){
+    setStatus("⚠️ "+(m.msg||m.code)); $("join").disabled=false;
+  } else if (m.type==="relay"){
+    const d=m.data||{};
+    if (d.t==="game_meta"){ meta=d; parts={}; partCount=0; setStatus("正在接收游戏「"+d.name+"」…"); }
+    else if (d.t==="game_chunk"){ onChunk(d); }
+    else if (d.t==="game_msg"){ deliver(d.payload, m); }
+    else if (d.t==="chat"){ addChat(m.name||"?", d.text); }
+  }
+}
+
+// ── 游戏内聊天 ────────────────────────────────────────────────
+$("chatBtn").onclick=()=>{
+  const p=$("chatPanel"); const show=p.style.display!=="flex";
+  p.style.display=show?"flex":"none";
+  if (show){ $("chatText").focus(); $("chatBtn").textContent="💬"; }
+};
+$("chatSend").onclick=sendChat;
+$("chatText").addEventListener("keydown",e=>{ if(e.key==="Enter") sendChat(); });
+function sendChat(){
+  const t=$("chatText").value.trim();
+  if (!t || !ws || ws.readyState!==1) return;
+  ws.send(JSON.stringify({type:"relay",data:{t:"chat",text:t}}));
+  addChat("我",t,true); $("chatText").value="";
+}
+function esc(s){ return (s+"").replace(/[<>&]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[c])); }
+function addChat(name,text,mine){
+  const l=$("chatLog"); const d=document.createElement("div");
+  if (name===null){ d.className="sys"; d.textContent="— "+text+" —"; }
+  else { d.innerHTML='<b style="color:'+(mine?"#c9b173":"#9fd0c0")+'">'+esc(name)+'</b>：'+esc(text); }
+  l.appendChild(d); l.scrollTop=l.scrollHeight;
+  if ($("chatPanel").style.display!=="flex") $("chatBtn").textContent="🔴";
+}
+
+async function onChunk(d){
+  if (!meta) return;
+  parts[d.seq]=d.b64; partCount++;
+  setStatus("接收中 "+Math.round(partCount/meta.chunks*100)+"%");
+  if (partCount>=meta.chunks){
+    // 拼接 → zip 字节
+    let total=0; const arrs=[];
+    for (let i=0;i<meta.chunks;i++){ const u=b64ToU8(parts[i]); arrs.push(u); total+=u.length; }
+    const zip=new Uint8Array(total); let o=0; for(const a of arrs){ zip.set(a,o); o+=a.length; }
+    try { await runGame(zip.buffer); }
+    catch(e){ setStatus("⚠️ 打开游戏失败："+e.message); }
+  }
+}
+
+async function runGame(buf){
+  const files=await unzip(buf);
+  const td=new TextDecoder();
+  let entry="index.html", name="游戏";
+  if (files["manifest.json"]){ try{ const mf=JSON.parse(td.decode(files["manifest.json"])); entry=mf.entry||entry; name=mf.name||name; }catch(e){} }
+  if (!files[entry]) throw new Error("缺少入口 "+entry);
+  let html=td.decode(files[entry]);
+
+  // 多文件：把其它资源做成 blob URL，替换 HTML 中对它们的引用（尽力而为）
+  for (const fn in files){
+    if (fn===entry || fn==="manifest.json") continue;
+    const url=URL.createObjectURL(new Blob([files[fn]]));
+    html=html.split('"'+fn+'"').join('"'+url+'"').split("'"+fn+"'").join("'"+url+"'");
+  }
+
+  // 注入 OpenHam 桥（与桌面端同形）。iframe 与父页用 postMessage 通信（跨域安全）
+  const bridge=`<script>
+    window.OpenHam={me:${JSON.stringify(selfId)},isHost:false,_cbs:[],
+      send:function(o){ parent.postMessage({__oh:1,payload:o},"*"); },
+      on:function(cb){ this._cbs.push(cb); }};
+    window.addEventListener("message",function(e){
+      var d=e.data; if(!d||!d.__oh_in) return;
+      window.OpenHam._cbs.forEach(function(cb){ try{cb(d.payload);}catch(err){console.error(err);} });
+    });
+    document.addEventListener("DOMContentLoaded",function(){
+      if (typeof window.OpenHamReady==="function") window.OpenHamReady(); });
+  <\/script>`;
+  $("game").srcdoc=bridge+html;
+  $("lobby").style.display="none";
+  $("stage").style.display="block";
+}
+
+// iframe 游戏 → 父页（postMessage）→ relay
+window.addEventListener("message",function(e){
+  const d=e.data;
+  if (d && d.__oh && ws && ws.readyState===1)
+    ws.send(JSON.stringify({type:"relay",data:{t:"game_msg",payload:d.payload}}));
+});
+// relay → iframe 游戏（postMessage）。附带发送者 _from(昵称)/_id(玩家id)
+function deliver(payload, m){
+  const w=$("game").contentWindow;
+  if (!w) return;
+  let p=payload;
+  if (p && typeof p==="object") p=Object.assign({},p,{_from:m&&m.name,_id:m&&m.from});
+  w.postMessage({__oh_in:1,payload:p},"*");
+}
+</script>
+</body>
+</html>

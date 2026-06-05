@@ -18,6 +18,8 @@ import secrets
 import logging
 
 import websockets
+from websockets.http11 import Response
+from websockets.datastructures import Headers
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,11 +30,34 @@ log = logging.getLogger("relay")
 
 HOST = os.environ.get("OPENHAM_RELAY_HOST", "0.0.0.0")
 PORT = int(os.environ.get("OPENHAM_RELAY_PORT", "9000"))
-MAX_MEMBERS = 16        # 单房间人数上限
+MAX_MEMBERS = int(os.environ.get("OPENHAM_ROOM_MAX", "16"))  # 单房间人数硬上限（可配）
 ROOM_CODE_LEN = 6       # 房间号位数（与喵咪密码一致）
 PROTOCOL_VERSION = 1
 
 rooms: dict[str, "Room"] = {}  # 房间号 -> Room
+
+# 网页玩家（浏览器/手机访问 http://host:port/ 时返回）
+_PLAYER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "player.html")
+
+
+def _load_player_html() -> bytes:
+    try:
+        with open(_PLAYER_PATH, "rb") as f:
+            return f.read()
+    except Exception:
+        return b"<h1>player.html not found</h1>"
+
+
+async def process_request(connection, request):
+    """非 WebSocket 的普通 HTTP 请求 → 返回网页玩家；WS 升级请求放行。"""
+    if request.headers.get("Upgrade", "").lower() == "websocket":
+        return None
+    body = _load_player_html()
+    headers = Headers([
+        ("Content-Type", "text/html; charset=utf-8"),
+        ("Content-Length", str(len(body))),
+    ])
+    return Response(200, "OK", headers, body)
 
 
 class Client:
@@ -201,7 +226,8 @@ async def handler(ws):
 
 async def main():
     log.info("OpenHam relay 启动于 ws://%s:%d", HOST, PORT)
-    async with websockets.serve(handler, HOST, PORT, ping_interval=20, ping_timeout=20):
+    async with websockets.serve(handler, HOST, PORT, ping_interval=20, ping_timeout=20,
+                                process_request=process_request):
         await asyncio.Future()  # 永久运行
 
 
