@@ -7,23 +7,30 @@
 relay 连接与 asyncio 细节都封装在 core.relay_client 里，本窗口只连信号、调方法。
 """
 import os
+import re
+import json
 import tempfile
+import threading
 
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QPushButton, QLineEdit, QTextEdit, QListWidget,
-    QHBoxLayout, QVBoxLayout, QApplication, QFileDialog,
+    QHBoxLayout, QVBoxLayout, QApplication, QFileDialog, QInputDialog,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 
 from ui.window_base import OpenHamWindowBase
 from core.relay_client import RelayClient
 from core import app_config, meow_code, game_package, game_transfer
 from core.game_package import GamePackageError
+from core.ai_client import call_deepseek_sync
 
 
 class MultiplayerWindow(OpenHamWindowBase):
+    _invent_done = pyqtSignal(object)   # AI 生成游戏结果（后台线程 → UI）
+
     def __init__(self):
-        super().__init__(title="联机", shadow_size=0, min_w=560, min_h=480)
+        super().__init__(title="联机", shadow_size=0, min_w=860, min_h=680)
+        self.resize(860, 680)
         self.title_lbl.setText("联机")
 
         self.client = RelayClient()
@@ -37,6 +44,7 @@ class MultiplayerWindow(OpenHamWindowBase):
 
         self._build_content()
         self._wire_client()
+        self._invent_done.connect(self._on_invent_done)
         self._set_in_room(False)
 
     # ── UI ────────────────────────────────────────────────────────────
@@ -78,9 +86,12 @@ class MultiplayerWindow(OpenHamWindowBase):
         self.copy_btn = QPushButton("复制")
         self.copy_btn.clicked.connect(self._copy_meow)
         self.copy_btn.hide()
+        self.invent_btn = QPushButton("🧠 发明游戏")
+        self.invent_btn.clicked.connect(self._on_invent)
         self.publish_btn = QPushButton("🎮 发布游戏")
         self.publish_btn.clicked.connect(self._on_publish)
         status.addWidget(self.status_lbl, 1)
+        status.addWidget(self.invent_btn)
         status.addWidget(self.publish_btn)
         status.addWidget(self.copy_btn)
         v.addLayout(status)
@@ -266,11 +277,103 @@ class MultiplayerWindow(OpenHamWindowBase):
         except GamePackageError as e:
             self._system(f"⚠️ 打包失败：{e}")
             return
-        name = game_package.package_name(data)
+        self._publish_package(data, game_package.package_name(data))
+
+    def _publish_package(self, data: bytes, name: str):
         self._published = (data, name)
         self._system(f"🎮 已发布游戏「{name}」（{len(data)//1024} KB），正在分发…")
         self._send_game_to(None)          # 广播给房内所有人
         self._open_game(data, name)       # 房主自己也打开
+
+    # ── 发明游戏（AI 生成游戏包）────────────────────────────────────────
+
+    def _on_invent(self):
+        if not self.client.room:
+            self._system("请先建房，再发明游戏")
+            return
+        if not app_config.get_api_key():
+            self._system("⚠️ 未配置 API Key，请在「设置 → AI 模型」中填写")
+            return
+        req, ok = QInputDialog.getMultiLineText(
+            self, "发明游戏",
+            "描述你想要的游戏（玩法、人数、风格等），AI 会现做一个并发布：",
+            "做一个双人猜拳小游戏，手机能玩，要有可爱的美术")
+        req = (req or "").strip()
+        if not ok or not req:
+            return
+        self._system("🧠 AI 正在发明游戏，请稍候（约 10–40 秒）…")
+        self.invent_btn.setEnabled(False)
+        self.publish_btn.setEnabled(False)
+        threading.Thread(target=self._invent_worker, args=(req,), daemon=True).start()
+
+    def _invent_worker(self, req: str):
+        try:
+            html = self._ai_generate_game(req)
+            self._invent_done.emit({"ok": True, "html": html, "req": req})
+        except Exception as e:
+            self._invent_done.emit({"ok": False, "error": str(e)})
+
+    def _ai_generate_game(self, req: str) -> str:
+        guide = self._load_game_guide()
+        sys_prompt = (
+            "你是一名资深的网页小游戏开发者。严格按照下面《OpenHam 游戏包开发规范》，"
+            "根据用户的需求，生成一个【可联机的单文件 index.html 游戏】。"
+            "要求：所有 CSS/JS 内联；适配手机（viewport + pointer 事件 + 自适应）；"
+            "用内联 SVG 或 emoji 当美术；只输出完整 HTML，从 <!DOCTYPE html> 到 </html>，"
+            "不要任何解释、不要 markdown 代码围栏。\n\n" + guide
+        )
+        raw = call_deepseek_sync(req, None, sys_prompt, max_tokens=8192)
+        html = self._extract_html(raw)
+        if "<html" not in html.lower():
+            raise Exception("AI 没有返回有效的 HTML")
+        return html
+
+    def _on_invent_done(self, result: dict):
+        in_room = bool(self.client.room)
+        self.invent_btn.setEnabled(in_room)
+        self.publish_btn.setEnabled(in_room)
+        if not result.get("ok"):
+            self._system(f"⚠️ 生成失败：{result.get('error')}")
+            return
+        name = ("AI·" + result["req"])[:14]
+        try:
+            data = self._pack_html(result["html"], name)
+        except GamePackageError as e:
+            self._system(f"⚠️ 打包失败：{e}")
+            return
+        self._system("✅ 游戏已生成，正在发布…")
+        self._publish_package(data, name)
+
+    def _pack_html(self, html: str, name: str) -> bytes:
+        folder = tempfile.mkdtemp(prefix="openham_invent_")
+        with open(os.path.join(folder, "index.html"), "w", encoding="utf-8") as f:
+            f.write(html)
+        with open(os.path.join(folder, "manifest.json"), "w", encoding="utf-8") as f:
+            json.dump({"name": name, "entry": "index.html"}, f, ensure_ascii=False)
+        return game_package.pack_folder(folder)
+
+    @staticmethod
+    def _load_game_guide() -> str:
+        from utils.paths import _base_dir
+        try:
+            with open(os.path.join(_base_dir(), "examples", "GAME_GUIDE.md"), "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _extract_html(text: str) -> str:
+        t = (text or "").strip()
+        m = re.search(r"```(?:html)?\s*(.*?)```", t, re.S)
+        if m:
+            t = m.group(1).strip()
+        low = t.lower()
+        i = low.find("<!doctype")
+        if i < 0:
+            i = low.find("<html")
+        if i > 0:
+            t = t[i:]
+        return t.strip()
 
     def _send_game_to(self, target):
         if not self._published:
@@ -323,6 +426,7 @@ class MultiplayerWindow(OpenHamWindowBase):
         self.msg_input.setEnabled(in_room)
         self.send_btn.setEnabled(in_room)
         self.publish_btn.setEnabled(in_room)
+        self.invent_btn.setEnabled(in_room)
         self.create_btn.setEnabled(not in_room)
         self.join_btn.setEnabled(not in_room)
         self.meow_input.setEnabled(not in_room)

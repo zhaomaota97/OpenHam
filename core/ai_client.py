@@ -60,7 +60,8 @@ def call_deepseek_stream(text: str, api_key: str | None = None, sys_prompt: str 
         yield f"❌ AI 请求失败：{e}"
 
 
-def call_deepseek_sync(prompt: str, api_key: str | None, sys_prompt: str) -> str:
+def call_deepseek_sync(prompt: str, api_key: str | None, sys_prompt: str,
+                       max_tokens: int = 4096) -> str:
     """非流式调用 DeepSeek，并使用特定的 sys_prompt，常用于约束输出格式。"""
     log.info("同步请求开始")
     try:
@@ -73,7 +74,7 @@ def call_deepseek_sync(prompt: str, api_key: str | None, sys_prompt: str) -> str
                 {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=4096,
+            max_tokens=max_tokens,
             stream=False,
             extra_body=_thinking_extra(),
         )
