@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>弹球对战</title>
+<style>
+  html,body{height:100%;margin:0;background:#14130d;overflow:hidden;
+    font-family:system-ui,"Microsoft YaHei",sans-serif;color:#ede5d0;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;touch-action:none;}
+  #info{font-size:16px;color:#c09030;font-weight:bold;height:22px;}
+  canvas{background:#1c1a14;border:1px solid rgba(192,140,30,.45);border-radius:8px;
+    max-width:96vw;max-height:78vh;touch-action:none;}
+  #tip{font-size:12px;color:#7a6c4a;}
+</style>
+</head>
+<body>
+  <div id="info">连接中…</div>
+  <canvas id="cv" width="600" height="400"></canvas>
+  <div id="tip">移动鼠标 / 手指拖动来控制你的球拍</div>
+
+<script>
+const W=600,H=400,PW=12,PH=72,R=8;
+const cv=document.getElementById("cv"), ctx=cv.getContext("2d"), info=document.getElementById("info");
+
+let role="?";          // "p1"(房主) | "p2" | "spectator"
+let p2id=null;         // 房主记录的对手 id
+let myY=H/2-PH/2;      // 本方球拍 y（本地输入）
+// 权威状态（房主维护；客户端从 state 收）
+let st={bx:W/2,by:H/2,vx:4,vy:3,p1y:H/2-PH/2,p2y:H/2-PH/2,s1:0,s2:0};
+let started=false, frame=0;
+
+window.OpenHamReady=function(){
+  role = OpenHam.isHost ? "p1" : "pending";
+  if (!OpenHam.isHost) OpenHam.send({k:"hello"});   // 向房主报到
+  OpenHam.on(onMsg);
+  requestAnimationFrame(loop);
+  updateInfo();
+};
+
+function onMsg(m){
+  if (OpenHam.isHost){
+    if (m.k==="hello"){
+      if (!p2id){ p2id=m._id; started=true; }   // 第一个报到的当 P2，其余观战
+    } else if (m.k==="paddle" && m._id===p2id){
+      st.p2y=m.y;
+    }
+  } else {
+    if (m.k==="state"){
+      st={bx:m.bx,by:m.by,p1y:m.p1y,p2y:m.p2y,s1:m.s1,s2:m.s2,vx:0,vy:0};
+      // 从 state 推断自己的角色
+      role = (OpenHam.me===m.p2id) ? "p2" : "spectator";
+      started=true; updateInfo();
+    }
+  }
+}
+
+// 输入：指针 y → 本方球拍
+cv.addEventListener("pointermove",e=>{
+  const r=cv.getBoundingClientRect();
+  const y=(e.clientY-r.top)/r.height*H;
+  myY=Math.max(0,Math.min(H-PH,y-PH/2));
+});
+
+function loop(){
+  frame++;
+  if (OpenHam.isHost){
+    st.p1y=myY;
+    if (started) tickBall();
+    // 约 20 次/秒广播权威状态
+    if (frame%3===0)
+      OpenHam.send({k:"state",bx:st.bx,by:st.by,p1y:st.p1y,p2y:st.p2y,s1:st.s1,s2:st.s2,p2id:p2id});
+  } else if (role==="p2"){
+    st.p2y=myY;                       // 本地即时反馈
+    if (frame%2===0) OpenHam.send({k:"paddle",y:myY});
+  }
+  render();
+  requestAnimationFrame(loop);
+}
+
+function tickBall(){
+  st.bx+=st.vx; st.by+=st.vy;
+  if (st.by<R){st.by=R;st.vy*=-1;} if (st.by>H-R){st.by=H-R;st.vy*=-1;}
+  // 左拍
+  if (st.bx-R<PW && st.by>st.p1y && st.by<st.p1y+PH && st.vx<0){
+    st.vx*=-1.06; st.vy+=(st.by-(st.p1y+PH/2))/12;
+  }
+  // 右拍
+  if (st.bx+R>W-PW && st.by>st.p2y && st.by<st.p2y+PH && st.vx>0){
+    st.vx*=-1.06; st.vy+=(st.by-(st.p2y+PH/2))/12;
+  }
+  if (st.bx<0){ st.s2++; resetBall(-1); }
+  if (st.bx>W){ st.s1++; resetBall(1); }
+}
+function resetBall(dir){ st.bx=W/2; st.by=H/2; st.vx=4*dir; st.vy=(Math.random()*4-2); }
+
+function render(){
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle="rgba(192,140,30,.25)"; ctx.setLineDash([6,8]);
+  ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke(); ctx.setLineDash([]);
+  // 球拍：本方用本地 myY，其它从权威状态
+  const p1y = OpenHam.isHost ? myY : st.p1y;
+  const p2y = (role==="p2") ? myY : st.p2y;
+  ctx.fillStyle="#7fd0c0"; ctx.fillRect(0,p1y,PW,PH);
+  ctx.fillStyle="#e0a05a"; ctx.fillRect(W-PW,p2y,PW,PH);
+  ctx.fillStyle="#ede5d0"; ctx.beginPath(); ctx.arc(st.bx,st.by,R,0,7); ctx.fill();
+  ctx.font="bold 34px system-ui"; ctx.fillStyle="rgba(237,229,208,.5)"; ctx.textAlign="center";
+  ctx.fillText(st.s1,W/2-50,46); ctx.fillText(st.s2,W/2+50,46);
+}
+
+function updateInfo(){
+  if (OpenHam.isHost) info.textContent = p2id ? "你是左拍（房主）· 对战中" : "你是左拍（房主）· 等待对手加入…";
+  else if (role==="p2") info.textContent = "你是右拍 · 对战中";
+  else if (role==="spectator") info.textContent = "观战中（房间已满 2 人）";
+  else info.textContent = "已加入，等待开始…";
+}
+</script>
+</body>
+</html>

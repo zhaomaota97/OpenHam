@@ -101,7 +101,7 @@ class MultiplayerWindow(OpenHamWindowBase):
         # 底部：输入 + 发送
         bottom = QHBoxLayout(); bottom.setSpacing(8)
         self.msg_input = QLineEdit()
-        self.msg_input.setPlaceholderText("房内发言")
+        self.msg_input.setPlaceholderText("大厅发言")
         self.msg_input.returnPressed.connect(self._on_send)
         self.send_btn = QPushButton("发送")
         self.send_btn.setObjectName("primary")
@@ -167,9 +167,20 @@ class MultiplayerWindow(OpenHamWindowBase):
         text = self.msg_input.text().strip()
         if not text or not self.client.room:
             return
-        self.client.send_data({"t": "chat", "text": text})
-        self._append(f"我", text, mine=True)
+        self._broadcast_chat(text)
         self.msg_input.clear()
+
+    def _broadcast_chat(self, text: str):
+        """发言：经 relay 广播，并同步显示在大厅与游戏页内。"""
+        if not self.client.room:
+            return
+        self.client.send_data({"t": "chat", "text": text})
+        self._show_chat("我", text, mine=True)
+
+    def _show_chat(self, name: str, text: str, mine: bool = False):
+        self._append(name, text, mine)                 # 大厅记录
+        if self._game_win is not None:
+            self._game_win.add_chat(name, text, mine)  # 游戏页内
 
     def _copy_meow(self):
         if self._room_meow:
@@ -208,6 +219,8 @@ class MultiplayerWindow(OpenHamWindowBase):
     def _on_peer_joined(self, peer: dict):
         self._refresh_members()
         self._system(f"🟢 {peer.get('name')} 加入了房间")
+        if self._game_win is not None:
+            self._game_win.add_chat(None, f"{peer.get('name')} 加入了房间")
         # 房主：已发布的游戏补发给新加入者
         if self._published and self.client.is_host:
             self._send_game_to(peer.get("id"))
@@ -216,6 +229,8 @@ class MultiplayerWindow(OpenHamWindowBase):
     def _on_peer_left(self, _pid: str):
         self._refresh_members()
         self._system("🔴 有人离开了房间")
+        if self._game_win is not None:
+            self._game_win.add_chat(None, "有人离开了房间")
 
     def _on_message(self, m: dict):
         data = m.get("data") or {}
@@ -223,7 +238,7 @@ class MultiplayerWindow(OpenHamWindowBase):
             return
         t = data.get("t")
         if t == "chat":
-            self._append(m.get("name", "?"), str(data.get("text", "")))
+            self._show_chat(m.get("name", "?"), str(data.get("text", "")))
         elif t == "game_meta":
             self._reasm.on_meta(data)
             self._system(f"📥 正在接收游戏「{data.get('name')}」…")
@@ -235,7 +250,7 @@ class MultiplayerWindow(OpenHamWindowBase):
             if self._game_win is not None:
                 payload = data.get("payload")
                 if isinstance(payload, dict):
-                    payload = {**payload, "_from": m.get("name")}
+                    payload = {**payload, "_from": m.get("name"), "_id": m.get("from")}
                 self._game_win.deliver(payload)
 
     # ── 游戏：发布 / 接收 / 打开 ────────────────────────────────────────
@@ -277,7 +292,7 @@ class MultiplayerWindow(OpenHamWindowBase):
             return
         if self._game_win is None:
             from ui.game_window import GameWindow  # 延迟加载，避免未玩游戏时也载入 WebEngine
-            self._game_win = GameWindow(self._on_game_send)
+            self._game_win = GameWindow(self._on_game_send, self._broadcast_chat)
         self._game_win.load_game(
             info["entry_path"], self.client.self_id or "", self.client.is_host, info["name"]
         )

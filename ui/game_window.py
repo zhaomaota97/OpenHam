@@ -10,7 +10,9 @@
 """
 import json
 
-from PyQt6.QtCore import QObject, QUrl, QFile, QIODevice, pyqtSlot
+from PyQt6.QtCore import Qt, QObject, QUrl, QFile, QIODevice, pyqtSlot
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
+                             QTextEdit, QLineEdit, QPushButton)
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEngineScript
 from PyQt6.QtWebChannel import QWebChannel
@@ -69,10 +71,11 @@ class _Bridge(QObject):
 
 
 class GameWindow(OpenHamWindowBase):
-    def __init__(self, on_game_send):
-        """on_game_send(obj): 游戏内 JS 发来的操作，转交给联机层广播。"""
+    def __init__(self, on_game_send, on_chat_send=None):
+        """on_game_send(obj): 游戏 JS 发来的操作；on_chat_send(text): 游戏页内发言。"""
         super().__init__(title="游戏", shadow_size=0, min_w=820, min_h=620)
         self.title_lbl.setText("游戏")
+        self._on_chat_send = on_chat_send
 
         self.view = QWebEngineView()
         self.page = self.view.page()
@@ -80,7 +83,74 @@ class GameWindow(OpenHamWindowBase):
         self._channel = QWebChannel(self.page)
         self._channel.registerObject("openham_bridge", self._bridge)
         self.page.setWebChannel(self._channel)
-        self.content_layout.addWidget(self.view)
+        self.content_layout.addWidget(self.view, 1)
+
+        # 标题栏聊天开关 + 可折叠聊天面板（嵌在游戏窗口内）
+        self._chat_btn = QPushButton("💬")
+        self._chat_btn.setFixedSize(30, 30)
+        self._chat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._chat_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#c09030;border:none;font-size:15px;}"
+            "QPushButton:hover{background:rgba(192,140,30,0.2);border-radius:4px;}")
+        self._chat_btn.clicked.connect(self._toggle_chat)
+        self.header_tools_layout.addWidget(self._chat_btn)
+
+        self._chat_panel = self._build_chat_panel()
+        self.content_layout.addWidget(self._chat_panel)
+        self._chat_panel.hide()
+
+    def _build_chat_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setStyleSheet("background:#181610;")
+        v = QVBoxLayout(panel)
+        v.setContentsMargins(8, 6, 8, 8)
+        v.setSpacing(6)
+        self._chat_log = QTextEdit()
+        self._chat_log.setReadOnly(True)
+        self._chat_log.setFixedHeight(120)
+        self._chat_log.setStyleSheet(
+            "QTextEdit{background:rgba(21,18,13,0.9);color:#d8cfb8;border:1px solid #4a3f2a;"
+            "border-radius:6px;font-size:13px;padding:6px;}")
+        row = QHBoxLayout(); row.setSpacing(6)
+        self._chat_input = QLineEdit()
+        self._chat_input.setPlaceholderText("发言…")
+        self._chat_input.setStyleSheet(
+            "QLineEdit{background:rgba(21,18,13,0.9);color:#ede5d0;border:1px solid #4a3f2a;"
+            "border-radius:6px;padding:8px;}QLineEdit:focus{border-color:#c08c1e;}")
+        self._chat_input.returnPressed.connect(self._send_chat)
+        send = QPushButton("发送")
+        send.setStyleSheet(
+            "QPushButton{background:#c08c1e;color:#1c1a14;border:none;border-radius:6px;"
+            "padding:8px 14px;font-weight:bold;}")
+        send.clicked.connect(self._send_chat)
+        row.addWidget(self._chat_input, 1); row.addWidget(send)
+        v.addWidget(self._chat_log); v.addLayout(row)
+        return panel
+
+    def _toggle_chat(self):
+        self._chat_panel.setVisible(not self._chat_panel.isVisible())
+        if self._chat_panel.isVisible():
+            self._chat_input.setFocus()
+            self._chat_btn.setText("💬")
+
+    def _send_chat(self):
+        text = self._chat_input.text().strip()
+        if not text:
+            return
+        if self._on_chat_send:
+            self._on_chat_send(text)
+        self._chat_input.clear()
+
+    def add_chat(self, name: str, text: str, mine: bool = False):
+        if name is None:
+            self._chat_log.append(f'<span style="color:#6f6a55;">— {text} —</span>')
+        else:
+            color = "#c9b173" if mine else "#9fd0c0"
+            self._chat_log.append(
+                f'<span style="color:{color};font-weight:bold;">{name}</span>'
+                f'<span style="color:#d8cfb8;">：{text}</span>')
+        if not self._chat_panel.isVisible():
+            self._chat_btn.setText("🔴")
 
     def load_game(self, entry_path: str, self_id: str, is_host: bool, name: str = "游戏"):
         self.title_lbl.setText(f"游戏 · {name}")
