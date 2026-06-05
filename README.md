@@ -102,7 +102,7 @@ Edit `config.json` to customize behavior:
 | `hotkey` | Global hotkey (keyboard lib format) | `<alt>+<space>` |
 | `search_roots` | Directories to search (empty = Desktop/Documents/Downloads/Home) | `[]` |
 
-**API Key Management**: API keys are managed via the `DEEPSEEK_API_KEY` environment variable, not stored in `config.json`, preventing accidental leaks.
+**API Key Management**: Configure your own DeepSeek key in **Settings → AI** (each user uses their own key and quota). It is stored locally in `user_settings.json`, which is git-ignored and never committed. The legacy `DEEPSEEK_API_KEY` environment variable / `.env` is still honored as a fallback.
 
 **Hotkey Format Examples**:
 - `<alt>+<space>` — Alt + Space (default)
@@ -133,11 +133,13 @@ Edit `config.json` to customize behavior:
 ### Architecture
 
 ```
-main.py        — Application entry, hotkey management, signal orchestration
-window.py      — Qt input window UI and interaction logic
-executor.py    — Core logic for AI chat and expression evaluation
-config.json    — Application config (hotkey, model settings)
-build.py       — PyInstaller packaging script
+main.py              — Application entry, hotkey management, signal orchestration
+ui/input_window.py   — Qt input window UI and interaction logic
+core/script_engine.py— Core logic for commands and expression evaluation
+core/ai_client.py    — Streaming DeepSeek (OpenAI-compatible) client
+core/app_config.py   — Per-user settings store (API key, model)
+config.json          — Non-secret app config (hotkey, search roots)
+build.ps1            — Packaging script
 ```
 
 ### Development
@@ -193,7 +195,8 @@ MIT License — Free to use, modify, and distribute. See [LICENSE](LICENSE) for 
 ### Roadmap
 
 - [ ] macOS and Linux support
-- [ ] Plugin system for custom commands
+- [x] Plugin system for custom commands
+- [x] In-app API key configuration (Settings → AI)
 - [ ] Local LLM support (Ollama, LM Studio)
 - [ ] Multi-language UI
 - [ ] Voice input support
@@ -300,7 +303,7 @@ python main.py
 | `hotkey` | 全局热键（keyboard 库格式） | `<alt>+<space>` |
 | `search_roots` | 文件搜索目录（空 = 桌面/文档/下载/主目录） | `[]` |
 
-**API 密钥管理**：API 密钥通过 `DEEPSEEK_API_KEY` 环境变量管理，不存储在 `config.json` 中，防止意外泄露。
+**API 密钥管理**：在 **设置 → AI 模型** 中填入你自己的 DeepSeek 密钥（每位用户使用各自的密钥和额度）。密钥仅保存在本机 `user_settings.json`，该文件被 git 忽略、不会提交。旧版的 `DEEPSEEK_API_KEY` 环境变量 / `.env` 仍作为回退被支持。
 
 **热键格式示例**：
 - `<alt>+<space>` — Alt + Space（默认）
@@ -331,11 +334,13 @@ python main.py
 ### 架构
 
 ```
-main.py        — 应用入口、热键管理、信号编排
-window.py      — Qt 输入窗口 UI 和交互逻辑
-executor.py    — AI 对话和表达式求值的核心逻辑
-config.json    — 应用配置（热键、模型设置）
-build.py       — PyInstaller 打包脚本
+main.py              — 应用入口、热键管理、信号编排
+ui/input_window.py   — Qt 输入窗口 UI 和交互逻辑
+core/script_engine.py— 指令与表达式求值的核心逻辑
+core/ai_client.py    — DeepSeek（OpenAI 兼容）流式调用
+core/app_config.py   — 每用户配置存储（API 密钥、模型）
+config.json          — 非敏感应用配置（热键、搜索目录）
+build.ps1            — 打包脚本
 ```
 
 ### 开发
@@ -391,7 +396,8 @@ MIT 许可证 — 自由使用、修改和分发。详见 [LICENSE](LICENSE)。
 ### 路线图
 
 - [ ] macOS 和 Linux 支持
-- [ ] 自定义命令插件系统
+- [x] 自定义命令插件系统
+- [x] 应用内 API 密钥配置（设置 → AI 模型）
 - [ ] 本地 LLM 支持（Ollama、LM Studio）
 - [ ] 多语言界面
 - [ ] 语音输入支持

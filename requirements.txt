@@ -8,3 +8,5 @@ certifi
 anyio
 python-dotenv
 qrcode[pil]
+websockets
+PyQt6-WebEngine

@@ -8,18 +8,34 @@ import time as _time
 import re
 from dotenv import load_dotenv
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
-from PyQt6.QtCore import QObject, pyqtSignal, QTimer
+from PyQt6.QtCore import QObject, pyqtSignal, QTimer, Qt
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QAction, QKeySequence
 import keyboard as kb
+
+# ── Qt WebEngine 预初始化（必须在 QApplication 创建前完成）──────────────
+# 游戏沙箱窗口用 QWebEngineView。Qt 要求其初始化早于 QApplication，否则
+# 首次打开游戏窗口会直接闪退。这里在创建 QApplication 之前先就位。
+QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
+try:
+    from PyQt6 import QtWebEngineWidgets as _qtwe  # noqa: F401  仅为提前初始化 WebEngine
+except Exception:
+    _qtwe = None
 
 from ui import InputWindow, ScriptManagerOverlay
 from ui.plugin_manager_window import PluginManagerWindow
 from ui.settings_window import SettingsWindow
+from ui.multiplayer_window import MultiplayerWindow
 from ui.tray import _make_tray_icon, _show_toast
 from core.script_engine import execute, set_script_overlay
 from core.ai_client import call_deepseek_stream
+from core import app_config
+from core.logging_setup import setup_logging, get_logger
 from utils.paths import _base_dir
-from core.signals import HotkeySignal, AISignal, FileSignal, InfoSignal
+from core.signals import HotkeySignal, AISignal, FileSignal, InfoSignal, AppSignal
+from utils.search import search_files
+from utils.app_index import search_apps
+
+log = get_logger("main")
 
 
 
@@ -42,10 +58,11 @@ def load_config():
 
 
 def load_api_key():
+    # 兼容旧版 .env，并以用户设置（设置界面填写）为优先来源
     load_dotenv()
-    api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+    api_key = app_config.get_api_key()
     if not api_key:
-        print("[警告] 未设置 DEEPSEEK_API_KEY 环境变量，AI 功能将不可用")
+        log.warning("未配置 DeepSeek API Key，AI 功能不可用（可在「设置 → AI 模型」中填写）")
     return api_key
 
 
@@ -69,6 +86,8 @@ def _format_hotkey_label(hotkey: str) -> str:
 
 
 def main():
+    setup_logging()
+    log.info("OpenHam 启动")
     _mutex = _ensure_single_instance()
 
     config = load_config()
@@ -85,6 +104,7 @@ def main():
     script_overlay = ScriptManagerOverlay()
     plugin_manager_overlay = PluginManagerWindow()
     settings_window = SettingsWindow(config)
+    multiplayer_window = MultiplayerWindow()
     set_script_overlay(script_overlay)
     
     signal = HotkeySignal()
@@ -142,6 +162,7 @@ def main():
     action_show.setShortcutVisibleInContextMenu(True)
     action_script_config = tray_menu.addAction("脚本配置")
     action_plugin_config = tray_menu.addAction("插件管理")
+    action_multiplayer = tray_menu.addAction("联机")
     action_settings = tray_menu.addAction("设置...")
     tray_menu.addSeparator()
     action_quit = tray_menu.addAction("Exit")
@@ -160,6 +181,7 @@ def main():
     action_show.triggered.connect(window.show_window)
     action_script_config.triggered.connect(script_overlay.open)
     action_plugin_config.triggered.connect(plugin_manager_overlay.show_window)
+    action_multiplayer.triggered.connect(multiplayer_window.show_window)
     action_settings.triggered.connect(settings_window.show_window)
     action_quit.triggered.connect(app.quit)
     tray.setContextMenu(tray_menu)
@@ -187,19 +209,25 @@ def main():
     signal.triggered.connect(lambda: (
         window.hide_window() if window.isVisible() else window.show_window()
     ))
-    kb.add_hotkey(clean_hotkey, on_hotkey, suppress=True)
+    kb.add_hotkey(clean_hotkey.lower(), on_hotkey, suppress=True)
 
     # -- AI --
     _ai_gen = 0
 
     def on_submitted(text: str):
         nonlocal _ai_gen
-        print(f"[on_submitted] 收到文本: {text!r}")
+        log.debug("收到文本: %r", text)
 
         # 内置：管理面
         if text.strip() in ("脚本", "脚本配置"):
             script_overlay.open()
             window.show_result("✅ 已打开脚本管理器")
+            QTimer.singleShot(800, window.hide_window)
+            return
+
+        if text.strip() in ("联机", "聊天", "房间"):
+            multiplayer_window.show_window()
+            window.show_result("✅ 已打开联机窗口")
             QTimer.singleShot(800, window.hide_window)
             return
 
@@ -225,7 +253,7 @@ def main():
 
 
         result = execute(text)
-        print(f"[on_submitted] execute 结果: {result!r}")
+        log.debug("execute 结果: %r", result)
         if result is not None:
             _ai_gen += 1
             if result.startswith("ℹ️"):
@@ -234,31 +262,30 @@ def main():
                 window.show_result(result)
                 if result.startswith("✅"):
                     QTimer.singleShot(800, window.hide_window)
-        elif api_key:
+        elif app_config.get_api_key():
+            # 实时读取 Key：用户在设置界面改完无需重启即可生效
             _ai_gen += 1
             my_gen = _ai_gen
-            print(f"[on_submitted] 启动 AI 线程 gen={my_gen}")
+            log.info("启动 AI 线程 gen=%d", my_gen)
             window.show_thinking()
             def _call():
-                print(f"[AI线程 gen={my_gen}] 开始流式调用 DeepSeek")
                 try:
-                    for piece in call_deepseek_stream(text, api_key):
+                    for piece in call_deepseek_stream(text):
                         if _ai_gen != my_gen:
-                            print(f"[AI线程 gen={my_gen}] 已被新提交取消，退出")
+                            log.debug("AI 线程 gen=%d 已被新提交取消", my_gen)
                             return
                         ai_signal.chunk.emit(piece)
                     if _ai_gen == my_gen:
-                        print(f"[AI线程 gen={my_gen}] 流式完成")
+                        log.info("AI 线程 gen=%d 流式完成", my_gen)
                         ai_signal.stream_done.emit()
                 except Exception as e:
-                    import traceback
-                    print(f"[AI线程 gen={my_gen}] 未捕获异常: {e}")
-                    traceback.print_exc()
+                    log.exception("AI 线程 gen=%d 异常: %s", my_gen, e)
                     if _ai_gen == my_gen:
                         ai_signal.responded.emit(f"❌ 线程异常：{e}")
             threading.Thread(target=_call, daemon=True).start()
         else:
             _ai_gen += 1
+            window.show_ai_result("❌ 未配置 API Key：请在「设置 → AI 模型」中填入你的 DeepSeek Key")
 
     window.submitted.connect(on_submitted)
 
@@ -282,10 +309,28 @@ def main():
 
     window.search_requested.connect(on_search_requested)
 
+    # -- 应用启动器搜索 --
+    app_signal = AppSignal()
+    app_signal.results.connect(window.show_app_results)
+    _app_gen = 0
 
-    # -- 全局快捷键 --
-    kb_hotkey = re.sub(r'[<>]', '', hotkey_str).lower()
-    kb.add_hotkey(kb_hotkey, on_hotkey, suppress=True)
+    def on_app_search_requested(query: str):
+        nonlocal _app_gen
+        _app_gen += 1
+        my_gen = _app_gen
+
+        def _run():
+            try:
+                found = search_apps(query)
+            except Exception as e:
+                log.exception("应用搜索异常: %s", e)
+                found = []
+            if _app_gen == my_gen:
+                app_signal.results.emit(found)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    window.app_search_requested.connect(on_app_search_requested)
 
     sys.exit(app.exec())
 
