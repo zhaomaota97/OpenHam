@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>井字棋</title>
+<style>
+  html,body{height:100%;margin:0;background:#1c1a14;color:#ede5d0;
+    font-family:system-ui,"Microsoft YaHei",sans-serif;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;}
+  #status{font-size:20px;font-weight:bold;color:#c09030;height:28px;}
+  #board{display:grid;grid-template-columns:repeat(3,96px);grid-template-rows:repeat(3,96px);gap:8px;}
+  .cell{background:#272416;border:1px solid rgba(192,140,30,.4);border-radius:10px;
+    font-size:52px;display:flex;align-items:center;justify-content:center;cursor:pointer;
+    user-select:none;transition:background .12s;}
+  .cell:hover{background:#33301f;}
+  .x{color:#7fd0c0;} .o{color:#e0a05a;}
+  #reset{background:#c08c1e;color:#1c1a14;border:none;border-radius:8px;padding:8px 18px;
+    font-size:14px;font-weight:bold;cursor:pointer;}
+</style>
+</head>
+<body>
+  <div id="status">等待连接…</div>
+  <div id="board"></div>
+  <button id="reset">重新开局（房主）</button>
+<script>
+  var board = Array(9).fill(null);
+  var turn = "X";        // X 先手（房主）
+  var mySym = "X";
+  var ready = false;
+
+  var boardEl = document.getElementById("board");
+  var statusEl = document.getElementById("status");
+  var cells = [];
+  for (var i = 0; i < 9; i++) {
+    (function(idx){
+      var c = document.createElement("div");
+      c.className = "cell";
+      c.onclick = function(){ tryPlace(idx); };
+      boardEl.appendChild(c); cells.push(c);
+    })(i);
+  }
+
+  function render(){
+    for (var i = 0; i < 9; i++) {
+      cells[i].textContent = board[i] || "";
+      cells[i].className = "cell" + (board[i] ? " " + board[i].toLowerCase() : "");
+    }
+    var w = winner();
+    if (w) statusEl.textContent = (w === mySym ? "🎉 你赢了！" : "你输了…") ;
+    else if (board.every(Boolean)) statusEl.textContent = "平局";
+    else statusEl.textContent = "你是 " + mySym + " ·  " + (turn === mySym ? "轮到你" : "等待对方");
+  }
+
+  function tryPlace(i){
+    if (!ready || board[i] || winner() || turn !== mySym) return;
+    apply(i, mySym);
+    OpenHam.send({k:"move", i:i, s:mySym});
+  }
+
+  function apply(i, s){
+    board[i] = s;
+    turn = (s === "X") ? "O" : "X";
+    render();
+  }
+
+  function reset(){
+    board = Array(9).fill(null); turn = "X"; render();
+  }
+
+  function winner(){
+    var L=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+    for (var k=0;k<L.length;k++){var a=L[k];
+      if(board[a[0]]&&board[a[0]]===board[a[1]]&&board[a[1]]===board[a[2]])return board[a[0]];}
+    return null;
+  }
+
+  document.getElementById("reset").onclick = function(){
+    if (!OpenHam.isHost) { statusEl.textContent = "只有房主能重开"; return; }
+    reset(); OpenHam.send({k:"reset"});
+  };
+
+  // OpenHam 桥就绪后初始化
+  window.OpenHamReady = function(){
+    ready = true;
+    mySym = OpenHam.isHost ? "X" : "O";
+    OpenHam.on(function(msg){
+      if (msg.k === "move") apply(msg.i, msg.s);
+      else if (msg.k === "reset") reset();
+    });
+    render();
+  };
+</script>
+</body>
+</html>

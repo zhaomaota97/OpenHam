@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenHam Relay (WebSocket room relay)
+After=network.target
+
+[Service]
+Type=simple
+# 按需修改：运行用户与代码路径
+User=root
+WorkingDirectory=/opt/openham-relay
+ExecStart=/usr/bin/python3 /opt/openham-relay/server.py
+Restart=always
+RestartSec=3
+# 可选：覆盖默认监听端口
+# Environment=OPENHAM_RELAY_PORT=9000
+
+[Install]
+WantedBy=multi-user.target
