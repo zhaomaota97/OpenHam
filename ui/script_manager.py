@@ -1049,12 +1049,12 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         if isinstance(prefix_req, bool):  # 防御 clicked 信号掺入 bool 参数
             prefix_req = ""
             
-        import os
         from dotenv import load_dotenv
+        from core import app_config
         load_dotenv()
-        api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+        api_key = app_config.get_api_key()
         if not api_key:
-            self._edit_status.setText("❌ 缺失 DEEPSEEK_API_KEY 环境变量")
+            self._edit_status.setText("❌ 未配置 API Key：请在「设置 → AI 模型」中填写")
             self._edit_status.setStyleSheet("color: #e66666;")
             return
             
@@ -1566,6 +1566,11 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                     use_shell = False
 
                 env = _os.environ.copy()
+                # 将用户在设置界面配置的密钥注入子进程环境，便于脚本调用 AI
+                from core import app_config
+                _key = app_config.get_api_key()
+                if _key:
+                    env["DEEPSEEK_API_KEY"] = _key
                 if typ == "python":
                     env["PYTHONIOENCODING"] = "utf-8"
                     env["PYTHONUTF8"] = "1"
