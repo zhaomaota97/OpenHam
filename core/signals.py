@@ -11,6 +11,9 @@ class AISignal(QObject):
 class FileSignal(QObject):
     results = pyqtSignal(list)
 
+class AppSignal(QObject):
+    results = pyqtSignal(list)
+
 class InfoSignal(QObject):
     info = pyqtSignal(str)
 

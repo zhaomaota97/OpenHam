@@ -1,8 +1,8 @@
 from PyQt6.QtWidgets import (QWidget, QLineEdit, QLabel, QVBoxLayout,
                              QHBoxLayout, QApplication,
-                             QFrame,
-                             QListWidget, QListWidgetItem)
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
+                             QFrame, QLayout,
+                             QListWidget, QListWidgetItem, QFileIconProvider)
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize, QFileInfo, QEvent
 from PyQt6.QtGui import QKeyEvent, QPixmap
 import ctypes
 import os
@@ -41,6 +41,8 @@ class InputWindow(QWidget):
     submitted = pyqtSignal(str)
     # 文件搜索信号
     search_requested = pyqtSignal(str)
+    # 应用搜索信号
+    app_search_requested = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -68,6 +70,15 @@ class InputWindow(QWidget):
         self._search_timer.setInterval(200)
         self._search_timer.timeout.connect(self._emit_search)
         self._search_query = ""
+
+        # 应用搜索防抖计时器
+        self._app_timer = QTimer(self)
+        self._app_timer.setSingleShot(True)
+        self._app_timer.setInterval(150)
+        self._app_timer.timeout.connect(self._emit_app_search)
+        self._app_query = ""
+        self._app_icon_cache: dict = {}
+        self._icon_provider = QFileIconProvider()
 
         # 启动预热(Pre-warm)解决第一次输入卡顿
         QTimer.singleShot(100, self._pre_warm_caches)
@@ -109,10 +120,13 @@ class InputWindow(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
+        # 让窗口高度始终自动贴合内容（结果区出现时撑高，消失后自动缩回）
+        outer.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
 
         # ── 卡片 ──────────────────────────────────────────
         self.card = QWidget()
         self.card.setObjectName("card")
+        self.card.setFixedWidth(_CARD_W)
         self.card.setStyleSheet("""
             #card {
                 background-color: #1c1a14;
@@ -161,6 +175,8 @@ class InputWindow(QWidget):
         self.input.setMaxLength(MAX_LENGTH)
         self.input.setFixedHeight(46)
         self.input.textChanged.connect(self._on_text_changed)
+        # 拦截 ←/→：应用启动器模式下用于左右切换卡片（否则会被 QLineEdit 用于移动光标）
+        self.input.installEventFilter(self)
         input_row.addWidget(self.input)
         card_layout.addLayout(input_row)
 
@@ -218,6 +234,54 @@ class InputWindow(QWidget):
         )
         card_layout.addWidget(self.file_list)
 
+        # 应用启动器：横排卡片（默认隐藏）
+        self.app_list = QListWidget()
+        self.app_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.app_list.setViewMode(QListWidget.ViewMode.IconMode)
+        self.app_list.setFlow(QListWidget.Flow.LeftToRight)
+        self.app_list.setWrapping(False)
+        self.app_list.setMovement(QListWidget.Movement.Static)
+        self.app_list.setUniformItemSizes(True)
+        self.app_list.setIconSize(QSize(36, 36))
+        self.app_list.setSpacing(2)
+        self.app_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.app_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.app_list.setStyleSheet("""
+            QListWidget {
+                background: transparent;
+                border: none;
+                outline: none;
+                padding: 2px 0;
+            }
+            QListWidget::item {
+                color: #c8bfa6;
+                border-radius: 8px;
+                padding: 4px 0;
+            }
+            QListWidget::item:selected {
+                background: rgba(192, 140, 30, 0.22);
+                color: #ede5d0;
+            }
+            QListWidget::item:hover:!selected {
+                background: rgba(192, 140, 30, 0.10);
+            }
+            QScrollBar:horizontal {
+                border: none;
+                background: rgba(0, 0, 0, 0);
+                height: 5px;
+            }
+            QScrollBar::handle:horizontal {
+                background: rgba(192, 140, 30, 0.4);
+                border-radius: 2px;
+                min-width: 24px;
+            }
+        """)
+        self.app_list.hide()
+        self.app_list.itemDoubleClicked.connect(
+            lambda item: self._launch_app_at_row(self.app_list.row(item))
+        )
+        card_layout.addWidget(self.app_list)
+
         from PyQt6.QtWidgets import QTextEdit
         self.ai_label = QTextEdit()
         self.ai_label.setReadOnly(True)
@@ -262,6 +326,8 @@ class InputWindow(QWidget):
             query = stripped[2:].strip()
             self._eval_timer.stop()
             self._dot_timer.stop()
+            self._app_timer.stop()
+            self.clear_app_results()
             self.ai_label.setText("")
             self._sync_ai_zone(show=False)
             self.clear_qr()
@@ -276,7 +342,7 @@ class InputWindow(QWidget):
             else:
                 self._search_timer.stop()
                 self.clear_file_results()
-            self.adjustSize()
+            self._refit()
             return
 
         # ─── 非文件搜索模式：清除文件列表和二维码 ─────────────────────
@@ -301,6 +367,8 @@ class InputWindow(QWidget):
             self.count_label.setStyleSheet("color: #c09030; font-size: 12px;")
             self.result_label.setText("")
             self._eval_timer.stop()
+            self._app_timer.stop()
+            self.clear_app_results()
         else:
             from core.script_engine import get_autocomplete
             ac = get_autocomplete(text)
@@ -321,8 +389,29 @@ class InputWindow(QWidget):
             self.result_label.setText("")
             if text.strip():
                 self._eval_timer.start()
+                # 应用模糊匹配（短 token，避免对长句/中文提问做无谓搜索）
+                q = text.strip()
+                if len(q) <= 30 and "\n" not in q:
+                    self._app_query = q
+                    self._app_timer.start()
+                else:
+                    self._app_timer.stop()
+                    self.clear_app_results()
             else:
                 self._eval_timer.stop()
+                self._app_timer.stop()
+                self.clear_app_results()
+
+    def _refit(self):
+        """重新贴合窗口尺寸。配合主布局的 SetFixedSize 约束，
+        撑高与缩回都生效（隐藏子控件后需 activate() 才会缩小，
+        单纯 adjustSize() 在缩小方向无效）。"""
+        lay = self.layout()
+        if lay is not None:
+            # invalidate() 强制作废缓存尺寸：hide() 的布局失效是异步排队的，
+            # 紧接着同步 activate() 会沿用旧尺寸导致缩不回去。
+            lay.invalidate()
+            lay.activate()
 
     def _run_evaluate(self):
         """防抖结束后执行表达式求值。"""
@@ -334,9 +423,31 @@ class InputWindow(QWidget):
         else:
             self.result_label.setText("")
 
+    def eventFilter(self, obj, event):
+        # 应用启动器模式下，用 ←/→ 在卡片间移动（拦截 QLineEdit 的光标移动）
+        if obj is self.input and event.type() == QEvent.Type.KeyPress:
+            if self.app_list.isVisible() and self.app_list.count() > 0:
+                key = event.key()
+                if key == Qt.Key.Key_Left:
+                    self._move_app_selection(-1)
+                    return True
+                if key == Qt.Key.Key_Right:
+                    self._move_app_selection(1)
+                    return True
+        return super().eventFilter(obj, event)
+
+    def _move_app_selection(self, delta: int):
+        row = self.app_list.currentRow()
+        new_row = max(0, min(self.app_list.count() - 1, row + delta))
+        self.app_list.setCurrentRow(new_row)
+        item = self.app_list.currentItem()
+        if item:
+            self.app_list.scrollToItem(item)
+
     def keyPressEvent(self, event: QKeyEvent):
         file_mode = self.file_list.isVisible() and self.file_list.count() > 0
-        
+        app_mode = self.app_list.isVisible() and self.app_list.count() > 0
+
         # 补全功能
         if event.key() == Qt.Key.Key_Tab:
             if getattr(self, "_auto_complete_target", None):
@@ -347,7 +458,13 @@ class InputWindow(QWidget):
             return
 
         # 回车提交（不立刻清空，等 AI 回答后再清空）
-        if event.key() == Qt.Key.Key_Return:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            # 应用启动器：Enter 启动选中应用；Shift+Enter 改为问 AI
+            if app_mode and not shift:
+                row = self.app_list.currentRow()
+                self._launch_app_at_row(row if row >= 0 else 0)
+                return
             if file_mode:
                 row = self.file_list.currentRow()
                 if row < 0:
@@ -409,7 +526,7 @@ class InputWindow(QWidget):
         self.ai_label.setStyleSheet("color: #d8cfb8; font-size: 13px; line-height: 1.6;")
         self.ai_label.setText(current + text + "▌")
         self._sync_ai_zone()
-        self.adjustSize()
+        self._refit()
         if not self.isVisible():
             print("[UI] 窗口不可见，重新 show_window")
             self.show_window()
@@ -420,7 +537,7 @@ class InputWindow(QWidget):
         current = self.ai_label.toPlainText()
         if current.endswith("▌"):
             self.ai_label.setText(current[:-1])
-        self.adjustSize()
+        self._refit()
         self.input.clear()
 
     def _tick_thinking(self):
@@ -434,10 +551,11 @@ class InputWindow(QWidget):
         print("[UI] show_thinking 被调用")
         self._dot_frame = 0
         self.clear_qr()
+        self.clear_app_results()
         self.ai_label.setStyleSheet("color: #8a7040; font-size: 13px;")
         self.ai_label.setText("正在思考")
         self._sync_ai_zone()
-        self.adjustSize()
+        self._refit()
         self._dot_timer.start()
 
     def show_ai_result(self, text: str):
@@ -445,13 +563,14 @@ class InputWindow(QWidget):
         print(f"[UI] show_ai_result 被调用，内容: {text[:60]}...")
         self._dot_timer.stop()
         self.clear_qr()
+        self.clear_app_results()
         color = "#c05050" if text.startswith("❌") else "#d8cfb8"
         self.ai_label.setStyleSheet(
             f"color: {color}; font-size: 13px; line-height: 1.6;"
         )
         self.ai_label.setText(text)
         self._sync_ai_zone()
-        self.adjustSize()
+        self._refit()
         self.input.clear()
         if not self.isVisible():
             print("[UI] 窗口不可见，重新 show_window")
@@ -472,7 +591,8 @@ class InputWindow(QWidget):
         self.ai_label.setText("")
         self._sync_ai_zone(show=False)
         self.clear_qr()
-        self.adjustSize()
+        self.clear_app_results()
+        self._refit()
 
     def show_window(self):
         # 居中显示
@@ -511,6 +631,7 @@ class InputWindow(QWidget):
         self._dot_timer.stop()
         self.clear_qr()
         self.clear_file_results()
+        self.clear_app_results()
         self.ai_label.setStyleSheet(
             "color: #c8c0a8; font-family: Consolas, 'Courier New', monospace; "
             "font-size: 12px; line-height: 1.8;"
@@ -518,7 +639,7 @@ class InputWindow(QWidget):
         self.ai_label.setText(text)
         self._sync_ai_zone()
         self.input.clear()
-        self.adjustSize()
+        self._refit()
 
     def show_qr(self, png_bytes: bytes):
         """展示二维码图片（清除其他结果区域）。"""
@@ -526,6 +647,7 @@ class InputWindow(QWidget):
         self.ai_label.setText("")
         self._sync_ai_zone(show=False)
         self.clear_file_results()
+        self.clear_app_results()
         px = QPixmap()
         px.loadFromData(png_bytes)
         size = 210
@@ -539,7 +661,7 @@ class InputWindow(QWidget):
         self.count_label.setText("手机扫码  ESC 关闭")
         self.count_label.setStyleSheet("color: #7ab86a; font-size: 12px;")
         self.result_label.setText("")
-        self.adjustSize()
+        self._refit()
 
     def clear_qr(self):
         """TODO: 隐藏并清除二维码图片。"""
@@ -566,12 +688,12 @@ class InputWindow(QWidget):
             self.file_list.setFixedHeight(min(total_h, max_visible * item_h + 4))
             self.file_list.setCurrentRow(0)
             self.file_list.show()
-        self.adjustSize()
+        self._refit()
 
     def clear_file_results(self):
         self.file_list.clear()
         self.file_list.hide()
-        self.adjustSize()
+        self._refit()
 
     def _add_file_item(self, name: str, path: str, directory: str):
         item = QListWidgetItem()
@@ -616,4 +738,64 @@ class InputWindow(QWidget):
             path = item.data(Qt.ItemDataRole.UserRole)
             if path and os.path.exists(path):
                 os.startfile(os.path.dirname(path))
+                self.hide_window()
+
+    # ─── 应用启动器相关 ───────────────────────────────────────────────────
+
+    def _emit_app_search(self):
+        self.app_search_requested.emit(self._app_query)
+
+    def _app_icon(self, path: str):
+        """提取并缓存应用图标（QFileIconProvider 解析快捷方式的真实图标）。"""
+        icon = self._app_icon_cache.get(path)
+        if icon is None:
+            try:
+                icon = self._icon_provider.icon(QFileInfo(path))
+            except Exception:
+                icon = None
+            self._app_icon_cache[path] = icon
+        return icon
+
+    def show_app_results(self, results: list):
+        """展示横排应用卡片。results: [{'name', 'path'}]。"""
+        self.app_list.clear()
+        if not results:
+            self.app_list.hide()
+            self._refit()
+            return
+        for r in results:
+            item = QListWidgetItem(r["name"])
+            item.setData(Qt.ItemDataRole.UserRole, r["path"])
+            item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+            item.setToolTip(r["name"])
+            icon = self._app_icon(r["path"])
+            if icon is not None:
+                item.setIcon(icon)
+            item.setSizeHint(QSize(96, 76))
+            self.app_list.addItem(item)
+        self.app_list.setFixedHeight(92)
+        self.app_list.setCurrentRow(0)
+        self.app_list.show()
+        # 提示并入右侧原有提示位（不再占用左侧独立说明行），沿用蓝灰提示色
+        self.count_label.setStyleSheet("color: #6a8a9a; font-size: 13px;")
+        self.count_label.setText("← → 选择   ↵ 启动   ⇧↵ 问 AI")
+        self._refit()
+
+    def clear_app_results(self):
+        if self.app_list.count() or self.app_list.isVisible():
+            self.app_list.clear()
+            self.app_list.hide()
+            self._refit()
+
+    def _launch_app_at_row(self, row: int):
+        if row < 0 or row >= self.app_list.count():
+            return
+        item = self.app_list.item(row)
+        if item:
+            path = item.data(Qt.ItemDataRole.UserRole)
+            if path and os.path.exists(path):
+                try:
+                    os.startfile(path)
+                except Exception as e:
+                    print(f"[应用启动] 失败: {e}")
                 self.hide_window()
