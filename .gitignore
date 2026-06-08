@@ -8,6 +8,7 @@ watched.json
 # 用户级配置（含 API 密钥）与运行日志
 user_settings.json
 openham.log
+version.txt
 
 # 便携 Python 运行时的第三方依赖（用户自行安装）
 runtime/Lib/site-packages/
