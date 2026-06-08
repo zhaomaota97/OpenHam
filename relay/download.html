@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenHam 下载</title>
+<style>
+  :root{--bg:#f4f5f7;--card:#fff;--ink:#1f2430;--ink2:#5b6370;--line:#e6e8ec;--accent:#c08c1e;}
+  *{box-sizing:border-box;}
+  html,body{margin:0;min-height:100%;}
+  body{background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,sans-serif;
+    display:flex;flex-direction:column;align-items:center;padding:clamp(28px,7vh,80px) 20px 48px;}
+  .wrap{width:100%;max-width:560px;}
+  h1{font-size:28px;margin:0 0 6px;}
+  .sub{color:var(--ink2);margin:0 0 26px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:18px;
+    box-shadow:0 1px 2px rgba(20,24,33,.04),0 8px 24px rgba(20,24,33,.06);}
+  .dl{display:flex;align-items:center;gap:14px;}
+  .dl .ham{width:56px;height:56px;border-radius:12px;object-fit:contain;flex:0 0 auto;}
+  .brand{display:flex;align-items:center;gap:12px;margin-bottom:6px;}
+  .brand img{width:40px;height:40px;border-radius:9px;object-fit:contain;}
+  .brand h1{margin:0;}
+  .btn{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;font-weight:700;
+    padding:13px 22px;border-radius:10px;font-size:16px;margin-top:6px;}
+  .btn:hover{background:#d39c28;}
+  .meta{color:var(--ink2);font-size:13px;margin-top:8px;}
+  h3{font-size:15px;margin:0 0 10px;}
+  ol{margin:0;padding-left:20px;color:var(--ink2);font-size:14px;line-height:1.9;}
+  .note{color:var(--ink2);font-size:13px;line-height:1.7;}
+  .note b{color:var(--ink);}
+  a.link{color:var(--accent);font-weight:600;text-decoration:none;}
+  @media(prefers-color-scheme:dark){
+    :root{--bg:#14171c;--card:#1c2026;--ink:#eceef1;--ink2:#aab2bd;--line:#2a2f37;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><img src="logo.png" alt=""><h1>OpenHam</h1></div>
+  <p class="sub">活在快捷键里的 AI 助手，还能和朋友联机一起玩。</p>
+
+  <div class="card">
+    <div class="dl">
+      <img class="ham" src="logo.png" alt="OpenHam">
+      <div>
+        <div style="font-weight:700;font-size:17px;">OpenHam（精简版）</div>
+        <a class="btn" href="OpenHam-lite.zip" download>⬇ 下载 OpenHam</a>
+        <div class="meta">Windows · 约 14 MB · 首次运行自动联网安装依赖</div>
+        <div class="meta" id="updated">更新时间：加载中…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>怎么用</h3>
+    <ol>
+      <li>下载后<b>解压</b>到一个<b>纯英文、无空格</b>的路径（如 <b>D:\OpenHam</b>）。</li>
+      <li>双击 <b>OpenHam.exe</b>。</li>
+      <li>首次运行会<b>自动从镜像下载安装依赖</b>（约几分钟，需联网）。</li>
+      <li>装好后按 <b>Alt+Space</b> 唤出，或点托盘图标 →「联机」。</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h3>手机也能玩（无需下载）</h3>
+    <p class="note">朋友建房后把<b>房间口令</b>发给你，手机浏览器打开
+      <a class="link" id="webplay" href="#">联机网页版</a>，输口令即可一起玩。</p>
+  </div>
+
+  <div class="card">
+    <h3>说明</h3>
+    <p class="note">
+      · 仅支持 <b>Windows</b>。<br>
+      · 解压路径请用<b>纯英文</b>（含中文/空格可能导致安装失败）。<br>
+      · 首次启动若弹蓝色 SmartScreen 提示，点「更多信息 → 仍要运行」即可（程序未签名）。<br>
+      · 联机/玩游戏<b>无需</b> API 密钥；AI 问答需在「设置 → AI 模型」填自己的 DeepSeek key。
+    </p>
+  </div>
+</div>
+<script>
+  // 联机网页版在 9000 端口
+  document.getElementById("webplay").href = location.protocol + "//" + location.hostname + ":9000/";
+
+  // 自动读取安装包的最后更新时间（来自 nginx 的 Last-Modified）
+  fetch("OpenHam-lite.zip", { method: "HEAD", cache: "no-store" })
+    .then(function (r) {
+      var lm = r.headers.get("Last-Modified");
+      var el = document.getElementById("updated");
+      if (lm) {
+        var d = new Date(lm), p = function (n) { return String(n).padStart(2, "0"); };
+        el.textContent = "更新时间：" + d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
+          " " + p(d.getHours()) + ":" + p(d.getMinutes());
+      } else { el.style.display = "none"; }
+    })
+    .catch(function () { document.getElementById("updated").style.display = "none"; });
+</script>
+</body>
+</html>

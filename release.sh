@@ -33,7 +33,10 @@ with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
 print("    zip 大小:", os.path.getsize(out)//1024//1024, "MB")
 PY
 
-echo "[3/3] 上传到 ECS（覆盖即生效，无需重启容器）…"
-scp -i "$KEY" -o StrictHostKeyChecking=no "$ZIP" "$ECS:$DEST"
+echo "[3/3] 上传 zip + 下载页 + logo 到 ECS（覆盖即生效，无需重启容器）…"
+SCPOPT="-i $KEY -o StrictHostKeyChecking=no"
+scp $SCPOPT "$ZIP" "$ECS:/opt/openham-dl/OpenHam-lite.zip"
+scp $SCPOPT "$SRC/relay/download.html" "$ECS:/opt/openham-dl/index.html"
+scp $SCPOPT "$SRC/logo.png" "$ECS:/opt/openham-dl/logo.png"
 
 echo "✅ 已发布最新版 → http://47.102.218.59/openham/"
