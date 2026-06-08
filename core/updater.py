@@ -36,7 +36,9 @@ def check_update(base_url: str, timeout: int = 8):
         with urllib.request.urlopen(url, timeout=timeout) as r:
             info = json.loads(r.read().decode("utf-8"))
         latest = str(info.get("version", "")).strip()
-        code_url = info.get("code_url") or (base_url.rstrip("/") + "/OpenHam-code.zip")
+        code_url = info.get("code_url") or "OpenHam-code.zip"
+        if "://" not in code_url:   # 相对地址 → 拼成绝对地址，避免 urlopen 报 unknown url type
+            code_url = base_url.rstrip("/") + "/" + code_url.lstrip("/")
         notes = info.get("notes", "")
         has = bool(latest) and latest != local_version()
         return has, latest, code_url, notes

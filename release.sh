@@ -42,7 +42,8 @@ def build(out, skip_runtime):
 print("    完整包:", build(out_lite, False)//1024//1024, "MB")
 print("    代码包:", build(out_code, True)//1024, "KB")
 with open(vjson, "w", encoding="utf-8") as f:
-    json.dump({"version": version, "code_url": "OpenHam-code.zip",
+    json.dump({"version": version,
+               "code_url": "http://47.102.218.59/openham/OpenHam-code.zip",
                "notes": "增量更新（仅代码）"}, f, ensure_ascii=False)
 PY
 
