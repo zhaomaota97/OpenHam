@@ -99,6 +99,25 @@ def main():
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    # 全局右键菜单（含输入框的剪切/复制/粘贴）统一深色主题，避免默认浅色菜单突兀
+    app.setStyleSheet("""
+        QMenu {
+            background-color: #1e1c14;
+            color: #ede5d0;
+            border: 1px solid rgba(192, 140, 30, 0.45);
+            border-radius: 8px;
+            padding: 4px 0;
+        }
+        QMenu::item {
+            background: transparent;
+            padding: 6px 18px;
+            margin: 0 3px;
+            border-radius: 4px;
+        }
+        QMenu::item:selected { background: rgba(192, 140, 30, 0.22); color: #ffffff; }
+        QMenu::item:disabled { color: #6f6552; }
+        QMenu::separator { height: 1px; background: rgba(192, 140, 30, 0.20); margin: 5px 10px; }
+    """)
 
     window = InputWindow()
     # ── 浮层组件 ──
