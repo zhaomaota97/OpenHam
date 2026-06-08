@@ -24,7 +24,6 @@ except Exception:
 from ui import InputWindow, ScriptManagerOverlay
 from ui.plugin_manager_window import PluginManagerWindow
 from ui.settings_window import SettingsWindow
-from ui.multiplayer_window import MultiplayerWindow
 from ui.tray import _make_tray_icon, _show_toast
 from core.script_engine import execute, set_script_overlay
 from core.ai_client import call_deepseek_stream
@@ -130,7 +129,6 @@ def main():
     script_overlay = ScriptManagerOverlay()
     plugin_manager_overlay = PluginManagerWindow()
     settings_window = SettingsWindow(config)
-    multiplayer_window = MultiplayerWindow()
     set_script_overlay(script_overlay)
     
     signal = HotkeySignal()
@@ -188,7 +186,6 @@ def main():
     action_show.setShortcutVisibleInContextMenu(True)
     action_script_config = tray_menu.addAction("脚本配置")
     action_plugin_config = tray_menu.addAction("插件管理")
-    action_multiplayer = tray_menu.addAction("联机")
     action_settings = tray_menu.addAction("设置...")
     tray_menu.addSeparator()
     action_quit = tray_menu.addAction("Exit")
@@ -207,7 +204,6 @@ def main():
     action_show.triggered.connect(window.show_window)
     action_script_config.triggered.connect(script_overlay.open)
     action_plugin_config.triggered.connect(plugin_manager_overlay.show_window)
-    action_multiplayer.triggered.connect(multiplayer_window.show_window)
     action_settings.triggered.connect(settings_window.show_window)
     action_quit.triggered.connect(app.quit)
     tray.setContextMenu(tray_menu)
@@ -261,12 +257,6 @@ def main():
         if text.strip() in ("脚本", "脚本配置"):
             script_overlay.open()
             window.show_result("✅ 已打开脚本管理器")
-            QTimer.singleShot(800, window.hide_window)
-            return
-
-        if text.strip() in ("联机", "聊天", "房间"):
-            multiplayer_window.show_window()
-            window.show_result("✅ 已打开联机窗口")
             QTimer.singleShot(800, window.hide_window)
             return
 
