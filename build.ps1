@@ -15,6 +15,7 @@ Write-Host "CSC: $csc"
 # 3. Compile
 Set-Location $PSScriptRoot
 & $csc /target:winexe /out:OpenHam.exe /win32icon:logo.ico `
+       /win32manifest:app.manifest `
        /reference:System.Windows.Forms.dll `
        /reference:System.Drawing.dll `
        /optimize+ launcher.cs

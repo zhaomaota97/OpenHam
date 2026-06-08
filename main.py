@@ -86,9 +86,34 @@ def _format_hotkey_label(hotkey: str) -> str:
     return "+".join(pretty)
 
 
+def _is_admin() -> bool:
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def _relaunch_as_admin():
+    """以管理员身份重启自身（弹 UAC）。无控制台优先用 pythonw.exe。"""
+    try:
+        exe = sys.executable
+        pw = os.path.join(os.path.dirname(exe), "pythonw.exe")
+        if os.path.exists(pw):
+            exe = pw
+        script = os.path.abspath(sys.argv[0])
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, f'"{script}"', None, 1)
+    except Exception as e:
+        log.warning("以管理员重启失败：%s", e)
+
+
 def main():
     setup_logging()
     log.info("OpenHam 启动")
+    # 强制管理员：非管理员则尝试以管理员重启，当前实例退出（不授权则不运行）
+    if os.name == "nt" and not _is_admin():
+        log.info("非管理员身份，尝试以管理员重启")
+        _relaunch_as_admin()
+        sys.exit(0)
     _mutex = _ensure_single_instance()
 
     config = load_config()
