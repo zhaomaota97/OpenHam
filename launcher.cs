@@ -313,6 +313,8 @@ class InstallForm : Form
         {
             _log.AppendText(l + "\n");
             _log.ScrollToCaret();
+            // 每收到一行 pip 输出就把进度条目标往前推一点，避免长时间安装看起来卡死
+            if (_tickTarget < 92) _tickTarget += 2;
         }));
     }
 

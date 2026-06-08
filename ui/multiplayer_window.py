@@ -27,6 +27,7 @@ from core.ai_client import call_deepseek_sync
 
 class MultiplayerWindow(OpenHamWindowBase):
     _invent_done = pyqtSignal(object)   # AI 生成游戏结果（后台线程 → UI）
+    _dep_done = pyqtSignal(bool, str)   # 游戏组件(WebEngine)安装结果
 
     def __init__(self):
         super().__init__(title="联机", shadow_size=0, min_w=860, min_h=680)
@@ -45,6 +46,9 @@ class MultiplayerWindow(OpenHamWindowBase):
         self._build_content()
         self._wire_client()
         self._invent_done.connect(self._on_invent_done)
+        self._dep_done.connect(self._on_dep_done)
+        self._installing_dep = False
+        self._dep_dlg = None
         self._set_in_room(False)
 
     # ── UI ────────────────────────────────────────────────────────────
@@ -387,6 +391,8 @@ class MultiplayerWindow(OpenHamWindowBase):
         self._open_game(data, name)
 
     def _open_game(self, data: bytes, name: str):
+        if not self._ensure_webengine():
+            return   # 缺游戏组件：已弹出安装提示，本次先不开（装完重启再玩）
         try:
             dest = tempfile.mkdtemp(prefix="openham_game_")
             info = game_package.extract_package(data, dest)
@@ -406,6 +412,74 @@ class MultiplayerWindow(OpenHamWindowBase):
     def _on_game_send(self, payload):
         """游戏 JS 发来的操作 → 经 relay 广播给房间其他人。"""
         self.client.send_data({"t": "game_msg", "payload": payload})
+
+    # ── 按需安装游戏组件（WebEngine / Chromium）──────────────────────────
+
+    @staticmethod
+    def _webengine_available() -> bool:
+        import importlib.util
+        return importlib.util.find_spec("PyQt6.QtWebEngineWidgets") is not None
+
+    def _ensure_webengine(self) -> bool:
+        if self._webengine_available():
+            return True
+        if self._installing_dep:
+            self._system("游戏组件正在安装中，请稍候…")
+            return False
+        from PyQt6.QtWidgets import QMessageBox
+        r = QMessageBox.question(
+            self, "安装游戏组件",
+            "首次玩游戏需要下载「游戏运行组件」（约 300MB，来自阿里云镜像）。\n"
+            "聊天功能不受影响。现在安装吗？（装完需重启 OpenHam）",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes)
+        if r == QMessageBox.StandardButton.Yes:
+            self._install_webengine()
+        else:
+            self._system("已跳过游戏组件安装；可继续聊天。")
+        return False
+
+    def _install_webengine(self):
+        import sys
+        from PyQt6.QtWidgets import QProgressDialog
+        self._installing_dep = True
+        self._system("⏳ 正在安装游戏组件（约 300MB，来自阿里镜像）…")
+        self._dep_dlg = QProgressDialog(
+            "正在从阿里镜像下载安装游戏组件（约 300MB）…\n请保持联网，完成后需重启 OpenHam。",
+            None, 0, 0, self)
+        self._dep_dlg.setWindowTitle("安装游戏组件")
+        self._dep_dlg.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self._dep_dlg.setCancelButton(None)
+        self._dep_dlg.setMinimumDuration(0)
+        self._dep_dlg.show()
+        threading.Thread(target=self._webengine_worker, args=(sys.executable,), daemon=True).start()
+
+    def _webengine_worker(self, py: str):
+        import subprocess
+        try:
+            flags = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
+            r = subprocess.run(
+                [py, "-m", "pip", "install", "PyQt6-WebEngine"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace", creationflags=flags)
+            ok = (r.returncode == 0)
+            self._dep_done.emit(ok, "" if ok else (r.stdout or "")[-400:])
+        except Exception as e:
+            self._dep_done.emit(False, str(e))
+
+    def _on_dep_done(self, ok: bool, msg: str):
+        self._installing_dep = False
+        if self._dep_dlg is not None:
+            self._dep_dlg.close()
+            self._dep_dlg = None
+        from PyQt6.QtWidgets import QMessageBox
+        if ok:
+            self._system("✅ 游戏组件已安装，请重启 OpenHam 后再玩游戏。")
+            QMessageBox.information(self, "安装完成",
+                "游戏组件安装完成！\n请重启 OpenHam，然后重新建房 / 进房即可玩游戏。")
+        else:
+            self._system("⚠️ 游戏组件安装失败，请检查网络后重试。")
+            QMessageBox.warning(self, "安装失败", "游戏组件安装失败：\n" + (msg or "未知错误"))
 
     def _on_error(self, code: str, msg: str):
         self._system(f"⚠️ {msg}（{code}）")

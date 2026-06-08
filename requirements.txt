@@ -9,4 +9,5 @@ anyio
 python-dotenv
 qrcode[pil]
 websockets
-PyQt6-WebEngine
+# 注意：PyQt6-WebEngine（~300MB Chromium）不在基础依赖里。
+# 它只在用户首次「玩游戏」时按需安装（见 ui/multiplayer_window 的 _ensure_webengine）。
