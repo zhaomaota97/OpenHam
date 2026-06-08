@@ -216,8 +216,8 @@ def main():
         threading.Thread(target=_w, daemon=True).start()
 
     def _on_update_available(ver, url, notes):
-        tip = "OpenHam 有新版本，更新很快（仅几 MB），完成后重启即可。\n\n现在更新吗？"
-        if QMessageBox.question(None, "OpenHam 更新", tip) != QMessageBox.StandardButton.Yes:
+        tip = "检测到新版本，是否现在更新？\n更新完成后将自动重启 OpenHam。"
+        if QMessageBox.question(None, "软件更新", tip) != QMessageBox.StandardButton.Yes:
             return
         from PyQt6.QtWidgets import QProgressDialog
         dlg = QProgressDialog("正在下载更新…", None, 0, 0, None)
@@ -260,7 +260,9 @@ def main():
         if message == "__latest__":
             QMessageBox.information(None, "检查更新", "已是最新版本。")
         elif ok:
-            QMessageBox.information(None, "更新完成", "更新完成！请关闭并重新打开 OpenHam 即可生效。")
+            QMessageBox.information(None, "更新完成", "更新已完成，OpenHam 将自动重启以应用更新。")
+            from utils.restart import restart_app
+            restart_app()
         else:
             QMessageBox.warning(None, "更新失败", message or "更新失败，请检查网络。")
 

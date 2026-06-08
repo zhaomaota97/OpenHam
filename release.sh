@@ -29,13 +29,17 @@ echo "[2/4] 打包 完整精简包 + 代码包…"
 python3 - "$LITE" "$ZIP" "$CODEZIP" "$VJSON" "$VERSION" <<'PY'
 import sys, os, zipfile, json
 src, out_lite, out_code, vjson, version = sys.argv[1:6]
+# 增量代码包不含的用户状态文件（避免更新覆盖用户配置/脚本）
+SKIP_CODE = {"config.json", "config/plugins.json",
+             "script_manager/scripts.json", "ui/script_manager/history.json"}
 def build(out, skip_runtime):
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for r, d, fs in os.walk(src):
             for f in fs:
                 full = os.path.join(r, f)
                 rel = os.path.relpath(full, src)
-                if skip_runtime and rel.replace("\\", "/").split("/", 1)[0] == "runtime":
+                reln = rel.replace("\\", "/")
+                if skip_runtime and (reln.split("/", 1)[0] == "runtime" or reln in SKIP_CODE):
                     continue
                 z.write(full, os.path.join("OpenHam", rel))
     return os.path.getsize(out)

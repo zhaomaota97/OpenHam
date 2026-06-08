@@ -507,9 +507,11 @@ class MultiplayerWindow(OpenHamWindowBase):
             self._dep_dlg = None
         from PyQt6.QtWidgets import QMessageBox
         if ok:
-            self._system("✅ 游戏组件已安装，请重启 OpenHam 后再玩游戏。")
+            self._system("✅ 游戏组件已安装，OpenHam 即将自动重启…")
             QMessageBox.information(self, "安装完成",
-                "游戏组件安装完成！\n请重启 OpenHam，然后重新建房 / 进房即可玩游戏。")
+                "游戏组件安装完成，OpenHam 将自动重启以启用。\n重启后重新进房即可玩游戏。")
+            from utils.restart import restart_app
+            restart_app()
         else:
             self._system("⚠️ 游戏组件安装失败，请检查网络后重试。")
             QMessageBox.warning(self, "安装失败", "游戏组件安装失败：\n" + (msg or "未知错误"))

@@ -16,9 +16,20 @@ from core.logging_setup import get_logger
 
 log = get_logger("updater")
 
-# 更新时不覆盖的顶层路径（依赖、密钥、用户数据、正在运行的 exe）
-_SKIP_TOP = {"runtime", ".env", "user_settings.json", "openham.log",
-             ".git", "OpenHam.exe", "logo.ico", "OpenHam_lite", "OpenHam_send"}
+# 更新时不覆盖的路径（依赖、密钥、用户配置/脚本/游戏、正在运行的 exe）
+_SKIP = ["runtime", ".env", "user_settings.json", "openham.log",
+         ".git", "OpenHam.exe", "logo.ico", "OpenHam_lite", "OpenHam_send",
+         "config.json", "config/plugins.json",
+         "script_manager/scripts.json", "ui/script_manager/history.json",
+         "invented_games", "my_games"]
+
+
+def _should_skip(rel: str) -> bool:
+    rel = rel.replace("\\", "/")
+    for s in _SKIP:
+        if rel == s or rel.startswith(s + "/"):
+            return True
+    return False
 
 
 def local_version() -> str:
@@ -85,10 +96,7 @@ def apply_update(code_url: str, timeout: int = 120, install_deps: bool = True,
                 continue
             # 包内形如 OpenHam/core/xxx.py，去掉顶层目录
             rel = member.split("/", 1)[1] if "/" in member else member
-            if not rel:
-                continue
-            top = rel.split("/", 1)[0]
-            if top in _SKIP_TOP:
+            if not rel or _should_skip(rel):
                 continue
             target = _safe_join(base, rel)
             os.makedirs(os.path.dirname(target), exist_ok=True)
