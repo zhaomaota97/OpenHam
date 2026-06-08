@@ -34,6 +34,7 @@ from utils.paths import _base_dir
 from core.signals import HotkeySignal, AISignal, FileSignal, InfoSignal, AppSignal
 from utils.search import search_files
 from utils.app_index import search_apps
+from utils.global_hotkey import register_global_hotkey
 
 log = get_logger("main")
 
@@ -209,7 +210,18 @@ def main():
     signal.triggered.connect(lambda: (
         window.hide_window() if window.isVisible() else window.show_window()
     ))
-    kb.add_hotkey(clean_hotkey.lower(), on_hotkey, suppress=True)
+    # 优先用 Win32 RegisterHotKey 抢占（OS 级，压制系统菜单，优先级最高）；
+    # 失败（组合被别的应用占用）再回退到 keyboard 库的低级钩子。
+    try:
+        _hwnd = int(window.winId())
+        if register_global_hotkey(app, _hwnd, hotkey_str, on_hotkey):
+            log.info("全局热键已用 RegisterHotKey 抢占：%s", hotkey_str)
+        else:
+            log.warning("RegisterHotKey 失败（可能被占用），回退 keyboard 库")
+            kb.add_hotkey(clean_hotkey.lower(), on_hotkey, suppress=True)
+    except Exception as e:
+        log.exception("注册全局热键异常，回退 keyboard 库：%s", e)
+        kb.add_hotkey(clean_hotkey.lower(), on_hotkey, suppress=True)
 
     # -- AI --
     _ai_gen = 0
