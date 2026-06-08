@@ -14,6 +14,10 @@ class FileSignal(QObject):
 class AppSignal(QObject):
     results = pyqtSignal(list)
 
+class UpdateSignal(QObject):
+    available = pyqtSignal(str, str, str)   # version, code_url, notes
+    done = pyqtSignal(bool, str)            # ok, message
+
 class InfoSignal(QObject):
     info = pyqtSignal(str)
 

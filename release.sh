@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
-# 一键发布 OpenHam 精简包到 ECS 下载页。
-# 复用工作目录已安装的依赖，只是打包时把它们排除（精简包让用户首次运行从阿里镜像装）。
+# 一键发布 OpenHam 到 ECS：完整精简包（新用户）+ 代码包（老用户增量更新）+ version.json。
+# 复用工作目录已安装的依赖，打包时排除；代码包还额外排除 runtime（增量更新只换代码）。
 # 用法：在 WSL 里  bash release.sh
 set -e
 
 SRC="/mnt/c/Users/ning/Desktop/OpenHam"
 LITE="/mnt/c/Users/ning/Desktop/OpenHam_lite"
 ZIP="/mnt/c/Users/ning/Desktop/OpenHam-lite.zip"
+CODEZIP="/mnt/c/Users/ning/Desktop/OpenHam-code.zip"
+VJSON="/mnt/c/Users/ning/Desktop/version.json"
 KEY="$HOME/.ssh/openham_ecs"
 ECS="root@47.102.218.59"
-DEST="/opt/openham-dl/OpenHam-lite.zip"
+DL="/opt/openham-dl"
 
-echo "[1/3] 生成精简副本（排除依赖/敏感/dev 文件）…"
+VERSION="$(cd "$SRC" && git rev-parse --short HEAD)"
+echo "[1/4] 生成精简副本（版本 $VERSION，排除依赖/敏感/dev 文件）…"
 rm -rf "$LITE"; mkdir -p "$LITE"
 rsync -a \
   --exclude='.git' --exclude='.env' --exclude='user_settings.json' \
@@ -20,23 +23,35 @@ rsync -a \
   --exclude='runtime/Scripts' --exclude='OpenHam_send' --exclude='OpenHam_lite' \
   --exclude='release.sh' \
   "$SRC/" "$LITE/"
+echo "$VERSION" > "$LITE/version.txt"   # 安装包内记录版本，供日后比对
 
-echo "[2/3] 打包 zip…"
-python3 - "$LITE" "$ZIP" <<'PY'
-import sys, os, zipfile
-src, out = sys.argv[1], sys.argv[2]
-with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-    for r, d, fs in os.walk(src):
-        for f in fs:
-            full = os.path.join(r, f)
-            z.write(full, os.path.join("OpenHam", os.path.relpath(full, src)))
-print("    zip 大小:", os.path.getsize(out)//1024//1024, "MB")
+echo "[2/4] 打包 完整精简包 + 代码包…"
+python3 - "$LITE" "$ZIP" "$CODEZIP" "$VJSON" "$VERSION" <<'PY'
+import sys, os, zipfile, json
+src, out_lite, out_code, vjson, version = sys.argv[1:6]
+def build(out, skip_runtime):
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for r, d, fs in os.walk(src):
+            for f in fs:
+                full = os.path.join(r, f)
+                rel = os.path.relpath(full, src)
+                if skip_runtime and rel.replace("\\", "/").split("/", 1)[0] == "runtime":
+                    continue
+                z.write(full, os.path.join("OpenHam", rel))
+    return os.path.getsize(out)
+print("    完整包:", build(out_lite, False)//1024//1024, "MB")
+print("    代码包:", build(out_code, True)//1024, "KB")
+with open(vjson, "w", encoding="utf-8") as f:
+    json.dump({"version": version, "code_url": "OpenHam-code.zip",
+               "notes": "增量更新（仅代码）"}, f, ensure_ascii=False)
 PY
 
-echo "[3/3] 上传 zip + 下载页 + logo 到 ECS（覆盖即生效，无需重启容器）…"
+echo "[3/4] 上传 完整包 + 代码包 + version.json + 下载页 + logo…"
 SCPOPT="-i $KEY -o StrictHostKeyChecking=no"
-scp $SCPOPT "$ZIP" "$ECS:/opt/openham-dl/OpenHam-lite.zip"
-scp $SCPOPT "$SRC/relay/download.html" "$ECS:/opt/openham-dl/index.html"
-scp $SCPOPT "$SRC/logo.png" "$ECS:/opt/openham-dl/logo.png"
+scp $SCPOPT "$ZIP" "$ECS:$DL/OpenHam-lite.zip"
+scp $SCPOPT "$CODEZIP" "$ECS:$DL/OpenHam-code.zip"
+scp $SCPOPT "$VJSON" "$ECS:$DL/version.json"
+scp $SCPOPT "$SRC/relay/download.html" "$ECS:$DL/index.html"
+scp $SCPOPT "$SRC/logo.png" "$ECS:$DL/logo.png"
 
-echo "✅ 已发布最新版 → http://47.102.218.59/openham/"
+echo "[4/4] 完成 ✅  版本 $VERSION → http://47.102.218.59/openham/"

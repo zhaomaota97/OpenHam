@@ -7,7 +7,7 @@ import subprocess
 import time as _time
 import re
 from dotenv import load_dotenv
-from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer, Qt
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QAction, QKeySequence
 import keyboard as kb
@@ -30,7 +30,8 @@ from core.ai_client import call_deepseek_stream
 from core import app_config
 from core.logging_setup import setup_logging, get_logger
 from utils.paths import _base_dir
-from core.signals import HotkeySignal, AISignal, FileSignal, InfoSignal, AppSignal
+from core.signals import HotkeySignal, AISignal, FileSignal, InfoSignal, AppSignal, UpdateSignal
+from core import updater
 from utils.search import search_files
 from utils.app_index import search_apps
 from utils.global_hotkey import register_global_hotkey, claim_hotkey_aggressive
@@ -187,6 +188,7 @@ def main():
     action_script_config = tray_menu.addAction("脚本配置")
     action_plugin_config = tray_menu.addAction("插件管理")
     action_settings = tray_menu.addAction("设置...")
+    action_update = tray_menu.addAction("检查更新")
     tray_menu.addSeparator()
     action_quit = tray_menu.addAction("Exit")
     
@@ -205,6 +207,42 @@ def main():
     action_script_config.triggered.connect(script_overlay.open)
     action_plugin_config.triggered.connect(plugin_manager_overlay.show_window)
     action_settings.triggered.connect(settings_window.show_window)
+
+    # ── 增量更新 ──────────────────────────────────────────────────────
+    update_signal = UpdateSignal()
+
+    def _check_update(manual=False):
+        def _w():
+            has, ver, url, notes = updater.check_update(app_config.get("update_url"))
+            if has:
+                update_signal.available.emit(ver, url, notes)
+            elif manual:
+                update_signal.done.emit(True, "__latest__")
+        threading.Thread(target=_w, daemon=True).start()
+
+    def _on_update_available(ver, url, notes):
+        tip = f"发现新版本 {ver}。\n{notes}\n\n现在更新吗？（仅下载几 MB 代码，重启后生效）"
+        if QMessageBox.question(None, "OpenHam 更新", tip) == QMessageBox.StandardButton.Yes:
+            def _apply():
+                try:
+                    ok = updater.apply_update(url)
+                    update_signal.done.emit(ok, "" if ok else "更新失败")
+                except Exception as e:
+                    update_signal.done.emit(False, str(e))
+            threading.Thread(target=_apply, daemon=True).start()
+
+    def _on_update_done(ok, message):
+        if message == "__latest__":
+            QMessageBox.information(None, "检查更新", "已是最新版本。")
+        elif ok:
+            QMessageBox.information(None, "更新完成", "更新完成！请关闭并重新打开 OpenHam 即可生效。")
+        else:
+            QMessageBox.warning(None, "更新失败", message or "更新失败，请检查网络。")
+
+    update_signal.available.connect(_on_update_available)
+    update_signal.done.connect(_on_update_done)
+    action_update.triggered.connect(lambda: _check_update(manual=True))
+    QTimer.singleShot(5000, lambda: _check_update(manual=False))  # 启动后台静默检查
     action_quit.triggered.connect(app.quit)
     tray.setContextMenu(tray_menu)
     def _on_tray_activated(reason):

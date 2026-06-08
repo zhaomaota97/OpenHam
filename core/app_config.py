@@ -25,6 +25,8 @@ _DEFAULTS = {
     # 联机
     "relay_url": "ws://47.102.218.59:9000",  # OpenHam relay (阿里云 ECS)
     "nickname": "",
+    # 更新
+    "update_url": "http://47.102.218.59/openham",  # 增量更新源（version.json 所在）
 }
 
 _cache: dict | None = None
