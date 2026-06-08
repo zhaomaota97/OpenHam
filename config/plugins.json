@@ -121,5 +121,13 @@
   "plugins.gitlab_engine.plugin_gitlab": {
     "enabled": true,
     "triggers": []
+  },
+  "plugins.multiplayer.execute_multiplayer": {
+    "enabled": false,
+    "triggers": [
+      "联机",
+      "聊天",
+      "房间"
+    ]
   }
 }
