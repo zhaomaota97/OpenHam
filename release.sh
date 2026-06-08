@@ -21,7 +21,7 @@ rsync -a \
   --exclude='openham.log' --exclude='__pycache__' --exclude='*.pyc' \
   --exclude='runtime/Lib/site-packages' --exclude='runtime/.deps_ok' \
   --exclude='runtime/Scripts' --exclude='OpenHam_send' --exclude='OpenHam_lite' \
-  --exclude='release.sh' \
+  --exclude='release.sh' --exclude='invented_games' \
   "$SRC/" "$LITE/"
 echo "$VERSION" > "$LITE/version.txt"   # 安装包内记录版本，供日后比对
 

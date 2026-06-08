@@ -10,6 +10,9 @@ user_settings.json
 openham.log
 version.txt
 
+# AI 发明的游戏（用户数据）
+invented_games/
+
 # 便携 Python 运行时的第三方依赖（用户自行安装）
 runtime/Lib/site-packages/
 # runtime 目录下的 Scripts（pip 等工具生成）

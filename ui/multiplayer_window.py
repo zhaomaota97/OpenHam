@@ -17,7 +17,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QApplication, QFileDialog, QInputDialog,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QTextCursor
 
 from ui.window_base import OpenHamWindowBase
 from core.relay_client import RelayClient
@@ -328,7 +327,9 @@ class MultiplayerWindow(OpenHamWindowBase):
         req = (req or "").strip()
         if not ok or not req:
             return
-        self._system("✨ AI 正在发明游戏（实时生成中，约 10–40 秒）…")
+        self._invent_chars = 0
+        self._system("✨ AI 正在发明游戏…")
+        self.status_lbl.setText("✨ AI 发明游戏中… 已生成 0 字")
         self.invent_btn.setEnabled(False)
         self.publish_btn.setEnabled(False)
         threading.Thread(target=self._invent_worker, args=(req,), daemon=True).start()
@@ -338,15 +339,21 @@ class MultiplayerWindow(OpenHamWindowBase):
             guide = self._load_game_guide()
             sys_prompt = (
                 "你是一名资深的网页小游戏开发者。严格按照下面《OpenHam 游戏包开发规范》，"
-                "根据用户的需求，生成一个【可联机的单文件 index.html 游戏】。"
-                "要求：所有 CSS/JS 内联；适配手机（viewport + pointer 事件 + 自适应）；"
-                "用内联 SVG 或 emoji 当美术；只输出完整 HTML，从 <!DOCTYPE html> 到 </html>，"
-                "不要任何解释、不要 markdown 代码围栏。\n\n" + guide
+                "根据用户的需求，生成一个【可联机的单文件 index.html 游戏】。\n"
+                "硬性要求（务必满足，否则不合格）：\n"
+                "1. 必须有始终可见的「重新开始」按钮，任何玩家都能点；点击后重置本局并 "
+                "OpenHam.send({k:'reset'}) 广播，所有人收到 reset 都重置本局——大家一起重开。\n"
+                "2. 绝不能卡死：分出胜负/平局后能重来；人数不够时显示「等待其他玩家…」不要卡住；"
+                "有人中途退出不死锁；新加入者要能看到当前局面（房主收到 hello 后广播一次完整状态）。\n"
+                "3. 所有 CSS/JS 内联；适配手机（viewport + pointer 事件 + 自适应）；用内联 SVG 或 emoji 当美术。\n"
+                "只输出完整 HTML，从 <!DOCTYPE html> 到 </html>，不要任何解释、不要 markdown 代码围栏。\n\n"
+                + guide
             )
             raw = ""
-            for piece in call_deepseek_stream(req, None, sys_prompt, max_tokens=8192):
-                if piece.startswith("❌"):
-                    raise Exception(piece.lstrip("❌ "))
+            for piece in call_deepseek_stream(req, None, sys_prompt, max_tokens=32768):
+                # 只匹配真正的错误信息，避免误伤游戏内容里的 ❌（如井字棋棋子）
+                if "AI 请求失败" in piece or "未配置 API Key" in piece:
+                    raise Exception(piece.replace("❌", "").strip())
                 raw += piece
                 self._invent_chunk.emit(piece)
             html = self._extract_html(raw)
@@ -357,10 +364,9 @@ class MultiplayerWindow(OpenHamWindowBase):
             self._invent_done.emit({"ok": False, "error": str(e)})
 
     def _on_invent_chunk(self, piece: str):
-        # 把 AI 流式生成的字符实时显示在聊天区（纯文本，避免被当成 HTML 渲染）
-        self.chat_log.moveCursor(QTextCursor.MoveOperation.End)
-        self.chat_log.insertPlainText(piece)
-        self.chat_log.moveCursor(QTextCursor.MoveOperation.End)
+        # 用户不关心 AI 具体输出，只显示字符数计数，让其有进展感
+        self._invent_chars += len(piece)
+        self.status_lbl.setText(f"✨ AI 发明游戏中… 已生成 {self._invent_chars} 字")
 
     def _on_invent_done(self, result: dict):
         in_room = bool(self.client.room)
@@ -371,20 +377,26 @@ class MultiplayerWindow(OpenHamWindowBase):
             return
         name = ("AI·" + result["req"])[:14]
         try:
-            data = self._pack_html(result["html"], name)
+            data, folder = self._pack_html(result["html"], name)
         except GamePackageError as e:
             self._system(f"⚠️ 打包失败：{e}")
             return
-        self._system("✅ 游戏已生成，正在发布…")
+        self._system(f"✅ 游戏已生成并保存到：{folder}")
+        self._system("（可在「发布游戏」里再次选择该文件夹重玩）正在发布…")
         self._publish_package(data, name)
 
-    def _pack_html(self, html: str, name: str) -> bytes:
-        folder = tempfile.mkdtemp(prefix="openham_invent_")
+    def _pack_html(self, html: str, name: str):
+        """把 AI 生成的游戏持久化到 安装目录/invented_games/<名称_时间>/ 并打包。"""
+        import time as _time
+        from utils.paths import _base_dir
+        safe = re.sub(r'[\\/:*?"<>|]+', "_", name).strip() or "AI游戏"
+        folder = os.path.join(_base_dir(), "invented_games", f"{safe}_{_time.strftime('%m%d_%H%M%S')}")
+        os.makedirs(folder, exist_ok=True)
         with open(os.path.join(folder, "index.html"), "w", encoding="utf-8") as f:
             f.write(html)
         with open(os.path.join(folder, "manifest.json"), "w", encoding="utf-8") as f:
             json.dump({"name": name, "entry": "index.html"}, f, ensure_ascii=False)
-        return game_package.pack_folder(folder)
+        return game_package.pack_folder(folder), folder
 
     @staticmethod
     def _load_game_guide() -> str:
@@ -407,6 +419,10 @@ class MultiplayerWindow(OpenHamWindowBase):
             i = low.find("<html")
         if i > 0:
             t = t[i:]
+        # 截断到最后一个 </html>，去掉尾部多余内容（markdown 残留、解释等）
+        j = t.lower().rfind("</html>")
+        if j >= 0:
+            t = t[:j + 7]
         return t.strip()
 
     def _send_game_to(self, target):
