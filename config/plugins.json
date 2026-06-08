@@ -125,9 +125,7 @@
   "plugins.multiplayer.execute_multiplayer": {
     "enabled": false,
     "triggers": [
-      "联机",
-      "聊天",
-      "房间"
+      "联机"
     ]
   }
 }

@@ -53,8 +53,9 @@ def _safe_join(base: str, rel: str) -> str:
     raise ValueError(f"非法路径：{rel}")
 
 
-def apply_update(code_url: str, timeout: int = 120) -> bool:
-    """下载代码包并覆盖到安装目录（保留 runtime/.env/user_settings 等）。"""
+def apply_update(code_url: str, timeout: int = 120, install_deps: bool = True) -> bool:
+    """下载代码包并覆盖到安装目录（保留 runtime/.env/user_settings 等）。
+    install_deps=True 时更新后按新 requirements.txt 补装依赖（走阿里镜像，已装的会跳过）。"""
     base = _base_dir()
     with urllib.request.urlopen(code_url, timeout=timeout) as r:
         data = r.read()
@@ -76,4 +77,24 @@ def apply_update(code_url: str, timeout: int = 120) -> bool:
                 out.write(src.read())
             count += 1
     log.info("增量更新完成，覆盖 %d 个文件", count)
+    if install_deps:
+        _sync_deps()
     return count > 0
+
+
+def _sync_deps():
+    """按更新后的 requirements.txt 补装新依赖（已满足的会被 pip 跳过，很快）。"""
+    import sys
+    import subprocess
+    req = os.path.join(_base_dir(), "requirements.txt")
+    if not os.path.exists(req):
+        return
+    try:
+        flags = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-r", req],
+            cwd=_base_dir(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=flags, timeout=900)
+        log.info("更新后依赖同步完成")
+    except Exception as e:
+        log.warning("更新后补装依赖失败：%s", e)
