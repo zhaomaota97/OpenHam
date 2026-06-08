@@ -95,3 +95,103 @@ def register_global_hotkey(app, hwnd: int, hotkey: str, callback) -> bool:
     user32.UnregisterHotKey(wintypes.HWND(hwnd), _HOTKEY_ID)  # 先解注册，幂等
     ok = user32.RegisterHotKey(wintypes.HWND(hwnd), _HOTKEY_ID, mods, vk)
     return bool(ok)
+
+
+# ── 霸道版：低级键盘钩子 + 定时重装，抢在其它应用之前 ─────────────────────
+WH_KEYBOARD_LL = 13
+WM_KEYDOWN = 0x0100
+WM_SYSKEYDOWN = 0x0104
+VK_MENU = 0x12
+VK_CONTROL = 0x11
+VK_SHIFT = 0x10
+VK_LWIN = 0x5B
+VK_RWIN = 0x5C
+
+LRESULT = ctypes.c_ssize_t
+ULONG_PTR = ctypes.c_size_t
+HOOKPROC = ctypes.CFUNCTYPE(LRESULT, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
+
+
+class _KBDLL(ctypes.Structure):
+    _fields_ = [("vkCode", wintypes.DWORD), ("scanCode", wintypes.DWORD),
+                ("flags", wintypes.DWORD), ("time", wintypes.DWORD),
+                ("dwExtraInfo", ULONG_PTR)]
+
+
+class _LLHotkey:
+    def __init__(self, mods, vk, callback):
+        self.vk = vk
+        self.need_alt = bool(mods & MOD_ALT)
+        self.need_ctrl = bool(mods & MOD_CONTROL)
+        self.need_shift = bool(mods & MOD_SHIFT)
+        self.need_win = bool(mods & MOD_WIN)
+        self.cb = callback
+        self._u = ctypes.windll.user32
+        self._k = ctypes.windll.kernel32
+        # 64 位下必须设对 argtypes/restype，否则句柄被截断 → 安装失败
+        self._k.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+        self._k.GetModuleHandleW.restype = wintypes.HMODULE
+        self._u.SetWindowsHookExW.argtypes = [ctypes.c_int, HOOKPROC, wintypes.HMODULE, wintypes.DWORD]
+        self._u.SetWindowsHookExW.restype = wintypes.HHOOK
+        self._u.UnhookWindowsHookEx.argtypes = [wintypes.HHOOK]
+        self._u.UnhookWindowsHookEx.restype = wintypes.BOOL
+        self._u.CallNextHookEx.argtypes = [wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM]
+        self._u.CallNextHookEx.restype = LRESULT
+        self._u.GetAsyncKeyState.argtypes = [ctypes.c_int]
+        self._u.GetAsyncKeyState.restype = ctypes.c_short
+        self._proc = HOOKPROC(self._hook)   # 保活
+        self._hid = None
+
+    def _down(self, vk):
+        return bool(self._u.GetAsyncKeyState(vk) & 0x8000)
+
+    def _match(self):
+        return (self._down(VK_MENU) == self.need_alt
+                and self._down(VK_CONTROL) == self.need_ctrl
+                and self._down(VK_SHIFT) == self.need_shift
+                and (self._down(VK_LWIN) or self._down(VK_RWIN)) == self.need_win)
+
+    def _hook(self, nCode, wParam, lParam):
+        if nCode == 0 and wParam in (WM_KEYDOWN, WM_SYSKEYDOWN):
+            kb = _KBDLL.from_address(lParam)
+            if kb.vkCode == self.vk and self._match():
+                try:
+                    self.cb()        # 应尽量轻量（建议用队列连接派发实际动作）
+                except Exception:
+                    pass
+                return 1             # 吞掉：别人收不到，也不弹系统菜单
+        return self._u.CallNextHookEx(None, nCode, wParam, lParam)
+
+    def install(self):
+        hmod = self._k.GetModuleHandleW(None)
+        self._hid = self._u.SetWindowsHookExW(WH_KEYBOARD_LL, self._proc, hmod, 0)
+        return bool(self._hid)
+
+    def reinstall(self):
+        if self._hid:
+            self._u.UnhookWindowsHookEx(self._hid)
+            self._hid = None
+        return self.install()
+
+
+_ll_ref = None
+_ll_timer = None
+
+
+def claim_hotkey_aggressive(hotkey: str, callback, reinstall_ms: int = 2500) -> bool:
+    """低级钩子抢占热键，并每隔 reinstall_ms 重装一次以保持在钩子链最前。
+    成功返回 True。能压过 RegisterHotKey 占用者及其它低级钩子（谁更新谁靠前）。"""
+    parsed = parse_hotkey(hotkey)
+    if not parsed:
+        return False
+    mods, vk = parsed
+    global _ll_ref, _ll_timer
+    _ll_ref = _LLHotkey(mods, vk, callback)
+    if not _ll_ref.install():
+        _ll_ref = None
+        return False
+    from PyQt6.QtCore import QTimer
+    _ll_timer = QTimer()
+    _ll_timer.timeout.connect(_ll_ref.reinstall)
+    _ll_timer.start(reinstall_ms)
+    return True
