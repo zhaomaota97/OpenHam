@@ -409,6 +409,10 @@ class InstallForm : Form
         psi.RedirectStandardError  = true;
         psi.StandardOutputEncoding = Encoding.UTF8;
         psi.StandardErrorEncoding  = Encoding.UTF8;
+        // 强制子进程 Python/pip 用 UTF-8 输出，避免安装路径含中文时 pip(rich) 报 cp1252 编码错误
+        psi.EnvironmentVariables["PYTHONUTF8"]       = "1";
+        psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+        psi.EnvironmentVariables["PIP_NO_COLOR"]     = "1";
 
         Process p = Process.Start(psi);
         p.OutputDataReceived += delegate(object s, DataReceivedEventArgs e)
