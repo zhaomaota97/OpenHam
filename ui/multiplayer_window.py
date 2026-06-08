@@ -197,10 +197,23 @@ class MultiplayerWindow(OpenHamWindowBase):
         if self._game_win is not None:
             self._game_win.add_chat(name, text, mine)  # 游戏页内
 
+    def _web_url(self) -> str:
+        url = (app_config.get("relay_url") or "").replace("wss://", "https://").replace("ws://", "http://")
+        if url and not url.endswith("/"):
+            url += "/"
+        return url
+
     def _copy_meow(self):
-        if self._room_meow:
-            QApplication.clipboard().setText(self._room_meow)
-            self._system("已复制喵咪密码，发给朋友吧～")
+        if not self._room_meow:
+            return
+        text = (
+            f"【OpenHam 联机】快来一起玩！\n"
+            f"房间口令：{self._room_meow}\n"
+            f"· 手机 / 没装 OpenHam：浏览器打开 {self._web_url()} 输入上面的口令即可。\n"
+            f"· 装了 OpenHam：打开「联机」粘贴口令进房。"
+        )
+        QApplication.clipboard().setText(text)
+        self._system("已复制（口令+网址+说明），发微信给朋友吧～")
 
     # ── 客户端信号处理 ─────────────────────────────────────────────────
 
