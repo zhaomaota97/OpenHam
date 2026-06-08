@@ -25,7 +25,8 @@ def _thinking_extra() -> dict:
     return {"thinking": {"type": "enabled" if enabled else "disabled"}}
 
 
-def call_deepseek_stream(text: str, api_key: str | None = None, sys_prompt: str = None):
+def call_deepseek_stream(text: str, api_key: str | None = None, sys_prompt: str = None,
+                         max_tokens: int | None = None):
     """流式调用 DeepSeek，逐个 yield 文本片段；失败时 yield 错误提示。"""
     log.info("流式请求开始，文本: %r...", text[:20])
     try:
@@ -42,7 +43,7 @@ def call_deepseek_stream(text: str, api_key: str | None = None, sys_prompt: str 
                 {"role": "system", "content": system_content},
                 {"role": "user", "content": text},
             ],
-            max_tokens=4096 if sys_prompt else 160,
+            max_tokens=max_tokens if max_tokens else (4096 if sys_prompt else 160),
             stream=True,
             extra_body=_thinking_extra(),
         )

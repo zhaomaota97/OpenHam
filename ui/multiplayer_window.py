@@ -17,17 +17,20 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QApplication, QFileDialog, QInputDialog,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QTextCursor
 
 from ui.window_base import OpenHamWindowBase
 from core.relay_client import RelayClient
 from core import app_config, meow_code, game_package, game_transfer
 from core.game_package import GamePackageError
-from core.ai_client import call_deepseek_sync
+from core.ai_client import call_deepseek_stream
 
 
 class MultiplayerWindow(OpenHamWindowBase):
     _invent_done = pyqtSignal(object)   # AI 生成游戏结果（后台线程 → UI）
+    _invent_chunk = pyqtSignal(str)     # AI 生成过程中的流式片段
     _dep_done = pyqtSignal(bool, str)   # 游戏组件(WebEngine)安装结果
+    _dep_progress = pyqtSignal(int, int)  # 游戏组件下载进度（已下载, 总字节）
 
     def __init__(self):
         super().__init__(title="联机", shadow_size=0, min_w=860, min_h=680)
@@ -46,7 +49,9 @@ class MultiplayerWindow(OpenHamWindowBase):
         self._build_content()
         self._wire_client()
         self._invent_done.connect(self._on_invent_done)
+        self._invent_chunk.connect(self._on_invent_chunk)
         self._dep_done.connect(self._on_dep_done)
+        self._dep_progress.connect(self._on_dep_progress)
         self._installing_dep = False
         self._dep_dlg = None
         self._set_in_room(False)
@@ -323,32 +328,39 @@ class MultiplayerWindow(OpenHamWindowBase):
         req = (req or "").strip()
         if not ok or not req:
             return
-        self._system("🧠 AI 正在发明游戏，请稍候（约 10–40 秒）…")
+        self._system("✨ AI 正在发明游戏（实时生成中，约 10–40 秒）…")
         self.invent_btn.setEnabled(False)
         self.publish_btn.setEnabled(False)
         threading.Thread(target=self._invent_worker, args=(req,), daemon=True).start()
 
     def _invent_worker(self, req: str):
         try:
-            html = self._ai_generate_game(req)
+            guide = self._load_game_guide()
+            sys_prompt = (
+                "你是一名资深的网页小游戏开发者。严格按照下面《OpenHam 游戏包开发规范》，"
+                "根据用户的需求，生成一个【可联机的单文件 index.html 游戏】。"
+                "要求：所有 CSS/JS 内联；适配手机（viewport + pointer 事件 + 自适应）；"
+                "用内联 SVG 或 emoji 当美术；只输出完整 HTML，从 <!DOCTYPE html> 到 </html>，"
+                "不要任何解释、不要 markdown 代码围栏。\n\n" + guide
+            )
+            raw = ""
+            for piece in call_deepseek_stream(req, None, sys_prompt, max_tokens=8192):
+                if piece.startswith("❌"):
+                    raise Exception(piece.lstrip("❌ "))
+                raw += piece
+                self._invent_chunk.emit(piece)
+            html = self._extract_html(raw)
+            if "<html" not in html.lower():
+                raise Exception("AI 没有返回有效的 HTML")
             self._invent_done.emit({"ok": True, "html": html, "req": req})
         except Exception as e:
             self._invent_done.emit({"ok": False, "error": str(e)})
 
-    def _ai_generate_game(self, req: str) -> str:
-        guide = self._load_game_guide()
-        sys_prompt = (
-            "你是一名资深的网页小游戏开发者。严格按照下面《OpenHam 游戏包开发规范》，"
-            "根据用户的需求，生成一个【可联机的单文件 index.html 游戏】。"
-            "要求：所有 CSS/JS 内联；适配手机（viewport + pointer 事件 + 自适应）；"
-            "用内联 SVG 或 emoji 当美术；只输出完整 HTML，从 <!DOCTYPE html> 到 </html>，"
-            "不要任何解释、不要 markdown 代码围栏。\n\n" + guide
-        )
-        raw = call_deepseek_sync(req, None, sys_prompt, max_tokens=8192)
-        html = self._extract_html(raw)
-        if "<html" not in html.lower():
-            raise Exception("AI 没有返回有效的 HTML")
-        return html
+    def _on_invent_chunk(self, piece: str):
+        # 把 AI 流式生成的字符实时显示在聊天区（纯文本，避免被当成 HTML 渲染）
+        self.chat_log.moveCursor(QTextCursor.MoveOperation.End)
+        self.chat_log.insertPlainText(piece)
+        self.chat_log.moveCursor(QTextCursor.MoveOperation.End)
 
     def _on_invent_done(self, result: dict):
         in_room = bool(self.client.room)
@@ -447,7 +459,7 @@ class MultiplayerWindow(OpenHamWindowBase):
         from PyQt6.QtWidgets import QMessageBox
         r = QMessageBox.question(
             self, "安装游戏组件",
-            "首次玩游戏需要下载「游戏运行组件」（约 300MB，来自阿里云镜像）。\n"
+            "首次玩游戏需要下载「游戏运行组件」（约 130MB，来自阿里云镜像）。\n"
             "聊天功能不受影响。现在安装吗？（装完需重启 OpenHam）",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes)
@@ -458,32 +470,39 @@ class MultiplayerWindow(OpenHamWindowBase):
         return False
 
     def _install_webengine(self):
-        import sys
         from PyQt6.QtWidgets import QProgressDialog
         self._installing_dep = True
-        self._system("⏳ 正在安装游戏组件（约 300MB，来自阿里镜像）…")
+        self._system("⏳ 正在下载安装游戏组件（约 130MB，来自阿里镜像）…")
         self._dep_dlg = QProgressDialog(
-            "正在从阿里镜像下载安装游戏组件（约 300MB）…\n请保持联网，完成后需重启 OpenHam。",
-            None, 0, 0, self)
+            "正在准备下载游戏组件…\n请保持联网，完成后需重启 OpenHam。", None, 0, 0, self)
         self._dep_dlg.setWindowTitle("安装游戏组件")
         self._dep_dlg.setWindowModality(Qt.WindowModality.ApplicationModal)
         self._dep_dlg.setCancelButton(None)
         self._dep_dlg.setMinimumDuration(0)
+        self._dep_dlg.setAutoClose(False)
+        self._dep_dlg.setAutoReset(False)
+        self._dep_dlg.setMinimumWidth(380)
         self._dep_dlg.show()
-        threading.Thread(target=self._webengine_worker, args=(sys.executable,), daemon=True).start()
+        threading.Thread(target=self._webengine_worker, daemon=True).start()
 
-    def _webengine_worker(self, py: str):
-        import subprocess
+    def _webengine_worker(self):
         try:
-            flags = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
-            r = subprocess.run(
-                [py, "-m", "pip", "install", "PyQt6-WebEngine"],
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace", creationflags=flags)
-            ok = (r.returncode == 0)
-            self._dep_done.emit(ok, "" if ok else (r.stdout or "")[-400:])
+            from core import webengine_installer
+            webengine_installer.install(progress_cb=lambda d, t: self._dep_progress.emit(d, t))
+            self._dep_done.emit(True, "")
         except Exception as e:
             self._dep_done.emit(False, str(e))
+
+    def _on_dep_progress(self, done: int, total: int):
+        if self._dep_dlg is None:
+            return
+        mb = 1024 * 1024
+        if total > 0:
+            self._dep_dlg.setMaximum(total)
+            self._dep_dlg.setValue(done)
+            self._dep_dlg.setLabelText(
+                f"正在下载游戏组件…  {done/mb:.1f} / {total/mb:.1f} MB\n"
+                f"下载完成后需重启 OpenHam。")
 
     def _on_dep_done(self, ok: bool, msg: str):
         self._installing_dep = False
