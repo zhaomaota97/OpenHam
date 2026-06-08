@@ -3,8 +3,8 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
-        <!-- 强制以管理员身份运行：双击即弹 UAC，不授权则不启动 -->
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+        <!-- 默认普通权限运行（不弹 UAC）。需要时用户可右键「以管理员身份运行」 -->
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>

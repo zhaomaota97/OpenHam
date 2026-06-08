@@ -7,6 +7,7 @@ import threading
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -26,6 +27,7 @@ from PyQt6.QtWidgets import (
 
 from ui.window_base import OpenHamWindowBase
 from utils.paths import _base_dir
+from utils import autostart
 from core import app_config
 
 
@@ -261,7 +263,7 @@ class SettingsWindow(OpenHamWindowBase):
         nav_layout.setSpacing(8)
 
         self.nav_buttons = []
-        for index, title in enumerate(("常规", "依赖管理")):
+        for index, title in enumerate(("常规", "高级", "依赖管理")):
             btn = QPushButton(title)
             btn.setCheckable(True)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -281,6 +283,7 @@ class SettingsWindow(OpenHamWindowBase):
         self.page_stack = QStackedWidget()
         self.page_stack.setStyleSheet("background: transparent; border: none;")
         self.page_stack.addWidget(self._build_general_tab())
+        self.page_stack.addWidget(self._build_advanced_tab())
         self.page_stack.addWidget(self._build_dependency_tab())
         content_layout.addWidget(self.page_stack, 1)
         body.addWidget(content_wrap, 1)
@@ -429,6 +432,43 @@ class SettingsWindow(OpenHamWindowBase):
         )
         self.show_key_btn.setText("隐藏" if shown else "显示")
 
+    def _build_advanced_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(16)
+
+        box = QGroupBox("启动")
+        box.setStyleSheet(self._group_box_style())
+        v = QVBoxLayout(box)
+        v.setContentsMargins(16, 14, 16, 14)
+        v.setSpacing(8)
+
+        self.autostart_chk = QCheckBox("开机自启动 OpenHam")
+        self.autostart_chk.setStyleSheet("QCheckBox{color:#d8cfb8;font-size:14px;}")
+        try:
+            self.autostart_chk.setChecked(autostart.is_enabled())
+        except Exception:
+            pass
+        self.autostart_chk.toggled.connect(self._on_autostart_toggled)
+        v.addWidget(self.autostart_chk)
+
+        hint = QLabel("开启后，登录 Windows 时自动在后台启动 OpenHam（按全局热键即可唤出）。")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #8a9a7a; font-size: 12px;")
+        v.addWidget(hint)
+
+        layout.addWidget(box)
+        layout.addStretch()
+        return tab
+
+    def _on_autostart_toggled(self, on: bool):
+        try:
+            autostart.set_enabled(on)
+            self.status_label.setText("已开启开机自启动" if on else "已关闭开机自启动")
+        except Exception as e:
+            self.status_label.setText(f"设置开机自启失败：{e}")
+
     def _build_dependency_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -546,6 +586,13 @@ class SettingsWindow(OpenHamWindowBase):
         self.model_input.setText(s.get("ai_model", ""))
         self.base_url_input.setText(s.get("ai_base_url", ""))
         self.relay_input.setText(s.get("relay_url", ""))
+        if hasattr(self, "autostart_chk"):
+            self.autostart_chk.blockSignals(True)
+            try:
+                self.autostart_chk.setChecked(autostart.is_enabled())
+            except Exception:
+                pass
+            self.autostart_chk.blockSignals(False)
 
     def _save_general_settings(self):
         hotkey = self._captured_hotkey.strip() or self._default_hotkey

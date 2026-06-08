@@ -90,9 +90,14 @@ class MultiplayerWindow(OpenHamWindowBase):
         self.copy_btn = QPushButton("复制")
         self.copy_btn.clicked.connect(self._copy_meow)
         self.copy_btn.hide()
-        self.invent_btn = QPushButton("🧠 发明游戏")
+        self.invent_btn = QPushButton("✨ 发明游戏")
+        self.invent_btn.setStyleSheet(
+            "QPushButton{background:rgba(160,80,200,0.15);color:#d090f0;"
+            "border:1px solid rgba(160,80,200,0.3);border-radius:6px;font-weight:bold;padding:7px 14px;}"
+            "QPushButton:hover{background:rgba(160,80,200,0.3);border-color:rgba(200,100,240,0.4);}"
+            "QPushButton:disabled{color:#6f6552;background:rgba(160,80,200,0.06);}")
         self.invent_btn.clicked.connect(self._on_invent)
-        self.publish_btn = QPushButton("🎮 发布游戏")
+        self.publish_btn = QPushButton("发布游戏")
         self.publish_btn.clicked.connect(self._on_publish)
         status.addWidget(self.status_lbl, 1)
         status.addWidget(self.invent_btn)
