@@ -288,7 +288,8 @@ class MultiplayerWindow(OpenHamWindowBase):
     def _open_library(self):
         if self._lib_win is None:
             from ui.game_library_window import GameLibraryWindow
-            self._lib_win = GameLibraryWindow(on_publish=self._publish_folder, on_invent=self._on_invent)
+            self._lib_win = GameLibraryWindow(
+                on_publish=self._publish_folder, on_invent=self._on_invent, on_modify=self._on_modify)
         self._lib_win.show_window()
 
     def _publish_folder(self, folder: str):
@@ -329,23 +330,33 @@ class MultiplayerWindow(OpenHamWindowBase):
         self.lib_btn.setEnabled(False)
         threading.Thread(target=self._invent_worker, args=(req,), daemon=True).start()
 
-    def _invent_worker(self, req: str):
+    def _invent_worker(self, req: str, base_html: str = None, folder: str = None):
         try:
-            guide = self._load_game_guide()
-            sys_prompt = (
-                "你是一名资深的网页小游戏开发者。严格按照下面《OpenHam 游戏包开发规范》，"
-                "根据用户的需求，生成一个【可联机的单文件 index.html 游戏】。\n"
-                "硬性要求（务必满足，否则不合格）：\n"
-                "1. 必须有始终可见的「重新开始」按钮，任何玩家都能点；点击后重置本局并 "
-                "OpenHam.send({k:'reset'}) 广播，所有人收到 reset 都重置本局——大家一起重开。\n"
-                "2. 绝不能卡死：分出胜负/平局后能重来；人数不够时显示「等待其他玩家…」不要卡住；"
-                "有人中途退出不死锁；新加入者要能看到当前局面（房主收到 hello 后广播一次完整状态）。\n"
-                "3. 所有 CSS/JS 内联；适配手机（viewport + pointer 事件 + 自适应）；用内联 SVG 或 emoji 当美术。\n"
-                "只输出完整 HTML，从 <!DOCTYPE html> 到 </html>，不要任何解释、不要 markdown 代码围栏。\n\n"
-                + guide
-            )
+            if base_html:   # 修改模式：在现有游戏上改
+                sys_prompt = (
+                    "你是网页游戏开发者。下面会给你一个 OpenHam 联机游戏的完整 index.html，"
+                    "请按用户的修改要求改它，保持仍是【可联机的单文件 index.html】并遵守规范：必须有"
+                    "「重新开始」按钮（任何玩家可点、点击 OpenHam.send({k:'reset'}) 广播，所有人收到 reset 重置）；"
+                    "绝不卡死；适配手机。只输出修改后的完整 HTML，从 <!DOCTYPE html> 到 </html>，"
+                    "不要解释、不要 markdown 代码围栏。"
+                )
+                user_msg = f"修改要求：{req}\n\n当前游戏的完整 index.html：\n{base_html}"
+            else:           # 新建模式
+                sys_prompt = (
+                    "你是一名资深的网页小游戏开发者。严格按照下面《OpenHam 游戏包开发规范》，"
+                    "根据用户的需求，生成一个【可联机的单文件 index.html 游戏】。\n"
+                    "硬性要求（务必满足，否则不合格）：\n"
+                    "1. 必须有始终可见的「重新开始」按钮，任何玩家都能点；点击后重置本局并 "
+                    "OpenHam.send({k:'reset'}) 广播，所有人收到 reset 都重置本局——大家一起重开。\n"
+                    "2. 绝不能卡死：分出胜负/平局后能重来；人数不够时显示「等待其他玩家…」不要卡住；"
+                    "有人中途退出不死锁；新加入者要能看到当前局面（房主收到 hello 后广播一次完整状态）。\n"
+                    "3. 所有 CSS/JS 内联；适配手机（viewport + pointer 事件 + 自适应）；用内联 SVG 或 emoji 当美术。\n"
+                    "只输出完整 HTML，从 <!DOCTYPE html> 到 </html>，不要任何解释、不要 markdown 代码围栏。\n\n"
+                    + self._load_game_guide()
+                )
+                user_msg = req
             raw = ""
-            for piece in call_deepseek_stream(req, None, sys_prompt, max_tokens=32768):
+            for piece in call_deepseek_stream(user_msg, None, sys_prompt, max_tokens=32768):
                 # 只匹配真正的错误信息，避免误伤游戏内容里的 ❌（如井字棋棋子）
                 if "AI 请求失败" in piece or "未配置 API Key" in piece:
                     raise Exception(piece.replace("❌", "").strip())
@@ -354,9 +365,32 @@ class MultiplayerWindow(OpenHamWindowBase):
             html = self._extract_html(raw)
             if "<html" not in html.lower():
                 raise Exception("AI 没有返回有效的 HTML")
-            self._invent_done.emit({"ok": True, "html": html, "req": req})
+            self._invent_done.emit({"ok": True, "html": html, "req": req, "folder": folder})
         except Exception as e:
             self._invent_done.emit({"ok": False, "error": str(e)})
+
+    def _on_modify(self, folder: str):
+        self.show_window()
+        if not app_config.get_api_key():
+            self._system("⚠️ 未配置 API Key，请在「设置 → AI 模型」中填写")
+            return
+        try:
+            with open(os.path.join(folder, "index.html"), "r", encoding="utf-8") as f:
+                base_html = f.read()
+        except Exception as e:
+            self._system(f"⚠️ 读取游戏失败：{e}")
+            return
+        req, ok = QInputDialog.getMultiLineText(
+            self, "AI 修改游戏",
+            "想怎么改这个游戏？（如：增加计时器、换成暗色风格、提高难度、加音效）", "")
+        req = (req or "").strip()
+        if not ok or not req:
+            return
+        self._invent_chars = 0
+        self._system("✨ AI 正在修改游戏…")
+        self.status_lbl.setText("✨ AI 修改游戏中… 已生成 0 字")
+        self.lib_btn.setEnabled(False)
+        threading.Thread(target=self._invent_worker, args=(req, base_html, folder), daemon=True).start()
 
     def _on_invent_chunk(self, piece: str):
         # 用户不关心 AI 具体输出，只显示字符数计数，让其有进展感
@@ -369,9 +403,19 @@ class MultiplayerWindow(OpenHamWindowBase):
             self._system(f"⚠️ 生成失败：{result.get('error')}")
             return
         from core import game_library
-        name = ("AI·" + result["req"])[:14]
-        folder = game_library.save_html(name, result["html"])
-        self._system(f"✅ 游戏已生成并存入游戏库：{name}")
+        folder = result.get("folder")
+        if folder:   # 修改模式：覆盖原游戏
+            try:
+                with open(os.path.join(folder, "index.html"), "w", encoding="utf-8") as f:
+                    f.write(result["html"])
+            except Exception as e:
+                self._system(f"⚠️ 保存修改失败：{e}")
+                return
+            self._system("✅ 游戏已按要求修改并更新到游戏库")
+        else:        # 新建模式
+            name = ("AI·" + result["req"])[:14]
+            folder = game_library.save_html(name, result["html"])
+            self._system(f"✅ 游戏已生成并存入游戏库：{name}")
         if self.client.room:
             self._system("正在发布到房间…")
             self._publish_folder(folder)

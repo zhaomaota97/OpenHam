@@ -11,11 +11,12 @@ from core.game_package import GamePackageError
 
 
 class GameLibraryWindow(OpenHamWindowBase):
-    def __init__(self, on_publish, on_invent):
+    def __init__(self, on_publish, on_invent, on_modify):
         super().__init__(title="游戏库", shadow_size=0, min_w=520, min_h=460)
         self.title_lbl.setText("游戏库")
         self._on_publish = on_publish    # on_publish(folder)
         self._on_invent = on_invent      # on_invent()
+        self._on_modify = on_modify      # on_modify(folder)
         self._games = []
         self._build()
 
@@ -51,9 +52,13 @@ class GameLibraryWindow(OpenHamWindowBase):
         pub = QPushButton("🚀 发布到房间")
         pub.setObjectName("primary")
         pub.clicked.connect(self._publish)
+        modify = QPushButton("✨ AI 修改")
+        modify.setObjectName("ai")
+        modify.clicked.connect(self._modify)
         dele = QPushButton("🗑 删除")
         dele.clicked.connect(self._delete)
         bot.addWidget(pub, 1)
+        bot.addWidget(modify)
         bot.addWidget(dele)
         v.addLayout(bot)
 
@@ -104,6 +109,14 @@ class GameLibraryWindow(OpenHamWindowBase):
     def _invent(self):
         self.hide_window()
         self._on_invent()
+
+    def _modify(self):
+        g = self._selected()
+        if not g:
+            self.hint.setText("请先在列表里选一个要修改的游戏。")
+            return
+        self.hide_window()
+        self._on_modify(g["folder"])
 
     def show_window(self):
         self._refresh()
