@@ -204,6 +204,7 @@ def main():
 
     # ── 增量更新 ──────────────────────────────────────────────────────
     update_signal = UpdateSignal()
+    _upd = {"dlg": None}
 
     def _check_update(manual=False):
         def _w():
@@ -215,17 +216,47 @@ def main():
         threading.Thread(target=_w, daemon=True).start()
 
     def _on_update_available(ver, url, notes):
-        tip = f"发现新版本 {ver}。\n{notes}\n\n现在更新吗？（仅下载几 MB 代码，重启后生效）"
-        if QMessageBox.question(None, "OpenHam 更新", tip) == QMessageBox.StandardButton.Yes:
-            def _apply():
-                try:
-                    ok = updater.apply_update(url)
-                    update_signal.done.emit(ok, "" if ok else "更新失败")
-                except Exception as e:
-                    update_signal.done.emit(False, str(e))
-            threading.Thread(target=_apply, daemon=True).start()
+        tip = "OpenHam 有新版本，更新很快（仅几 MB），完成后重启即可。\n\n现在更新吗？"
+        if QMessageBox.question(None, "OpenHam 更新", tip) != QMessageBox.StandardButton.Yes:
+            return
+        from PyQt6.QtWidgets import QProgressDialog
+        dlg = QProgressDialog("正在下载更新…", None, 0, 0, None)
+        dlg.setWindowTitle("OpenHam 更新")
+        dlg.setWindowModality(Qt.WindowModality.ApplicationModal)
+        dlg.setCancelButton(None)
+        dlg.setMinimumDuration(0)
+        dlg.setAutoClose(False)
+        dlg.setAutoReset(False)
+        dlg.setMinimumWidth(360)
+        dlg.show()
+        _upd["dlg"] = dlg
+
+        def _apply():
+            try:
+                ok = updater.apply_update(url, progress_cb=lambda d, t: update_signal.progress.emit(d, t))
+                update_signal.done.emit(ok, "" if ok else "更新失败")
+            except Exception as e:
+                update_signal.done.emit(False, str(e))
+        threading.Thread(target=_apply, daemon=True).start()
+
+    def _on_update_progress(done, total):
+        dlg = _upd["dlg"]
+        if dlg is None:
+            return
+        if total > 0 and done < total:
+            dlg.setMaximum(total)
+            dlg.setValue(done)
+            dlg.setLabelText(f"正在下载更新…  {done/1024:.0f} / {total/1024:.0f} KB")
+        else:
+            dlg.setMaximum(0)  # 下载完成 → 进入应用/校验依赖阶段（不确定进度）
+            dlg.setValue(0)
+            dlg.setLabelText("正在应用更新、校验依赖…")
 
     def _on_update_done(ok, message):
+        dlg = _upd["dlg"]
+        if dlg is not None:
+            dlg.close()
+            _upd["dlg"] = None
         if message == "__latest__":
             QMessageBox.information(None, "检查更新", "已是最新版本。")
         elif ok:
@@ -234,6 +265,7 @@ def main():
             QMessageBox.warning(None, "更新失败", message or "更新失败，请检查网络。")
 
     update_signal.available.connect(_on_update_available)
+    update_signal.progress.connect(_on_update_progress)
     update_signal.done.connect(_on_update_done)
     action_update.triggered.connect(lambda: _check_update(manual=True))
     QTimer.singleShot(5000, lambda: _check_update(manual=False))  # 启动后台静默检查

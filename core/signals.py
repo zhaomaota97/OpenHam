@@ -16,6 +16,7 @@ class AppSignal(QObject):
 
 class UpdateSignal(QObject):
     available = pyqtSignal(str, str, str)   # version, code_url, notes
+    progress = pyqtSignal(int, int)         # done_bytes, total_bytes
     done = pyqtSignal(bool, str)            # ok, message
 
 class InfoSignal(QObject):

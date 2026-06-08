@@ -55,12 +55,29 @@ def _safe_join(base: str, rel: str) -> str:
     raise ValueError(f"非法路径：{rel}")
 
 
-def apply_update(code_url: str, timeout: int = 120, install_deps: bool = True) -> bool:
+def apply_update(code_url: str, timeout: int = 120, install_deps: bool = True,
+                 progress_cb=None) -> bool:
     """下载代码包并覆盖到安装目录（保留 runtime/.env/user_settings 等）。
+    progress_cb(done_bytes, total_bytes) 在下载中被回调。
     install_deps=True 时更新后按新 requirements.txt 补装依赖（走阿里镜像，已装的会跳过）。"""
     base = _base_dir()
-    with urllib.request.urlopen(code_url, timeout=timeout) as r:
-        data = r.read()
+    req = urllib.request.urlopen(code_url, timeout=timeout)
+    total = int(req.headers.get("Content-Length", 0))
+    buf = io.BytesIO()
+    done = 0
+    last = 0
+    while True:
+        chunk = req.read(1 << 16)
+        if not chunk:
+            break
+        buf.write(chunk)
+        done += len(chunk)
+        if progress_cb and (done - last >= 65536 or done == total):
+            last = done
+            progress_cb(done, total)
+    if progress_cb:
+        progress_cb(done, total)
+    data = buf.getvalue()
     count = 0
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         for member in z.namelist():
