@@ -43,6 +43,7 @@ class MultiplayerWindow(OpenHamWindowBase):
         # 游戏相关
         self._reasm = game_transfer.Reassembler()
         self._game_win = None
+        self._lib_win = None
         self._published = None      # (zip_bytes, name) 房主已发布的游戏，用于补发新人
 
         self._build_content()
@@ -94,18 +95,10 @@ class MultiplayerWindow(OpenHamWindowBase):
         self.copy_btn = QPushButton("复制")
         self.copy_btn.clicked.connect(self._copy_meow)
         self.copy_btn.hide()
-        self.invent_btn = QPushButton("✨ 发明游戏")
-        self.invent_btn.setStyleSheet(
-            "QPushButton{background:rgba(160,80,200,0.15);color:#d090f0;"
-            "border:1px solid rgba(160,80,200,0.3);border-radius:6px;font-weight:bold;padding:7px 14px;}"
-            "QPushButton:hover{background:rgba(160,80,200,0.3);border-color:rgba(200,100,240,0.4);}"
-            "QPushButton:disabled{color:#6f6552;background:rgba(160,80,200,0.06);}")
-        self.invent_btn.clicked.connect(self._on_invent)
-        self.publish_btn = QPushButton("发布游戏")
-        self.publish_btn.clicked.connect(self._on_publish)
+        self.lib_btn = QPushButton("🎮 游戏库")
+        self.lib_btn.clicked.connect(self._open_library)
         status.addWidget(self.status_lbl, 1)
-        status.addWidget(self.invent_btn)
-        status.addWidget(self.publish_btn)
+        status.addWidget(self.lib_btn)
         status.addWidget(self.copy_btn)
         v.addLayout(status)
 
@@ -292,11 +285,16 @@ class MultiplayerWindow(OpenHamWindowBase):
 
     # ── 游戏：发布 / 接收 / 打开 ────────────────────────────────────────
 
-    def _on_publish(self):
+    def _open_library(self):
+        if self._lib_win is None:
+            from ui.game_library_window import GameLibraryWindow
+            self._lib_win = GameLibraryWindow(on_publish=self._publish_folder, on_invent=self._on_invent)
+        self._lib_win.show_window()
+
+    def _publish_folder(self, folder: str):
+        self.show_window()
         if not self.client.room:
-            return
-        folder = QFileDialog.getExistingDirectory(self, "选择游戏目录（含 index.html）")
-        if not folder:
+            self._system("请先建房，再发布游戏")
             return
         try:
             data = game_package.pack_folder(folder)
@@ -314,15 +312,13 @@ class MultiplayerWindow(OpenHamWindowBase):
     # ── 发明游戏（AI 生成游戏包）────────────────────────────────────────
 
     def _on_invent(self):
-        if not self.client.room:
-            self._system("请先建房，再发明游戏")
-            return
+        self.show_window()
         if not app_config.get_api_key():
             self._system("⚠️ 未配置 API Key，请在「设置 → AI 模型」中填写")
             return
         req, ok = QInputDialog.getMultiLineText(
             self, "发明游戏",
-            "描述你想要的游戏（玩法、人数、风格等），AI 会现做一个并发布：",
+            "描述你想要的游戏（玩法、人数、风格等），AI 会现做一个存入游戏库：",
             "做一个双人猜拳小游戏，手机能玩，要有可爱的美术")
         req = (req or "").strip()
         if not ok or not req:
@@ -330,8 +326,7 @@ class MultiplayerWindow(OpenHamWindowBase):
         self._invent_chars = 0
         self._system("✨ AI 正在发明游戏…")
         self.status_lbl.setText("✨ AI 发明游戏中… 已生成 0 字")
-        self.invent_btn.setEnabled(False)
-        self.publish_btn.setEnabled(False)
+        self.lib_btn.setEnabled(False)
         threading.Thread(target=self._invent_worker, args=(req,), daemon=True).start()
 
     def _invent_worker(self, req: str):
@@ -369,34 +364,19 @@ class MultiplayerWindow(OpenHamWindowBase):
         self.status_lbl.setText(f"✨ AI 发明游戏中… 已生成 {self._invent_chars} 字")
 
     def _on_invent_done(self, result: dict):
-        in_room = bool(self.client.room)
-        self.invent_btn.setEnabled(in_room)
-        self.publish_btn.setEnabled(in_room)
+        self.lib_btn.setEnabled(True)
         if not result.get("ok"):
             self._system(f"⚠️ 生成失败：{result.get('error')}")
             return
+        from core import game_library
         name = ("AI·" + result["req"])[:14]
-        try:
-            data, folder = self._pack_html(result["html"], name)
-        except GamePackageError as e:
-            self._system(f"⚠️ 打包失败：{e}")
-            return
-        self._system(f"✅ 游戏已生成并保存到：{folder}")
-        self._system("（可在「发布游戏」里再次选择该文件夹重玩）正在发布…")
-        self._publish_package(data, name)
-
-    def _pack_html(self, html: str, name: str):
-        """把 AI 生成的游戏持久化到 安装目录/invented_games/<名称_时间>/ 并打包。"""
-        import time as _time
-        from utils.paths import _base_dir
-        safe = re.sub(r'[\\/:*?"<>|]+', "_", name).strip() or "AI游戏"
-        folder = os.path.join(_base_dir(), "invented_games", f"{safe}_{_time.strftime('%m%d_%H%M%S')}")
-        os.makedirs(folder, exist_ok=True)
-        with open(os.path.join(folder, "index.html"), "w", encoding="utf-8") as f:
-            f.write(html)
-        with open(os.path.join(folder, "manifest.json"), "w", encoding="utf-8") as f:
-            json.dump({"name": name, "entry": "index.html"}, f, ensure_ascii=False)
-        return game_package.pack_folder(folder), folder
+        folder = game_library.save_html(name, result["html"])
+        self._system(f"✅ 游戏已生成并存入游戏库：{name}")
+        if self.client.room:
+            self._system("正在发布到房间…")
+            self._publish_folder(folder)
+        else:
+            self._system("（已存入游戏库，建房后可在「🎮 游戏库」里发布）")
 
     @staticmethod
     def _load_game_guide() -> str:
@@ -552,8 +532,6 @@ class MultiplayerWindow(OpenHamWindowBase):
     def _set_in_room(self, in_room: bool):
         self.msg_input.setEnabled(in_room)
         self.send_btn.setEnabled(in_room)
-        self.publish_btn.setEnabled(in_room)
-        self.invent_btn.setEnabled(in_room)
         self.create_btn.setEnabled(not in_room)
         self.join_btn.setEnabled(not in_room)
         self.meow_input.setEnabled(not in_room)
@@ -578,6 +556,9 @@ class MultiplayerWindow(OpenHamWindowBase):
     def show_window(self):
         if not self.nick_input.text().strip():
             self.nick_input.setText(self._default_nickname())
+        if not getattr(self, "_hinted", False):
+            self._hinted = True
+            self._system("玩法：① 建房 → 复制口令发朋友  ② 点「🎮 游戏库」选或发明游戏 → 发布到房间，一起玩")
         self.show_window_centered()
         self.raise_()
         self.activateWindow()
