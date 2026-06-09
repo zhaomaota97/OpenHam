@@ -619,7 +619,13 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             "QPushButton { background: transparent; border: none; border-radius: 9px; }"
             "QPushButton:hover { background: #ffe8e6; }")
         btn.clicked.connect(lambda _=False, t=tab: self._close_run_tab_by_widget(t))
-        self._tab_widget.tabBar().setTabButton(idx, self._tab_widget.tabBar().ButtonPosition.RightSide, btn)
+        # 包一层容器，让关闭按钮与胶囊右端留出间距
+        wrap = QWidget()
+        wl = QHBoxLayout(wrap)
+        wl.setContentsMargins(0, 0, 10, 0)
+        wl.setSpacing(0)
+        wl.addWidget(btn)
+        self._tab_widget.tabBar().setTabButton(idx, self._tab_widget.tabBar().ButtonPosition.RightSide, wrap)
         
         return tab
 
