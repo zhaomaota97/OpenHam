@@ -116,14 +116,15 @@ class ScriptHighlighter(QSyntaxHighlighter):
         super().__init__(document)
         self.rules = []
         self.current_type = "shell"
+        # 浅色编辑器配色（One Light / GitHub Light 风）
         self.fmt_keyword = QTextCharFormat()
-        self.fmt_keyword.setForeground(QColor("#c678dd"))
+        self.fmt_keyword.setForeground(QColor("#a626a4"))
         self.fmt_string = QTextCharFormat()
-        self.fmt_string.setForeground(QColor("#98c379"))
+        self.fmt_string.setForeground(QColor("#50a14f"))
         self.fmt_comment = QTextCharFormat()
-        self.fmt_comment.setForeground(QColor("#5c6370"))
+        self.fmt_comment.setForeground(QColor("#a0a1a7"))
         self.fmt_builtin = QTextCharFormat()
-        self.fmt_builtin.setForeground(QColor("#e5c07b"))
+        self.fmt_builtin.setForeground(QColor("#986801"))
         self._build_rules()
 
     def set_type(self, stype: str):
@@ -178,7 +179,7 @@ class ScriptEditor(QTextEdit):
 from PyQt6.QtWidgets import QDialog
 
 class ThemeConfirmDialog(QDialog):
-    def __init__(self, parent, title: str, text: str, ok_text: str = "确认删除", ok_color: str = "#e66"):
+    def __init__(self, parent, title: str, text: str, ok_text: str = "确认删除", ok_color: str = "#ff3b30"):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog |
             Qt.WindowType.NoDropShadowWindowHint
@@ -195,9 +196,9 @@ class ThemeConfirmDialog(QDialog):
         card = QWidget()
         card.setStyleSheet("""
             QWidget {
-                background-color: #1c1a14;
+                background-color: #ffffff;
                 border-radius: 12px;
-                border: 1px solid rgba(192, 140, 30, 0.45);
+                border: 1px solid #0071e3;
             }
             QLabel { border: none; background: transparent; }
         """)
@@ -207,12 +208,12 @@ class ThemeConfirmDialog(QDialog):
         vbox.setSpacing(14)
         
         title_lbl = QLabel(title)
-        title_lbl.setStyleSheet("color: #e8d89a; font-size: 15px; font-weight: bold;")
+        title_lbl.setStyleSheet("color: #1d1d1f; font-size: 15px; font-weight: bold;")
         vbox.addWidget(title_lbl)
         
         text_lbl = QLabel(text)
         text_lbl.setWordWrap(True)
-        text_lbl.setStyleSheet("color: #c0b89a; font-size: 13px;")
+        text_lbl.setStyleSheet("color: #1d1d1f; font-size: 13px;")
         vbox.addWidget(text_lbl)
         vbox.addStretch()
         
@@ -223,9 +224,9 @@ class ThemeConfirmDialog(QDialog):
         cancel_b.setCursor(Qt.CursorShape.PointingHandCursor)
         cancel_b.setFixedSize(64, 30)
         cancel_b.setStyleSheet("""
-            QPushButton { background: transparent; color: #8a7a5a;
-                border: 1px solid rgba(138,122,90,0.3); border-radius: 6px; font-size: 12px; }
-            QPushButton:hover { background: rgba(138,122,90,0.1); color: #c0b89a; }
+            QPushButton { background: transparent; color: #86868b;
+                border: 1px solid #e5e5ea; border-radius: 6px; font-size: 12px; }
+            QPushButton:hover { background: #f5f5f7; color: #1d1d1f; }
         """)
         cancel_b.clicked.connect(self.reject)
         
@@ -233,9 +234,9 @@ class ThemeConfirmDialog(QDialog):
         ok_b.setCursor(Qt.CursorShape.PointingHandCursor)
         ok_b.setFixedHeight(30)
         ok_b.setStyleSheet(f"""
-            QPushButton {{ background: rgba(200,60,60,0.15); color: {ok_color};
-                border: 1px solid rgba(170,68,68,0.3); border-radius: 6px; font-size: 12px; padding: 0 12px; }}
-            QPushButton:hover {{ background: rgba(200,60,60,0.3); border-color: rgba(238,102,102,0.4); }}
+            QPushButton {{ background: #ffeceb; color: {ok_color};
+                border: 1px solid #ffd4d1; border-radius: 6px; font-size: 12px; padding: 0 12px; }}
+            QPushButton:hover {{ background: #ffd4d1; border-color: #ff3b30; }}
         """)
         ok_b.clicked.connect(self.accept)
         
@@ -246,7 +247,7 @@ class ThemeConfirmDialog(QDialog):
 
 
 class ThemeInputDialog(QDialog):
-    def __init__(self, parent, title: str, text: str, default_input: str = "", ok_text: str = "确定", ok_color: str = "#d090f0"):
+    def __init__(self, parent, title: str, text: str, default_input: str = "", ok_text: str = "确定", ok_color: str = "#5e5ce6"):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog |
             Qt.WindowType.NoDropShadowWindowHint
@@ -263,9 +264,9 @@ class ThemeInputDialog(QDialog):
         card = QWidget()
         card.setStyleSheet("""
             QWidget {
-                background-color: #1c1a14;
+                background-color: #ffffff;
                 border-radius: 12px;
-                border: 1px solid rgba(192, 140, 30, 0.45);
+                border: 1px solid #0071e3;
             }
             QLabel { border: none; background: transparent; }
         """)
@@ -291,14 +292,14 @@ class ThemeInputDialog(QDialog):
             pass
 
         title_lbl = QLabel(title)
-        title_lbl.setStyleSheet("color: #e8d89a; font-size: 15px; font-weight: bold;")
+        title_lbl.setStyleSheet("color: #1d1d1f; font-size: 15px; font-weight: bold;")
         title_lay.addWidget(title_lbl)
         title_lay.addStretch()
         vbox.addLayout(title_lay)
         
         text_lbl = QLabel(text)
         text_lbl.setWordWrap(True)
-        text_lbl.setStyleSheet("color: #c0b89a; font-size: 13px;")
+        text_lbl.setStyleSheet("color: #1d1d1f; font-size: 13px;")
         vbox.addWidget(text_lbl)
         
         self.input_edit = QTextEdit()
@@ -306,13 +307,13 @@ class ThemeInputDialog(QDialog):
         self.input_edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
         self.input_edit.setStyleSheet("""
             QTextEdit {
-                background: #141210; border: 1px solid rgba(192,140,30,0.18);
-                border-radius: 6px; color: #ede5d0; font-size: 13px;
+                background: #ffffff; border: 1px solid #f0f0f3;
+                border-radius: 6px; color: #1d1d1f; font-size: 13px;
                 padding: 10px; font-family: Consolas, 'Courier New', monospace;
             }
-            QTextEdit:focus { border-color: rgba(192,140,30,0.65); }
+            QTextEdit:focus { border-color: #0071e3; }
             QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
-            QScrollBar::handle:vertical { background: rgba(192,140,30,0.28); border-radius: 3px; min-height: 20px; }
+            QScrollBar::handle:vertical { background: #ececef; border-radius: 3px; min-height: 20px; }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
         vbox.addWidget(self.input_edit)
@@ -324,9 +325,9 @@ class ThemeInputDialog(QDialog):
         cancel_b.setCursor(Qt.CursorShape.PointingHandCursor)
         cancel_b.setFixedSize(64, 30)
         cancel_b.setStyleSheet("""
-            QPushButton { background: transparent; color: #8a7a5a;
-                border: 1px solid rgba(138,122,90,0.3); border-radius: 6px; font-size: 12px; }
-            QPushButton:hover { background: rgba(138,122,90,0.1); color: #c0b89a; }
+            QPushButton { background: transparent; color: #86868b;
+                border: 1px solid #e5e5ea; border-radius: 6px; font-size: 12px; }
+            QPushButton:hover { background: #f5f5f7; color: #1d1d1f; }
         """)
         cancel_b.clicked.connect(self.reject)
         
@@ -334,9 +335,9 @@ class ThemeInputDialog(QDialog):
         ok_b.setCursor(Qt.CursorShape.PointingHandCursor)
         ok_b.setFixedHeight(30)
         ok_b.setStyleSheet(f"""
-            QPushButton {{ background: rgba(160,80,200,0.15); color: {ok_color};
-                border: 1px solid rgba(160,80,200,0.3); border-radius: 6px; font-size: 12px; padding: 0 16px; font-weight: bold; }}
-            QPushButton:hover {{ background: rgba(160,80,200,0.3); border-color: rgba(200,100,240,0.4); }}
+            QPushButton {{ background: #ececfd; color: {ok_color};
+                border: 1px solid #dcdcfa; border-radius: 6px; font-size: 12px; padding: 0 16px; font-weight: bold; }}
+            QPushButton:hover {{ background: #dcdcfa; border-color: #5e5ce6; }}
         """)
         ok_b.clicked.connect(self.accept)
         
@@ -380,14 +381,14 @@ class _RunTabWidget(QWidget):
         self.log_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.log_edit.setStyleSheet("""
             QTextEdit {
-                background: #141210; border: 1px solid rgba(192,140,30,0.18);
-                border-radius: 6px; color: #c0b89a;
+                background: #ffffff; border: 1px solid #f0f0f3;
+                border-radius: 6px; color: #1d1d1f;
                 font-family: Consolas, 'Courier New', monospace; font-size: 13px;
                 outline: none; padding: 8px 10px;
             }
             QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
             QScrollBar::handle:vertical {
-                background: rgba(192,140,30,0.25); border-radius: 3px; min-height: 20px;
+                background: #d2d2d7; border-radius: 3px; min-height: 20px;
             }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
@@ -397,7 +398,7 @@ class _RunTabWidget(QWidget):
         bottom.setSpacing(8)
         self.status_lbl = QLabel(icons.richify("▶  执行中…"))
         self.status_lbl.setStyleSheet(
-            "color: #c09030; font-size: 13px; font-weight: bold; "
+            "color: #0071e3; font-size: 13px; font-weight: bold; "
             "background: transparent; border: none;"
         )
         bottom.addWidget(self.status_lbl, 1)
@@ -406,10 +407,10 @@ class _RunTabWidget(QWidget):
         self.stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.stop_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.stop_btn.setStyleSheet("""
-            QPushButton { background: rgba(200,60,60,0.15); color: #e66;
-                border: 1px solid rgba(170,68,68,0.3); border-radius: 4px;
+            QPushButton { background: #ffeceb; color: #ff3b30;
+                border: 1px solid #ffd4d1; border-radius: 4px;
                 font-size: 12px; padding: 4px 10px; }
-            QPushButton:hover { background: rgba(200,60,60,0.3); border-color: rgba(238,102,102,0.4); }
+            QPushButton:hover { background: #ffd4d1; border-color: #ff3b30; }
         """)
         self.stop_btn.clicked.connect(self.cancel)
         bottom.addWidget(self.stop_btn)
@@ -419,10 +420,10 @@ class _RunTabWidget(QWidget):
         self.ai_fix_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.ai_fix_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.ai_fix_btn.setStyleSheet("""
-            QPushButton { background: rgba(220,160,80,0.15); color: #d09050;
-                border: 1px solid rgba(220,160,80,0.3); border-radius: 4px;
+            QPushButton { background: #fff3e0; color: #b5701a;
+                border: 1px solid #ffd9a8; border-radius: 4px;
                 font-size: 12px; padding: 4px 10px; }
-            QPushButton:hover { background: rgba(220,160,80,0.3); border-color: rgba(240,180,100,0.4); }
+            QPushButton:hover { background: #ffd9a8; border-color: #ff9500; }
         """)
         self.ai_fix_btn.clicked.connect(self._trigger_ai_fix)
         self.ai_fix_btn.hide()
@@ -432,10 +433,10 @@ class _RunTabWidget(QWidget):
         self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.close_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.close_btn.setStyleSheet("""
-            QPushButton { background: rgba(100,100,100,0.15); color: #ccc;
-                border: 1px solid rgba(100,100,100,0.3); border-radius: 4px;
+            QPushButton { background: #f0f0f3; color: #ccc;
+                border: 1px solid #e5e5ea; border-radius: 4px;
                 font-size: 12px; padding: 4px 10px; }
-            QPushButton:hover { background: rgba(100,100,100,0.3); border-color: rgba(150,150,150,0.4); }
+            QPushButton:hover { background: #e5e5ea; border-color: #d2d2d7; }
         """)
         self.close_btn.clicked.connect(self.close_requested.emit)
         bottom.addWidget(self.close_btn)
@@ -454,13 +455,13 @@ class _RunTabWidget(QWidget):
         if success:
             self.status_lbl.setText(icons.richify("✅  执行成功"))
             self.status_lbl.setStyleSheet(
-                "color: #50c870; font-size: 13px; font-weight: bold; "
+                "color: #34c759; font-size: 13px; font-weight: bold; "
                 "background: transparent; border: none;"
             )
         else:
             self.status_lbl.setText(icons.richify("❌  执行失败"))
             self.status_lbl.setStyleSheet(
-                "color: #c05050; font-size: 13px; font-weight: bold; "
+                "color: #ff3b30; font-size: 13px; font-weight: bold; "
                 "background: transparent; border: none;"
             )
             if not self.is_cancelled:
@@ -469,7 +470,7 @@ class _RunTabWidget(QWidget):
     def _trigger_ai_fix(self):
         self.request_ai_fix.emit()
 
-    def append_line(self, text: str, color: str = "#c0b89a"):
+    def append_line(self, text: str, color: str = "#1d1d1f"):
         from PyQt6.QtGui import QTextCursor
         cursor = self.log_edit.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
@@ -525,7 +526,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     # ── UI 构建 ────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        self._new_btn = self._icon_btn("＋", "#8a7a5a", "新建脚本")
+        self._new_btn = self._icon_btn("＋", "#86868b", "新建脚本")
         self._new_btn.clicked.connect(self._go_new)
         self.header_tools_layout.addWidget(self._new_btn)
 
@@ -533,7 +534,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setStyleSheet("""
             QSplitter::handle {
-                background: rgba(192,140,30,0.18); width: 2px;
+                background: #f0f0f3; width: 2px;
             }
         """)
         splitter.setHandleWidth(2)
@@ -557,16 +558,16 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                 border: none; background: transparent;
             }
             QTabBar::tab {
-                background: rgba(30,28,20,0.7);
-                color: #8a7a5a; border: 1px solid rgba(192,140,30,0.18);
+                background: #f5f5f7;
+                color: #86868b; border: 1px solid #f0f0f3;
                 border-bottom: none; border-radius: 5px 5px 0 0;
                 padding: 5px 12px; font-size: 12px; min-width: 80px;
             }
             QTabBar::tab:selected {
-                background: #272416; color: #c09030;
-                border-color: rgba(192,140,30,0.45);
+                background: #f5f5f7; color: #0071e3;
+                border-color: #0071e3;
             }
-            QTabBar::tab:hover:!selected { background: rgba(50,44,28,0.9); }
+            QTabBar::tab:hover:!selected { background: #ffffff; }
         """)
         self._tab_widget.tabCloseRequested.connect(self._close_run_tab)
         self._tab_widget.setMinimumWidth(350)
@@ -595,7 +596,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         lbl = QLabel(icons.richify("点击左侧脚本的  ▶ 运行  按钮\n即可在此查看实时执行日志\n\n可同时运行多个脚本，各自独立显示").replace("\n", "<br>"))
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl.setStyleSheet(
-            "color: #3a3020; font-size: 14px; line-height: 2; "
+            "color: #f7f3ea; font-size: 14px; line-height: 2; "
             "background: transparent; border: none;"
         )
         lay.addWidget(lbl)
@@ -622,8 +623,8 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         btn.setFixedSize(16, 16)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setStyleSheet("""
-            QPushButton { background: transparent; border: none; color: #8a7a5a; font-weight: bold; font-family: Arial; font-size: 15px; margin-bottom: 2px; }
-            QPushButton:hover { color: #e66666; }
+            QPushButton { background: transparent; border: none; color: #86868b; font-weight: bold; font-family: Arial; font-size: 15px; margin-bottom: 2px; }
+            QPushButton:hover { color: #ff3b30; }
         """)
         btn.clicked.connect(lambda _=False, t=tab: self._close_run_tab_by_widget(t))
         self._tab_widget.tabBar().setTabButton(idx, self._tab_widget.tabBar().ButtonPosition.RightSide, btn)
@@ -668,12 +669,12 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         menu = QMenu(self)
         menu.setStyleSheet("""
             QMenu {
-                background-color: #272416; color: #ede5d0;
-                border: 1px solid rgba(192,140,30,0.3); border-radius: 6px;
+                background-color: #f5f5f7; color: #1d1d1f;
+                border: 1px solid #e0e0e4; border-radius: 6px;
                 padding: 6px 0;
             }
             QMenu::item { padding: 8px 24px; font-size: 13px; }
-            QMenu::item:selected { background-color: rgba(192,140,30,0.25); }
+            QMenu::item:selected { background-color: #d2d2d7; }
         """)
         
         act_close_current = menu.addAction("关闭当前标签页")
@@ -721,15 +722,15 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                 background: transparent; border: none; outline: none;
             }
             QListWidget::item { border-radius: 6px; padding: 0; }
-            QListWidget::item:selected { background: rgba(192,140,30,0.16); }
-            QListWidget::item:hover:!selected { background: rgba(192,140,30,0.08); }
+            QListWidget::item:selected { background: #f0f0f3; }
+            QListWidget::item:hover:!selected { background: #f7f7f9; }
         """)
         self._list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list_widget.setStyleSheet(self._list_widget.styleSheet() + """
             QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
             QScrollBar::handle:vertical {
-                background: rgba(192,140,30,0.28); border-radius: 3px; min-height: 20px;
+                background: #ececef; border-radius: 3px; min-height: 20px;
             }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
@@ -746,7 +747,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
         self._list_empty = QLabel("  暂无脚本，点击 ＋ 新建")
         self._list_empty.setStyleSheet(
-            "color: #5a4a2a; font-size: 13px; padding: 20px 6px; "
+            "color: #86868b; font-size: 13px; padding: 20px 6px; "
             "background: transparent; border: none;"
         )
         self._list_empty.hide()
@@ -764,7 +765,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
         # 顶部导航行
         header = QHBoxLayout()
-        self._back_btn = self._icon_btn("", "#5a9a5a", "返回列表", icon="back")
+        self._back_btn = self._icon_btn("", "#34c759", "返回列表", icon="back")
         self._back_btn.clicked.connect(self._go_list)
         header.addWidget(self._back_btn)
         header.addStretch()
@@ -773,9 +774,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._ai_gen_btn.setIcon(icons.qicon("ai"))
         self._ai_gen_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._ai_gen_btn.setStyleSheet("""
-            QPushButton { background: rgba(160,80,200,0.15); color: #d090f0;
-                border: 1px solid rgba(160,80,200,0.3); border-radius: 4px; font-weight: bold; font-size: 13px; padding: 4px 10px; }
-            QPushButton:hover { background: rgba(160,80,200,0.3); border-color: rgba(200,100,240,0.4); }
+            QPushButton { background: #ececfd; color: #5e5ce6;
+                border: 1px solid #dcdcfa; border-radius: 4px; font-weight: bold; font-size: 13px; padding: 4px 10px; }
+            QPushButton:hover { background: #dcdcfa; border-color: #5e5ce6; }
         """)
         self._ai_gen_btn.clicked.connect(self._open_ai_gen_dialog)
         self._ai_gen_btn.hide()
@@ -785,9 +786,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._hist_btn.setIcon(icons.qicon("history"))
         self._hist_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._hist_btn.setStyleSheet("""
-            QPushButton { background: rgba(200,180,80,0.15); color: #d0b050;
-                border: 1px solid rgba(200,180,80,0.3); border-radius: 4px; font-weight: bold; font-size: 13px; padding: 4px 6px; }
-            QPushButton:hover { background: rgba(200,180,80,0.3); border-color: rgba(220,200,100,0.4); }
+            QPushButton { background: #f7f6ea; color: #8a7310;
+                border: 1px solid #ececef; border-radius: 4px; font-weight: bold; font-size: 13px; padding: 4px 6px; }
+            QPushButton:hover { background: #ececef; border-color: #d2d2d7; }
         """)
         self._hist_btn.clicked.connect(self._go_history)
         self._hist_btn.hide()
@@ -842,16 +843,16 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._highlighter = ScriptHighlighter(self._script_edit.document())
         self._script_edit.setStyleSheet("""
             QTextEdit {
-                background: #1a1810; color: #ede5d0;
-                border: 1px solid rgba(192,140,30,0.28);
+                background: #ffffff; color: #1d1d1f;
+                border: 1px solid #ececef;
                 border-radius: 6px; font-size: 13px;
                 font-family: Consolas, 'Courier New', monospace;
                 padding: 8px 10px;
             }
-            QTextEdit:focus { border-color: rgba(192,140,30,0.65); }
+            QTextEdit:focus { border-color: #0071e3; }
             QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
             QScrollBar::handle:vertical {
-                background: rgba(192,140,30,0.28); border-radius: 3px; min-height: 20px;
+                background: #ececef; border-radius: 3px; min-height: 20px;
             }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
@@ -868,15 +869,15 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._save_btn.setIcon(icons.qicon("save"))
         self._save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._save_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._save_btn.setStyleSheet(self._action_btn_ss("#c09030", "rgba(192,140,30,0.18)", "rgba(192,140,30,0.33)"))
+        self._save_btn.setStyleSheet(self._action_btn_ss("#0071e3", "#f0f0f3", "#ececef"))
         self._save_btn.clicked.connect(self._save_script)
         btn_row.addWidget(self._save_btn)
 
         self._run_btn = QPushButton("运行")
-        self._run_btn.setIcon(icons.qicon("play", color="#50c870"))
+        self._run_btn.setIcon(icons.qicon("play", color="#34c759"))
         self._run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._run_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._run_btn.setStyleSheet(self._action_btn_ss("#50c870", "rgba(50,140,80,0.18)", "rgba(50,140,80,0.35)"))
+        self._run_btn.setStyleSheet(self._action_btn_ss("#34c759", "#e9f9ee", "#b7ebc6"))
         self._run_btn.clicked.connect(self._run_current)
         btn_row.addWidget(self._run_btn)
 
@@ -884,7 +885,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._del_btn.setIcon(icons.qicon("delete"))
         self._del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._del_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._del_btn.setStyleSheet(self._action_btn_ss("#e66", "rgba(200,60,60,0.15)", "rgba(200,60,60,0.3)"))
+        self._del_btn.setStyleSheet(self._action_btn_ss("#ff3b30", "#ffeceb", "#ffd4d1"))
         self._del_btn.clicked.connect(self._confirm_delete_current)
         btn_row.addWidget(self._del_btn)
 
@@ -894,7 +895,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         # 状态提示
         self._edit_status = QLabel("")
         self._edit_status.setStyleSheet(
-            "color: #7ab86a; font-size: 12px; background: transparent; border: none;"
+            "color: #34c759; font-size: 12px; background: transparent; border: none;"
         )
         vbox.addWidget(self._edit_status)
         vbox.addStretch()
@@ -912,7 +913,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         status_row = QHBoxLayout()
         self._log_status_lbl = QLabel(icons.richify("▶  执行中…"))
         self._log_status_lbl.setStyleSheet(
-            "color: #c09030; font-size: 13px; font-weight: bold; "
+            "color: #0071e3; font-size: 13px; font-weight: bold; "
             "background: transparent; border: none;"
         )
         status_row.addWidget(self._log_status_lbl)
@@ -923,9 +924,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._stop_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._stop_btn.setStyleSheet("""
-            QPushButton { background: rgba(200,60,60,0.15); color: #e66;
-                border: 1px solid rgba(170,68,68,0.3); border-radius: 4px; font-size: 12px; padding: 4px 10px; }
-            QPushButton:hover { background: rgba(200,60,60,0.3); border-color: rgba(238,102,102,0.4); }
+            QPushButton { background: #ffeceb; color: #ff3b30;
+                border: 1px solid #ffd4d1; border-radius: 4px; font-size: 12px; padding: 4px 10px; }
+            QPushButton:hover { background: #ffd4d1; border-color: #ff3b30; }
         """)
         self._stop_btn.clicked.connect(self._cancel_run)
         self._stop_btn.hide()
@@ -938,14 +939,14 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._log_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._log_list.setStyleSheet("""
             QTextEdit {
-                background: #141210; border: 1px solid rgba(192,140,30,0.18);
-                border-radius: 6px; color: #c0b89a;
+                background: #ffffff; border: 1px solid #f0f0f3;
+                border-radius: 6px; color: #1d1d1f;
                 font-family: Consolas, 'Courier New', monospace; font-size: 13px;
                 outline: none; padding: 8px 10px;
             }
             QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
             QScrollBar::handle:vertical {
-                background: rgba(192,140,30,0.25); border-radius: 3px; min-height: 20px;
+                background: #d2d2d7; border-radius: 3px; min-height: 20px;
             }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
@@ -1064,7 +1065,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         api_key = app_config.get_api_key()
         if not api_key:
             self._edit_status.setText(icons.richify("❌ 未配置 API Key：请在「设置 → AI 模型」中填写"))
-            self._edit_status.setStyleSheet("color: #e66666;")
+            self._edit_status.setStyleSheet("color: #ff3b30;")
             return
             
         is_edit = bool(self._back_btn.isVisible() and self._script_edit.toPlainText().strip())
@@ -1080,7 +1081,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
     def _generate_script_from_ai(self, req: str, api_key: str):
         self._edit_status.setText(icons.richify("⏳ AI 正在生成中，请稍候..."))
-        self._edit_status.setStyleSheet("color: #c09030;")
+        self._edit_status.setStyleSheet("color: #0071e3;")
         self._ai_gen_btn.setEnabled(False)
         self._ai_gen_btn.setText("生成中...")
         
@@ -1175,14 +1176,14 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._script_edit.setPlainText(str(data.get("commands", "")))
         
         self._edit_status.setText(icons.richify("✅ AI 脚本已生成完毕（请检查并保存）"))
-        self._edit_status.setStyleSheet("color: #50c870;")
+        self._edit_status.setStyleSheet("color: #34c759;")
 
     def _on_ai_gen_error(self, err: str):
         self._ai_gen_btn.setEnabled(True)
         is_edit = bool(self._back_btn.isVisible() and self._script_edit.toPlainText().strip())
         self._ai_gen_btn.setText("AI助手修改脚本" if is_edit else "描述需求生成脚本")
         self._edit_status.setText(icons.richify(f"❌ 生成失败: {err}"))
-        self._edit_status.setStyleSheet("color: #e66666;")
+        self._edit_status.setStyleSheet("color: #ff3b30;")
 
     def _cleanup_orphaned_scripts(self, scripts: list):
         """清理 workspace 目录下没有被确保存档的游离脚本"""
@@ -1214,12 +1215,12 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
         # 头部
         header = QHBoxLayout()
-        self._hist_back_btn = self._icon_btn("", "#5a9a5a", "返回编辑", icon="back")
+        self._hist_back_btn = self._icon_btn("", "#34c759", "返回编辑", icon="back")
         self._hist_back_btn.clicked.connect(lambda: self._left_stack.setCurrentIndex(1))
         header.addWidget(self._hist_back_btn)
         
         lbl = QLabel(icons.richify("📜 本地历史草稿库"))
-        lbl.setStyleSheet("color: #d090f0; font-weight: bold; font-size: 14px;")
+        lbl.setStyleSheet("color: #5e5ce6; font-weight: bold; font-size: 14px;")
         header.addWidget(lbl)
         header.addStretch()
         
@@ -1227,9 +1228,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._hist_recall_btn.setIcon(icons.qicon("enter"))
         self._hist_recall_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._hist_recall_btn.setStyleSheet("""
-            QPushButton { background: rgba(80,200,112,0.15); color: #50c870;
-                border: 1px solid rgba(80,200,112,0.3); border-radius: 4px; font-weight: bold; font-size: 13px; padding: 4px 10px; }
-            QPushButton:hover { background: rgba(80,200,112,0.3); border-color: rgba(100,220,132,0.4); }
+            QPushButton { background: #e9f9ee; color: #34c759;
+                border: 1px solid #b7ebc6; border-radius: 4px; font-weight: bold; font-size: 13px; padding: 4px 10px; }
+            QPushButton:hover { background: #b7ebc6; border-color: #34c759; }
         """)
         self._hist_recall_btn.clicked.connect(self._recall_history_record)
         header.addWidget(self._hist_recall_btn)
@@ -1238,13 +1239,13 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         # 列表与详情的分割
         from PyQt6.QtWidgets import QSplitter
         split = QSplitter(Qt.Orientation.Vertical)
-        split.setStyleSheet("QSplitter::handle { background: rgba(192,140,30,0.1); margin: 4px 0; }")
+        split.setStyleSheet("QSplitter::handle { background: #f5f5f7; margin: 4px 0; }")
         
         self._hist_list = QListWidget()
         self._hist_list.setStyleSheet("""
-            QListWidget { background: rgba(20,18,16,0.6); border: 1px solid rgba(192,140,30,0.18); border-radius: 6px; }
-            QListWidget::item { padding: 6px; border-bottom: 1px solid rgba(192,140,30,0.1); color: #c0b89a; font-size: 11px; }
-            QListWidget::item:selected { background: rgba(192,140,30,0.2); color: #e8d89a; }
+            QListWidget { background: #f5f5f7; border: 1px solid #f0f0f3; border-radius: 6px; }
+            QListWidget::item { padding: 6px; border-bottom: 1px solid #f5f5f7; color: #1d1d1f; font-size: 11px; }
+            QListWidget::item:selected { background: #ececef; color: #1d1d1f; }
         """)
         self._hist_list.itemSelectionChanged.connect(self._on_history_select)
         split.addWidget(self._hist_list)
@@ -1254,12 +1255,12 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         detail_lay.setContentsMargins(0, 4, 0, 0)
         self._hist_detail_prompt = QLabel()
         self._hist_detail_prompt.setWordWrap(True)
-        self._hist_detail_prompt.setStyleSheet("color: #8a7a5a; font-size: 12px; margin-bottom: 4px;")
+        self._hist_detail_prompt.setStyleSheet("color: #86868b; font-size: 12px; margin-bottom: 4px;")
         detail_lay.addWidget(self._hist_detail_prompt)
         
         self._hist_detail_code = QTextEdit()
         self._hist_detail_code.setReadOnly(True)
-        self._hist_detail_code.setStyleSheet("background: #141210; border: 1px solid rgba(192,140,30,0.18); border-radius: 6px; color: #c0b89a; font-family: Consolas; font-size: 12px; padding: 6px;")
+        self._hist_detail_code.setStyleSheet("background: #ffffff; border: 1px solid #f0f0f3; border-radius: 6px; color: #1d1d1f; font-family: Consolas; font-size: 12px; padding: 6px;")
         detail_lay.addWidget(self._hist_detail_code)
         split.addWidget(detail_w)
         
@@ -1290,7 +1291,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._script_edit.setPlainText(d.get("commands", ""))
         
         self._edit_status.setText(icons.richify("✅ 已召回所选历史草稿"))
-        self._edit_status.setStyleSheet("color: #50c870;")
+        self._edit_status.setStyleSheet("color: #34c759;")
         self._left_stack.setCurrentIndex(1)
 
 
@@ -1315,8 +1316,8 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         row = QWidget()
         row.setStyleSheet("""
             QWidget {
-                background: rgba(30,28,20,0.70);
-                border: 1px solid rgba(192,140,30,0.14);
+                background: #f5f5f7;
+                border: 1px solid #f5f5f7;
                 border-radius: 6px;
             }
         """)
@@ -1336,10 +1337,10 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         type_tag = icons.richify(_TYPE_LABEL.get(stype, stype), size=12)
         
         name_lbl = QLabel(f"{trigger if trigger else '(未设置触发命令)'}  "
-                          f"<span style='font-size:10px;color:#5a7060;'>{type_tag}</span>")
+                          f"<span style='font-size:10px;color:#86868b;'>{type_tag}</span>")
         name_lbl.setTextFormat(Qt.TextFormat.RichText)
         name_lbl.setStyleSheet(
-            "color: #ede5d0; font-size: 13px; font-weight: bold; "
+            "color: #1d1d1f; font-size: 13px; font-weight: bold; "
             "background: transparent; border: none;"
         )
         info.addWidget(name_lbl)
@@ -1350,7 +1351,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             if len(desc_str) > 65:
                 desc_str = desc_str[:62] + "..."
             desc_lbl = QLabel(desc_str)
-            desc_lbl.setStyleSheet("color: #8a7a5a; font-size: 12px; font-weight: normal; background: transparent; border: none;")
+            desc_lbl.setStyleSheet("color: #86868b; font-size: 12px; font-weight: normal; background: transparent; border: none;")
             desc_lbl.setFixedHeight(18)
             info.addWidget(desc_lbl)
         
@@ -1359,15 +1360,15 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
         # 运行按钮
         run_b = QPushButton()
-        run_b.setIcon(icons.qicon("play", color="#50c870"))
+        run_b.setIcon(icons.qicon("play", color="#34c759"))
         run_b.setToolTip("运行脚本")
         run_b.setFixedSize(28, 28)
         run_b.setCursor(Qt.CursorShape.PointingHandCursor)
         run_b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         run_b.setStyleSheet("""
-            QPushButton { background: rgba(50,140,80,0.18); color: #50a850;
-                border: 1px solid rgba(50,140,80,0.30); border-radius: 4px; font-size: 14px; padding: 0; }
-            QPushButton:hover { background: rgba(50,140,80,0.35); }
+            QPushButton { background: #e9f9ee; color: #34a853;
+                border: 1px solid #b7ebc6; border-radius: 4px; font-size: 14px; padding: 0; }
+            QPushButton:hover { background: #b7ebc6; }
         """)
         run_b.clicked.connect(lambda _, sid=s.get("id"): self._run_by_id(sid))
         h.addWidget(run_b)
@@ -1480,13 +1481,13 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         sid     = s.get("id", str(_uuid.uuid4()))
 
         # 利用闭包捕获 run_tab，让每个任务拥有独立的日志/状态
-        def _log(text, color="#c0b89a"):
+        def _log(text, color="#1d1d1f"):
             self.log_appended.emit(run_tab, text, color)
         def _done(success):
             self.run_finished.emit(run_tab, success)
 
         if not content:
-            _log("(没有内容)", "#c05050")
+            _log("(没有内容)", "#ff3b30")
             _done(False)
             return
 
@@ -1498,7 +1499,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                 for i, cmd in enumerate(commands, 1):
                     if run_tab.is_cancelled:
                         break
-                    _log(f"⏳ [{i}/{total}]  {cmd}", "#c09030")
+                    _log(f"⏳ [{i}/{total}]  {cmd}", "#0071e3")
                     try:
                         run_tab.proc = _subprocess.Popen(
                             cmd, shell=True,
@@ -1514,20 +1515,20 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                                 break
                         run_tab.proc.wait()
                         if run_tab.is_cancelled:
-                            _log(f"⚠️ 已中止。完成 {i-1} / {total} 步", "#e66")
+                            _log(f"⚠️ 已中止。完成 {i-1} / {total} 步", "#ff3b30")
                             _done(False)
                             return
                         if run_tab.proc.returncode != 0:
-                            _log(f"❌ 步骤 {i} 失败（退出码 {run_tab.proc.returncode}）", "#c05050")
-                            _log(f"ℹ️  已完成 {i-1} / {total} 步", "#8a9a7a")
+                            _log(f"❌ 步骤 {i} 失败（退出码 {run_tab.proc.returncode}）", "#ff3b30")
+                            _log(f"ℹ️  已完成 {i-1} / {total} 步", "#86868b")
                             _done(False)
                             return
-                        _log(f"✅ 步骤 {i} 完成", "#50c870")
+                        _log(f"✅ 步骤 {i} 完成", "#34c759")
                     except Exception as e:
-                        _log(f"❌ 步骤 {i} 异常：{e}", "#c05050")
+                        _log(f"❌ 步骤 {i} 异常：{e}", "#ff3b30")
                         _done(False)
                         return
-                _log(f"\n🎉 全部 {total} 步执行完毕！", "#50c870")
+                _log(f"\n🎉 全部 {total} 步执行完毕！", "#34c759")
                 _done(True)
 
             t = _threading.Thread(target=_worker_shell, daemon=True)
@@ -1562,12 +1563,12 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                     with open(tmp_path, "w", encoding="utf-8") as tf:
                         tf.write(body)
                 except Exception as e:
-                    _log(f"❌ 写脚本文件失败：{e}", "#c05050")
+                    _log(f"❌ 写脚本文件失败：{e}", "#ff3b30")
                     _done(False)
                     return
 
-                _log(f"▶  工作区目录：{wd}", "#8a9a7a")
-                _log(f"▶  本地源文件：{tmp_path}", "#8a9a7a")
+                _log(f"▶  工作区目录：{wd}", "#86868b")
+                _log(f"▶  本地源文件：{tmp_path}", "#86868b")
 
                 if typ == "batch":
                     full_cmd = tmp_path
@@ -1602,17 +1603,17 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                             break
                     run_tab.proc.wait()
                     if run_tab.is_cancelled:
-                        _log("⚠️ 已手动终止运行", "#e66")
+                        _log("⚠️ 已手动终止运行", "#ff3b30")
                         _done(False)
                         return
                     if run_tab.proc.returncode != 0:
-                        _log(f"❌ 执行失败（退出码 {run_tab.proc.returncode}）", "#c05050")
+                        _log(f"❌ 执行失败（退出码 {run_tab.proc.returncode}）", "#ff3b30")
                         _done(False)
                     else:
-                        _log("\n🎉 执行完毕！", "#50c870")
+                        _log("\n🎉 执行完毕！", "#34c759")
                         _done(True)
                 except Exception as e:
-                    _log(f"❌ 运行异常：{e}", "#c05050")
+                    _log(f"❌ 运行异常：{e}", "#ff3b30")
                     _done(False)
 
             t = _threading.Thread(target=_worker_file, daemon=True)
@@ -1623,14 +1624,14 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         import html, re
         # 定制化 ANSI 颜色板：抛弃刺眼的终端标准色，改为贴合 OpenHam 主题的暖暗金/复古色系
         C = {
-            "30":"#1a1810", "31":"#c05050", "32":"#50c870", "33":"#c09030", 
-            "34":"#5882a0", "35":"#a07090", "36":"#509080", "37":"#ede5d0",
-            "90":"#7a6a5a", "91":"#d06060", "92":"#7ab86a", "93":"#e0b040", 
-            "94":"#aac8e0", "95":"#c080b0", "96":"#70b090", "97":"#ffffff"
+            "30":"#ffffff", "31":"#ff3b30", "32":"#34c759", "33":"#0071e3", 
+            "34":"#3a6db5", "35":"#9a4a8a", "36":"#2a8a72", "37":"#1d1d1f",
+            "90":"#86868b", "91":"#d0382e", "92":"#34c759", "93":"#9a7410", 
+            "94":"#3a6db5", "95":"#a64d96", "96":"#2f9a64", "97":"#ffffff"
         }
         B = {
-            "40":"#141210", "41":"#4a2a2a", "42":"#2a4a3a", "43":"#5a4a2a", 
-            "44":"#2a3a4a", "45":"#4a3a4a", "46":"#2a4a4a", "47":"#3a3830"
+            "40":"#ffffff", "41":"#fbeeee", "42":"#eef8f1", "43":"#86868b", 
+            "44":"#eef3f8", "45":"#f6eef6", "46":"#eef7f7", "47":"#f5f4ef"
         }
         tokens = re.split(r'\x1b\[([0-9;]*)m', text)
         fg, bg, wt = default_fg, "", "normal"
@@ -1709,7 +1710,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     def _show_edit_status(self, msg: str, error: bool = False):
         self._edit_status.setText(icons.richify(msg))
         self._edit_status.setStyleSheet(
-            f"color: {'#c05050' if error else '#7ab86a'}; "
+            f"color: {'#ff3b30' if error else '#34c759'}; "
             "font-size: 12px; background: transparent; border: none;"
         )
         QTimer.singleShot(2500, lambda: self._edit_status.setText(""))
@@ -1729,7 +1730,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                 background: transparent; border: none;
                 border-radius: 5px; font-size: 18px; color: {color};
             }}
-            QPushButton:hover {{ background: rgba(192, 140, 30, 0.22); }}
+            QPushButton:hover {{ background: #ececef; }}
         """)
         return btn
 
@@ -1737,7 +1738,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     def _section_lbl(text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setStyleSheet(
-            "color: #7a6a40; font-size: 11px; font-weight: bold; "
+            "color: #86868b; font-size: 11px; font-weight: bold; "
             "background: transparent; border: none; padding: 1px 0;"
         )
         return lbl
@@ -1746,11 +1747,11 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     def _input_ss() -> str:
         return """
             QLineEdit, QTextEdit {
-                background: #1a1810; color: #ede5d0;
-                border: 1px solid rgba(192,140,30,0.28);
+                background: #ffffff; color: #1d1d1f;
+                border: 1px solid #ececef;
                 border-radius: 6px; font-size: 13px; padding: 6px 10px;
             }
-            QLineEdit:focus, QTextEdit:focus { border-color: rgba(192,140,30,0.65); }
+            QLineEdit:focus, QTextEdit:focus { border-color: #0071e3; }
         """
 
     @staticmethod
@@ -1768,15 +1769,15 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     def _type_btn_ss(active: bool) -> str:
         if active:
             return (
-                "QPushButton { background: rgba(192,140,30,0.22); color: #c09030; "
-                "border: 1px solid rgba(192,140,30,0.55); border-radius: 5px; "
+                "QPushButton { background: #ececef; color: #0071e3; "
+                "border: 1px solid #0071e3; border-radius: 5px; "
                 "font-size: 12px; padding: 4px 10px; }"
             )
         return (
-            "QPushButton { background: rgba(30,28,20,0.60); color: #5a4a2a; "
-            "border: 1px solid rgba(192,140,30,0.18); border-radius: 5px; "
+            "QPushButton { background: #f5f5f7; color: #86868b; "
+            "border: 1px solid #f0f0f3; border-radius: 5px; "
             "font-size: 12px; padding: 4px 10px; }"
-            "QPushButton:hover { color: #9a8040; border-color: rgba(192,140,30,0.35); }"
+            "QPushButton:hover { color: #86868b; border-color: #ececef; }"
         )
 
     _PLACEHOLDERS = {

@@ -33,10 +33,11 @@ class PomodoroOverlay(QWidget):
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # 背景圆角矩形
-        p.setBrush(QColor(20, 18, 12, 185))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawRoundedRect(self.rect(), 10, 10)
+        # 背景圆角矩形（浅色毛玻璃感）
+        from PyQt6.QtGui import QPen
+        p.setBrush(QColor(255, 255, 255, 240))
+        p.setPen(QPen(QColor(0, 0, 0, 26), 1))
+        p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 13, 13)
         # 番茄图标 + 时间文字（图标替代原先的 🍅 emoji）
         font = QFont()
         font.setPointSize(18)
@@ -50,7 +51,7 @@ class PomodoroOverlay(QWidget):
         x0 = (self.width() - (icon_w + gap + tw)) // 2
         if icon_w:
             p.drawPixmap(x0, (self.height() - pm.height()) // 2, pm)
-        p.setPen(QColor("#e8d89a"))
+        p.setPen(QColor("#1d1d1f"))
         p.drawText(QRect(x0 + icon_w + gap, 0, tw + 6, self.height()),
                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, txt)
         p.end()

@@ -50,7 +50,7 @@ class ToggleSwitch(QPushButton):
         if checked:
             self.setStyleSheet("""
                 QPushButton {
-                    background-color: #c08c1e;
+                    background-color: #0071e3;
                     border-radius: 11px;
                 }
             """)
@@ -58,9 +58,9 @@ class ToggleSwitch(QPushButton):
         else:
             self.setStyleSheet("""
                 QPushButton {
-                    background-color: #3f3522;
+                    background-color: #e5e5ea;
                     border-radius: 11px;
-                    color: #706550;
+                    color: #b0b0b5;
                 }
             """)
             self.setText("OFF")
@@ -124,7 +124,7 @@ class TagInputWidget(QScrollArea):
         super().__init__(parent)
         self.plugin_id = plugin_id
         self.setWidgetResizable(True)
-        self.setStyleSheet("QScrollArea { border: 1px solid #4a3f2a; border-radius: 4px; background: #2a251a; }")
+        self.setStyleSheet("QScrollArea { border: 1px solid #e5e5ea; border-radius: 4px; background: #ffffff; }")
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setFixedHeight(34)
@@ -142,7 +142,7 @@ class TagInputWidget(QScrollArea):
             
         self.input_box = QLineEdit()
         self.input_box.setPlaceholderText("敲回车新增...")
-        self.input_box.setStyleSheet("background: transparent; color: #c08c1e; border: none; min-width: 140px;")
+        self.input_box.setStyleSheet("background: transparent; color: #0071e3; border: none; min-width: 140px;")
         self.input_box.returnPressed.connect(self._on_submit)
         
         self.layout.addWidget(self.input_box)
@@ -153,19 +153,19 @@ class TagInputWidget(QScrollArea):
         self.tags.append(text)
         
         tag_w = QWidget()
-        tag_w.setStyleSheet("background: #503d15; border-radius: 4px;")
+        tag_w.setStyleSheet("background: #eef1f4; border-radius: 4px;")
         t_layout = QHBoxLayout(tag_w)
         t_layout.setContentsMargins(6, 2, 4, 2)
         t_layout.setSpacing(4)
         
         lbl = QLabel(text)
-        lbl.setStyleSheet("color: #ebdbb2;")
+        lbl.setStyleSheet("color: #1d1d1f;")
         
         close_btn = QPushButton()
         close_btn.setIcon(icons.qicon("close", color="#c87a6a"))
         close_btn.setFixedSize(14, 14)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet("QPushButton { color: #ebdbb2; background: transparent; border: none; font-weight: bold; font-size: 10px; } QPushButton:hover { color: #fb4934; }")
+        close_btn.setStyleSheet("QPushButton { color: #1d1d1f; background: transparent; border: none; font-weight: bold; font-size: 10px; } QPushButton:hover { color: #ff3b30; }")
         close_btn.clicked.connect(lambda: self._remove_tag(text, tag_w))
         
         t_layout.addWidget(lbl)
@@ -186,8 +186,8 @@ class TagInputWidget(QScrollArea):
         conflict_owner = _check_conflict(t, self.plugin_id)
         if conflict_owner:
             self.input_box.clear()
-            self.setStyleSheet("QScrollArea { border: 1px solid #cc241d; border-radius: 4px; background: #2a251a; }")
-            QTimer.singleShot(800, lambda: self.setStyleSheet("QScrollArea { border: 1px solid #4a3f2a; border-radius: 4px; background: #2a251a; }"))
+            self.setStyleSheet("QScrollArea { border: 1px solid #ff3b30; border-radius: 4px; background: #ffffff; }")
+            QTimer.singleShot(800, lambda: self.setStyleSheet("QScrollArea { border: 1px solid #e5e5ea; border-radius: 4px; background: #ffffff; }"))
             
             from PyQt6.QtWidgets import QToolTip
             # 在输入框的正下方弹出一个轻量级的跟随提示气泡
@@ -224,11 +224,11 @@ class PluginItemWidget(QWidget):
         raw_desc = meta.get("desc", "").strip()
         display_title = raw_desc if raw_desc else meta.get("func_name", "Unknown Plugin")
         title_lbl = QLabel(icons.richify(display_title))
-        title_lbl.setStyleSheet("color: #d8cfb8; font-size: 15px; font-weight: bold;")
+        title_lbl.setStyleSheet("color: #1d1d1f; font-size: 15px; font-weight: bold;")
         
         display_sub = meta.get("module_name", meta.get("func_name", ""))
         desc_lbl = QLabel(display_sub)
-        desc_lbl.setStyleSheet("color: #8a7040; font-size: 12px;")
+        desc_lbl.setStyleSheet("color: #86868b; font-size: 12px;")
         
         enabled = conf.get("enabled", True)
         self.toggle = ToggleSwitch(enabled)
@@ -244,7 +244,7 @@ class PluginItemWidget(QWidget):
         if not meta.get("actions"):
             bot_row = QHBoxLayout()
             alias_lbl = QLabel("触发命令:")
-            alias_lbl.setStyleSheet("color: #a89f8a; font-size: 12px;")
+            alias_lbl.setStyleSheet("color: #86868b; font-size: 12px;")
             
             triggers = conf.get("triggers")
             if triggers is None or (not triggers and meta.get("default_triggers")):
@@ -278,7 +278,7 @@ class PluginItemWidget(QWidget):
                 
                 desc_text = act_meta.get("desc", act_name)
                 lbl = QLabel(icons.richify(f"{desc_text}:"))
-                lbl.setStyleSheet("color: #a89f8a; font-size: 13px; min-width: 80px;")
+                lbl.setStyleSheet("color: #86868b; font-size: 13px; min-width: 80px;")
                 
                 act_conf = conf_actions.get(act_name, {})
                 triggers = act_conf.get("triggers")
@@ -331,14 +331,14 @@ class PluginManagerWindow(OpenHamWindowBase):
         self.btn_open_folder.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_open_folder.setStyleSheet("""
             QPushButton {
-                background: rgba(192, 140, 30, 0.1);
-                color: #c08c1e;
-                border: 1px solid rgba(192, 140, 30, 0.3);
-                border-radius: 4px;
-                padding: 4px 10px;
+                background: #ffffff;
+                color: #1d1d1f;
+                border: 1px solid #d2d2d7;
+                border-radius: 8px;
+                padding: 5px 12px;
                 font-size: 12px;
             }
-            QPushButton:hover { background: rgba(192, 140, 30, 0.2); }
+            QPushButton:hover { background: #f5f5f7; }
         """)
         self.btn_open_folder.clicked.connect(self._open_plugins_folder)
         self.header_tools_layout.addWidget(self.btn_open_folder)
@@ -359,12 +359,13 @@ class PluginManagerWindow(OpenHamWindowBase):
                 outline: none;
             }
             QListWidget::item {
-                background: rgba(42, 37, 26, 0.4);
-                border-radius: 8px;
+                background: #f7f7f9;
+                border: 1px solid #ececef;
+                border-radius: 10px;
                 margin-bottom: 8px;
             }
             QListWidget::item:hover {
-                background: rgba(42, 37, 26, 0.8);
+                background: #f0f0f3;
             }
             QScrollBar:vertical {
                 border: none;
@@ -372,7 +373,7 @@ class PluginManagerWindow(OpenHamWindowBase):
                 width: 6px;
             }
             QScrollBar::handle:vertical {
-                background: rgba(192, 140, 30, 0.3);
+                background: #c7c7cc;
                 border-radius: 3px;
                 min-height: 20px;
             }
@@ -387,12 +388,14 @@ class PluginManagerWindow(OpenHamWindowBase):
         self.btn_refresh.setFixedHeight(36)
         self.btn_refresh.setStyleSheet("""
             QPushButton {
-                background: #4a3f2a;
-                color: #e8d89a;
-                border-radius: 6px;
+                background: #ffffff;
+                color: #1d1d1f;
+                border: 1px solid #d2d2d7;
+                border-radius: 8px;
                 font-size: 14px;
+                padding: 0 16px;
             }
-            QPushButton:hover { background: #5a4b32; }
+            QPushButton:hover { background: #f5f5f7; }
         """)
         self.btn_refresh.clicked.connect(self._save_and_reload)
         
@@ -401,13 +404,14 @@ class PluginManagerWindow(OpenHamWindowBase):
         self.btn_save.setFixedHeight(36)
         self.btn_save.setStyleSheet("""
             QPushButton {
-                background: #c08c1e;
-                color: #1c1a14;
-                border-radius: 6px;
+                background: #0071e3;
+                color: #ffffff;
+                border-radius: 8px;
                 font-size: 14px;
-                font-weight: bold;
+                font-weight: 600;
+                padding: 0 18px;
             }
-            QPushButton:hover { background: #dca32a; }
+            QPushButton:hover { background: #0077ed; }
         """)
         self.btn_save.clicked.connect(self._save_and_close)
         
@@ -417,8 +421,8 @@ class PluginManagerWindow(OpenHamWindowBase):
         btn_cancel.setStyleSheet("""
             QPushButton {
                 background: transparent;
-                color: #8a7040;
-                border: 1px solid #4a3f2a;
+                color: #86868b;
+                border: 1px solid #e5e5ea;
                 border-radius: 6px;
                 font-size: 14px;
             }

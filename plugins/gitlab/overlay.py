@@ -49,10 +49,10 @@ class _BranchMultiSelect(QWidget):
     """
     selection_changed = pyqtSignal()
 
-    _CSS_BOX = ("QWidget#msBox{background:#1a1810;"
-                "border:1px solid rgba(192,140,30,0.30);border-radius:6px;}")
-    _CSS_BOX_FOCUS = ("QWidget#msBox{background:#1a1810;"
-                      "border:1px solid rgba(192,140,30,0.70);border-radius:6px;}")
+    _CSS_BOX = ("QWidget#msBox{background:#ffffff;"
+                "border:1px solid #d2d2d7;border-radius:6px;}")
+    _CSS_BOX_FOCUS = ("QWidget#msBox{background:#ffffff;"
+                      "border:1px solid #0071e3;border-radius:6px;}")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -90,7 +90,7 @@ class _BranchMultiSelect(QWidget):
         self._input.setPlaceholderText("搜索并选择分支…")
         self._input.setStyleSheet(
             "QLineEdit{background:transparent;border:none;"
-            "color:#ede5d0;font-size:13px;min-width:60px;}"
+            "color:#1d1d1f;font-size:13px;min-width:60px;}"
         )
         self._input.setFixedHeight(26)
         self._input.textChanged.connect(self._on_input)
@@ -105,7 +105,7 @@ class _BranchMultiSelect(QWidget):
         arrow.setCursor(Qt.CursorShape.PointingHandCursor)
         arrow.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         arrow.setStyleSheet(
-            "QPushButton{color:#8a7040;background:transparent;border:none;font-size:12px;}"
+            "QPushButton{color:#86868b;background:transparent;border:none;font-size:12px;}"
         )
         arrow.clicked.connect(lambda: self._set_open(not self._open))
         bar.addWidget(arrow)
@@ -115,8 +115,8 @@ class _BranchMultiSelect(QWidget):
         self._dropdown = QFrame()
         self._dropdown.setObjectName("msDropdown")
         self._dropdown.setStyleSheet(
-            "QFrame#msDropdown{background:#1c1a14;"
-            "border:1px solid rgba(192,140,30,0.28);"
+            "QFrame#msDropdown{background:#ffffff;"
+            "border:1px solid #f5f5f7;"
             "border-top:none;border-radius:0 0 6px 6px;}"
         )
         ddl = QVBoxLayout(self._dropdown)
@@ -125,9 +125,9 @@ class _BranchMultiSelect(QWidget):
         self._list = QListWidget()
         self._list.setStyleSheet("""
             QListWidget{background:transparent;border:none;
-                color:#d8cfb8;font-size:13px;outline:none;}
+                color:#1d1d1f;font-size:13px;outline:none;}
             QListWidget::item{padding:6px 14px;}
-            QListWidget::item:hover{background:rgba(192,140,30,0.12);}
+            QListWidget::item:hover{background:#f5f5f7;}
         """)
         self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -199,14 +199,14 @@ class _BranchMultiSelect(QWidget):
             it.setData(Qt.ItemDataRole.UserRole, b)
             it.setText("  " + b)
             it.setIcon(icons.qicon("check" if b in self._sel else ""))
-            it.setForeground(QColor("#c09030" if b in self._sel else "#d8cfb8"))
+            it.setForeground(QColor("#0071e3" if b in self._sel else "#1d1d1f"))
             self._list.addItem(it)
 
     def _redraw_item(self, item):
         b = item.data(Qt.ItemDataRole.UserRole)
         item.setText("  " + b)
         item.setIcon(icons.qicon("check" if b in self._sel else ""))
-        item.setForeground(QColor("#c09030" if b in self._sel else "#d8cfb8"))
+        item.setForeground(QColor("#0071e3" if b in self._sel else "#1d1d1f"))
 
     def _refresh_tags(self):
         # 保留末尾两项：_input（count-2）+ stretch（count-1）
@@ -221,14 +221,14 @@ class _BranchMultiSelect(QWidget):
     def _make_tag(self, branch: str) -> QWidget:
         w = QWidget()
         w.setStyleSheet(
-            "QWidget{background:rgba(192,140,30,0.18);"
-            "border:1px solid rgba(192,140,30,0.38);border-radius:3px;}"
+            "QWidget{background:#f5f5f7;"
+            "border:1px solid #d2d2d7;border-radius:3px;}"
         )
         h = QHBoxLayout(w)
         h.setContentsMargins(5, 1, 2, 1)
         h.setSpacing(1)
         lbl = QLabel(branch)
-        lbl.setStyleSheet("color:#c09030;font-size:11px;background:transparent;border:none;")
+        lbl.setStyleSheet("color:#0071e3;font-size:11px;background:transparent;border:none;")
         h.addWidget(lbl)
         x = QPushButton("×")
         x.setFixedSize(14, 14)
@@ -236,8 +236,8 @@ class _BranchMultiSelect(QWidget):
         x.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         x.setFlat(True)
         x.setStyleSheet(
-            "QPushButton{color:#7a6a4a;background:transparent;border:none;"
-            "font-size:12px;padding:0;} QPushButton:hover{color:#ff9050;}"
+            "QPushButton{color:#86868b;background:transparent;border:none;"
+            "font-size:12px;padding:0;} QPushButton:hover{color:#ff9500;}"
         )
         x.clicked.connect(lambda checked, b=branch: self._remove_tag(b))
         h.addWidget(x)
@@ -310,9 +310,9 @@ class GitLabOverlay(QWidget):
         self._card.setObjectName("glCard")
         self._card.setStyleSheet("""
             #glCard {
-                background-color: #1e1c14;
+                background-color: #ffffff;
                 border-radius: 10px;
-                border: 1px solid rgba(192, 140, 30, 0.32);
+                border: 1px solid #d2d2d7;
             }
         """)
         shadow = QGraphicsDropShadowEffect(self)
@@ -334,9 +334,9 @@ class GitLabOverlay(QWidget):
         self._title_bar.setObjectName("glTitleBar")
         self._title_bar.setStyleSheet("""
             #glTitleBar {
-                background-color: #272416;
+                background-color: #f5f5f7;
                 border-radius: 10px 10px 0 0;
-                border-bottom: 1px solid rgba(192, 140, 30, 0.22);
+                border-bottom: 1px solid #f5f5f7;
             }
         """)
         self._title_bar.setCursor(Qt.CursorShape.SizeAllCursor)
@@ -346,21 +346,21 @@ class GitLabOverlay(QWidget):
 
         self._title_label = QLabel(icons.richify("📦  仓库最新提交"))
         self._title_label.setStyleSheet(
-            "color: #c09030; font-size: 15px; font-weight: bold; "
+            "color: #0071e3; font-size: 15px; font-weight: bold; "
             "background: transparent; border: none;"
         )
         tb.addWidget(self._title_label)
         tb.addSpacing(4)
 
         # 刷新按钮紧跟标题（视图模式显示）
-        self._refresh_btn = self._icon_btn("", "#8a7a5a", "刷新", icon="refresh")
+        self._refresh_btn = self._icon_btn("", "#86868b", "刷新", icon="refresh")
         self._refresh_btn.clicked.connect(self.refresh_requested.emit)
         tb.addWidget(self._refresh_btn)
         tb.addStretch()
 
         # 视图模式专属
-        self._edit_btn = self._icon_btn("", "#8a7a5a", "管理关注仓库")
-        self._edit_btn.setIcon(icons.qicon("settings", color="#8a7a5a"))
+        self._edit_btn = self._icon_btn("", "#86868b", "管理关注仓库")
+        self._edit_btn.setIcon(icons.qicon("settings", color="#86868b"))
         self._edit_btn.clicked.connect(self.switch_to_edit)
 
         # 编辑模式专属
@@ -370,16 +370,16 @@ class GitLabOverlay(QWidget):
 
         # 始终显示
         close_btn = QPushButton()
-        close_btn.setIcon(icons.qicon("close", color="#9a8a6a"))
+        close_btn.setIcon(icons.qicon("close", color="#86868b"))
         close_btn.setFixedSize(30, 30)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         close_btn.setStyleSheet("""
             QPushButton {
-                background: transparent; color: #7a6a4a;
+                background: transparent; color: #86868b;
                 font-size: 16px; border: none; border-radius: 4px;
             }
-            QPushButton:hover { background: rgba(180, 50, 30, 0.60); color: #fff; }
+            QPushButton:hover { background: #ff3b30; color: #fff; }
         """)
         close_btn.clicked.connect(self.hide)
 
@@ -403,7 +403,7 @@ class GitLabOverlay(QWidget):
         self._view_layout.setSpacing(10)
         self._loading_label = QLabel("  正在获取提交信息…")
         self._loading_label.setStyleSheet(
-            "color: #8a7040; font-size: 14px; padding: 12px 4px;"
+            "color: #86868b; font-size: 14px; padding: 12px 4px;"
             " background: transparent; border: none;"
         )
         self._view_layout.addWidget(self._loading_label)
@@ -427,7 +427,7 @@ class GitLabOverlay(QWidget):
             QScrollArea { background: transparent; border: none; }
             QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
             QScrollBar::handle:vertical {
-                background: rgba(192, 140, 30, 0.28); border-radius: 3px; min-height: 20px;
+                background: #f5f5f7; border-radius: 3px; min-height: 20px;
             }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
@@ -458,11 +458,11 @@ class GitLabOverlay(QWidget):
         self._url_input.setPlaceholderText("粘贴 GitLab 仓库 URL…")
         self._url_input.setStyleSheet("""
             QLineEdit {
-                background: #1a1810; color: #ede5d0;
-                border: 1px solid rgba(192, 140, 30, 0.28);
+                background: #ffffff; color: #1d1d1f;
+                border: 1px solid #f5f5f7;
                 border-radius: 5px; font-size: 13px; padding: 5px 10px;
             }
-            QLineEdit:focus { border-color: rgba(192, 140, 30, 0.65); }
+            QLineEdit:focus { border-color: #0071e3; }
         """)
         self._url_input.returnPressed.connect(self._on_fetch_clicked)
         url_row.addWidget(self._url_input)
@@ -473,12 +473,12 @@ class GitLabOverlay(QWidget):
         self._fetch_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._fetch_btn.setStyleSheet("""
             QPushButton {
-                background: rgba(192, 140, 30, 0.16); color: #c09030;
-                font-size: 12px; border: 1px solid rgba(192, 140, 30, 0.33);
+                background: #f5f5f7; color: #0071e3;
+                font-size: 12px; border: 1px solid #d2d2d7;
                 border-radius: 5px; padding: 5px;
             }
-            QPushButton:hover { background: rgba(192, 140, 30, 0.28); }
-            QPushButton:disabled { color: #5a4020; border-color: rgba(192,140,30,0.12); }
+            QPushButton:hover { background: #f5f5f7; }
+            QPushButton:disabled { color: #86868b; border-color: #f5f5f7; }
         """)
         self._fetch_btn.clicked.connect(self._on_fetch_clicked)
         url_row.addWidget(self._fetch_btn)
@@ -494,7 +494,7 @@ class GitLabOverlay(QWidget):
 
         self._fetch_status = QLabel("")
         self._fetch_status.setStyleSheet(
-            "color: #c05050; font-size: 12px; background: transparent; border: none; padding: 2px;"
+            "color: #ff3b30; font-size: 12px; background: transparent; border: none; padding: 2px;"
         )
         self._fetch_status.hide()
         ep.addWidget(self._fetch_status)
@@ -506,12 +506,12 @@ class GitLabOverlay(QWidget):
         self._add_btn.setEnabled(False)
         self._add_btn.setStyleSheet("""
             QPushButton {
-                background: rgba(70, 140, 70, 0.18); color: #50a850;
-                font-size: 13px; border: 1px solid rgba(70, 140, 70, 0.35);
+                background: #e9f9ee; color: #50a850;
+                font-size: 13px; border: 1px solid #b7ebc6;
                 border-radius: 5px; padding: 6px;
             }
-            QPushButton:hover:enabled { background: rgba(70, 140, 70, 0.30); }
-            QPushButton:disabled { color: #3a5a3a; border-color: rgba(70,140,70,0.12); }
+            QPushButton:hover:enabled { background: #b7ebc6; }
+            QPushButton:disabled { color: #2f9a64; border-color: #e9f9ee; }
         """)
         self._add_btn.clicked.connect(self._on_add_clicked)
         self._add_btn.hide()
@@ -525,8 +525,8 @@ class GitLabOverlay(QWidget):
         footer = QWidget()
         footer.setStyleSheet("""
             QWidget {
-                background: rgba(26, 24, 12, 0.90);
-                border-top: 1px solid rgba(192, 140, 30, 0.14);
+                background: #0071e3;
+                border-top: 1px solid #f5f5f7;
             }
         """)
         wh_row = QHBoxLayout(footer)
@@ -569,7 +569,7 @@ class GitLabOverlay(QWidget):
                 background: transparent; border: none;
                 border-radius: 5px; font-size: 18px; color: {color};
             }}
-            QPushButton:hover {{ background: rgba(192, 140, 30, 0.22); }}
+            QPushButton:hover {{ background: #f5f5f7; }}
         """)
         return btn
 
@@ -577,7 +577,7 @@ class GitLabOverlay(QWidget):
     def _section_lbl(text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setStyleSheet(
-            "color: #7a6a40; font-size: 11px; font-weight: bold; "
+            "color: #86868b; font-size: 11px; font-weight: bold; "
             "background: transparent; border: none; padding: 1px 0;"
         )
         return lbl
@@ -587,18 +587,18 @@ class GitLabOverlay(QWidget):
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(
-            "background: rgba(192, 140, 30, 0.10); max-height: 1px; border: none; margin: 2px 0;"
+            "background: #f5f5f7; max-height: 1px; border: none; margin: 2px 0;"
         )
         return sep
 
     @staticmethod
     def _toggle_ss(on: bool) -> str:
         if on:
-            return ("QPushButton { background: rgba(50,140,80,0.25); color: #50c870; "
-                    "border: 1px solid rgba(50,140,80,0.50); border-radius: 5px; "
+            return ("QPushButton { background: #e9f9ee; color: #50c870; "
+                    "border: 1px solid #34c759; border-radius: 5px; "
                     "font-size: 11px; font-weight: bold; padding: 4px; }")
-        return ("QPushButton { background: rgba(80,60,40,0.25); color: #7a6a4a; "
-                "border: 1px solid rgba(80,60,40,0.40); border-radius: 5px; "
+        return ("QPushButton { background: #f5f5f7; color: #86868b; "
+                "border: 1px solid #d2d2d7; border-radius: 5px; "
                 "font-size: 11px; padding: 4px; }")
 
     # ── 视图模式 ──────────────────────────────────────────────────────────
@@ -634,7 +634,7 @@ class GitLabOverlay(QWidget):
             if name:
                 lbl = QLabel(f"  {name}")
                 lbl.setStyleSheet(
-                    "color: #c09030; font-size: 14px; font-weight: bold; "
+                    "color: #0071e3; font-size: 14px; font-weight: bold; "
                     "padding: 2px; background: transparent; border: none;"
                 )
                 self._view_layout.insertWidget(self._view_layout.count() - 1, lbl)
@@ -642,7 +642,7 @@ class GitLabOverlay(QWidget):
             if error:
                 err = QLabel(icons.richify(f"  ⚠  {error}"))
                 err.setStyleSheet(
-                    "color: #c05050; font-size: 13px; padding: 4px 6px;"
+                    "color: #ff3b30; font-size: 13px; padding: 4px 6px;"
                     " background: transparent; border: none;"
                 )
                 self._view_layout.insertWidget(self._view_layout.count() - 1, err)
@@ -683,16 +683,16 @@ class GitLabOverlay(QWidget):
         tbl.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         tbl.setStyleSheet("""
             QTableWidget {
-                background-color: #1c1a14; alternate-background-color: #222016;
-                color: #d8cfb8; font-size: 14px;
-                border: 1px solid rgba(192, 140, 30, 0.20);
-                border-radius: 6px; gridline-color: rgba(192, 140, 30, 0.12);
+                background-color: #ffffff; alternate-background-color: #f5f5f7;
+                color: #1d1d1f; font-size: 14px;
+                border: 1px solid #f5f5f7;
+                border-radius: 6px; gridline-color: #f5f5f7;
             }
             QHeaderView::section {
-                background-color: #272416; color: #c09030;
+                background-color: #f5f5f7; color: #0071e3;
                 font-size: 13px; font-weight: bold; border: none;
-                border-right: 1px solid rgba(192, 140, 30, 0.15);
-                border-bottom: 1px solid rgba(192, 140, 30, 0.25);
+                border-right: 1px solid #f5f5f7;
+                border-bottom: 1px solid #f5f5f7;
                 padding: 5px 10px;
             }
         """)
@@ -705,12 +705,12 @@ class GitLabOverlay(QWidget):
         for row, bd in enumerate(branches):
             tbl.setRowHeight(row, self._ROW_H)
             bi = QTableWidgetItem(bd.get("branch", ""))
-            bi.setForeground(QColor("#c09030"))
+            bi.setForeground(QColor("#0071e3"))
             bi.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
             tbl.setItem(row, 0, bi)
             if bd.get("error"):
                 ei = QTableWidgetItem(icons.qicon("warn"), "  " + icons.strip(str(bd['error'])))
-                ei.setForeground(QColor("#c05050"))
+                ei.setForeground(QColor("#ff3b30"))
                 tbl.setItem(row, 1, ei)
                 tbl.setSpan(row, 1, 1, 4)
             else:
@@ -783,8 +783,8 @@ class GitLabOverlay(QWidget):
         row = QWidget()
         row.setStyleSheet("""
             QWidget {
-                background: rgba(30, 28, 20, 0.70);
-                border: 1px solid rgba(192, 140, 30, 0.14);
+                background: #0071e3;
+                border: 1px solid #f5f5f7;
                 border-radius: 5px;
             }
         """)
@@ -797,7 +797,7 @@ class GitLabOverlay(QWidget):
         top.setSpacing(4)
         name_lbl = QLabel(name)
         name_lbl.setStyleSheet(
-            "color: #d8cfb8; font-size: 13px; font-weight: bold; "
+            "color: #1d1d1f; font-size: 13px; font-weight: bold; "
             "background: transparent; border: none;"
         )
         top.addWidget(name_lbl)
@@ -811,7 +811,7 @@ class GitLabOverlay(QWidget):
         edit_btn.setStyleSheet("""
             QPushButton { background: transparent; color: #6a7a8a;
                 font-size: 13px; border: none; border-radius: 3px; }
-            QPushButton:hover { background: rgba(88, 130, 160, 0.35); color: #aac8e0; }
+            QPushButton:hover { background: #3a6db5; color: #3a6db5; }
         """)
         edit_btn.clicked.connect(
             lambda checked, u=url, b=list(branches): self._start_edit_repo(u, b)
@@ -826,7 +826,7 @@ class GitLabOverlay(QWidget):
         del_repo_btn.setStyleSheet("""
             QPushButton { background: transparent; color: #6a4040;
                 font-size: 16px; border: none; border-radius: 3px; }
-            QPushButton:hover { background: rgba(180, 50, 30, 0.50); color: #fff; }
+            QPushButton:hover { background: #ffd4d1; color: #fff; }
         """)
         del_repo_btn.clicked.connect(lambda checked, u=url: self.repo_remove_requested.emit(u))
         top.addWidget(del_repo_btn)
@@ -847,14 +847,14 @@ class GitLabOverlay(QWidget):
         """单个可删除的分支标签 widget。"""
         w = QWidget()
         w.setStyleSheet(
-            "QWidget { background: rgba(88,130,150,0.14); "
-            "border: 1px solid rgba(88,130,150,0.28); border-radius: 3px; }"
+            "QWidget { background: #cfe0ef; "
+            "border: 1px solid #cfe0ef; border-radius: 3px; }"
         )
         h = QHBoxLayout(w)
         h.setContentsMargins(5, 1, 2, 1)
         h.setSpacing(1)
         lbl = QLabel(branch)
-        lbl.setStyleSheet("color: #88aab8; font-size: 11px; background: transparent; border: none;")
+        lbl.setStyleSheet("color: #3a6db5; font-size: 11px; background: transparent; border: none;")
         h.addWidget(lbl)
         x_btn = QPushButton("×")
         x_btn.setFixedSize(14, 14)
@@ -862,9 +862,9 @@ class GitLabOverlay(QWidget):
         x_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         x_btn.setFlat(True)
         x_btn.setStyleSheet("""
-            QPushButton { color: #7a6a5a; background: transparent;
+            QPushButton { color: #86868b; background: transparent;
                 font-size: 12px; border: none; padding: 0; }
-            QPushButton:hover { color: #ff7070; }
+            QPushButton:hover { color: #ff3b30; }
         """)
         x_btn.clicked.connect(
             lambda checked, removed=branch: self.repo_add_requested.emit(

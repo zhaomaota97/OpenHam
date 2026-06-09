@@ -253,8 +253,8 @@ class SettingsWindow(OpenHamWindowBase):
         nav.setStyleSheet(
             """
             QWidget {
-                background: rgba(24, 22, 17, 0.68);
-                border-right: 1px solid rgba(192, 140, 30, 0.12);
+                background: #f5f5f7;
+                border-right: 1px solid #f5f5f7;
             }
             """
         )
@@ -294,7 +294,7 @@ class SettingsWindow(OpenHamWindowBase):
         footer.setSpacing(10)
 
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: #8a9a7a; font-size: 12px;")
+        self.status_label.setStyleSheet("color: #86868b; font-size: 12px;")
         footer.addWidget(self.status_label, 1)
 
         cancel_btn = QPushButton("关闭")
@@ -372,7 +372,7 @@ class SettingsWindow(OpenHamWindowBase):
 
         hint = QLabel("全局热键修改后需要重启 OpenHam 才会完全生效。")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #8a9a7a; font-size: 12px;")
+        hint.setStyleSheet("color: #86868b; font-size: 12px;")
         form_layout.addRow(QLabel(""), hint)
 
         layout.addWidget(form_box)
@@ -422,7 +422,7 @@ class SettingsWindow(OpenHamWindowBase):
 
         ai_hint = QLabel("每位用户使用各自的 API Key 与额度。密钥仅保存在本机 user_settings.json，不会提交到仓库。修改后立即生效，无需重启。")
         ai_hint.setWordWrap(True)
-        ai_hint.setStyleSheet("color: #8a9a7a; font-size: 12px;")
+        ai_hint.setStyleSheet("color: #86868b; font-size: 12px;")
         ai_layout.addRow(QLabel(""), ai_hint)
         return ai_box
 
@@ -445,7 +445,7 @@ class SettingsWindow(OpenHamWindowBase):
         v.setSpacing(8)
 
         self.autostart_chk = QCheckBox("开机自启动 OpenHam")
-        self.autostart_chk.setStyleSheet("QCheckBox{color:#d8cfb8;font-size:14px;}")
+        self.autostart_chk.setStyleSheet("QCheckBox{color:#1d1d1f;font-size:14px;}")
         try:
             self.autostart_chk.setChecked(autostart.is_enabled())
         except Exception:
@@ -455,7 +455,7 @@ class SettingsWindow(OpenHamWindowBase):
 
         hint = QLabel("开启后，登录 Windows 时自动在后台启动 OpenHam（按全局热键即可唤出）。")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #8a9a7a; font-size: 12px;")
+        hint.setStyleSheet("color: #86868b; font-size: 12px;")
         v.addWidget(hint)
 
         layout.addWidget(box)
@@ -522,7 +522,7 @@ class SettingsWindow(OpenHamWindowBase):
         layout.addLayout(tools_row)
 
         self.dependency_summary_label = QLabel("正在读取依赖状态...")
-        self.dependency_summary_label.setStyleSheet("color: #8a9a7a; font-size: 12px;")
+        self.dependency_summary_label.setStyleSheet("color: #86868b; font-size: 12px;")
         layout.addWidget(self.dependency_summary_label)
 
         self.dependency_table = QTableWidget(0, 4)
@@ -539,22 +539,22 @@ class SettingsWindow(OpenHamWindowBase):
         self.dependency_table.setStyleSheet(
             """
             QTableWidget {
-                background: rgba(28, 25, 18, 0.85);
-                color: #d8cfb8;
-                border: 1px solid #4a3f2a;
+                background: #ffffff;
+                color: #1d1d1f;
+                border: 1px solid #e5e5ea;
                 border-radius: 8px;
-                gridline-color: rgba(74, 63, 42, 0.6);
-                alternate-background-color: rgba(41, 35, 24, 0.7);
+                gridline-color: #e5e5ea;
+                alternate-background-color: #f5f5f7;
             }
             QHeaderView::section {
-                background: #30291d;
-                color: #f0ddb0;
+                background: #f5f5f7;
+                color: #1d1d1f;
                 border: none;
-                border-bottom: 1px solid #4a3f2a;
+                border-bottom: 1px solid #e5e5ea;
                 padding: 8px;
             }
             QTableWidget::item:selected {
-                background: rgba(192, 140, 30, 0.25);
+                background: #d2d2d7;
             }
             """
         )
@@ -974,24 +974,24 @@ class SettingsWindow(OpenHamWindowBase):
 
     def _form_label(self, text: str) -> QLabel:
         label = QLabel(text)
-        label.setStyleSheet("color: #d8cfb8; font-size: 13px;")
+        label.setStyleSheet("color: #1d1d1f; font-size: 13px;")
         return label
 
     def _value_label(self, text: str) -> QLabel:
         label = QLabel(text)
         label.setWordWrap(True)
-        label.setStyleSheet("color: #d8cfb8; font-size: 13px;")
+        label.setStyleSheet("color: #1d1d1f; font-size: 13px;")
         return label
 
     def _group_box_style(self) -> str:
         return (
             "QGroupBox {"
-            " color: #f0ddb0;"
-            " border: 1px solid #4a3f2a;"
+            " color: #1d1d1f;"
+            " border: 1px solid #e5e5ea;"
             " border-radius: 8px;"
             " margin-top: 8px;"
             " padding-top: 12px;"
-            " background: rgba(34, 30, 22, 0.72);"
+            " background: #f5f5f7;"
             "}"
             "QGroupBox::title {"
             " subcontrol-origin: margin;"
@@ -1003,21 +1003,21 @@ class SettingsWindow(OpenHamWindowBase):
     def _input_style(self) -> str:
         return (
             "QLineEdit {"
-            " background: rgba(21, 18, 13, 0.92);"
-            " color: #d8cfb8;"
-            " border: 1px solid #4a3f2a;"
+            " background: #ffffff;"
+            " color: #1d1d1f;"
+            " border: 1px solid #e5e5ea;"
             " border-radius: 6px;"
             " padding: 8px 10px;"
             "}"
-            "QLineEdit:focus { border-color: #c08c1e; }"
+            "QLineEdit:focus { border-color: #0071e3; }"
         )
 
     def _editor_style(self) -> str:
         return (
             "QPlainTextEdit {"
-            " background: rgba(21, 18, 13, 0.92);"
-            " color: #d8cfb8;"
-            " border: 1px solid #4a3f2a;"
+            " background: #ffffff;"
+            " color: #1d1d1f;"
+            " border: 1px solid #e5e5ea;"
             " border-radius: 6px;"
             " padding: 8px;"
             "}"
@@ -1026,39 +1026,39 @@ class SettingsWindow(OpenHamWindowBase):
     def _primary_button_style(self) -> str:
         return (
             "QPushButton {"
-            " background: #c08c1e;"
-            " color: #1c1a14;"
+            " background: #0071e3;"
+            " color: #ffffff;"
             " border: none;"
             " border-radius: 6px;"
             " padding: 8px 14px;"
             " font-size: 13px;"
             " font-weight: bold;"
             "}"
-            "QPushButton:hover { background: #d39c28; }"
-            "QPushButton:disabled { background: #6f6247; color: #2a251a; }"
+            "QPushButton:hover { background: #0077ed; }"
+            "QPushButton:disabled { background: #b0b0b5; color: #ffffff; }"
         )
 
     def _secondary_button_style(self) -> str:
         return (
             "QPushButton {"
-            " background: rgba(192, 140, 30, 0.1);"
-            " color: #d8cfb8;"
-            " border: 1px solid #4a3f2a;"
+            " background: #f5f5f7;"
+            " color: #1d1d1f;"
+            " border: 1px solid #e5e5ea;"
             " border-radius: 6px;"
             " padding: 8px 14px;"
             " font-size: 13px;"
             "}"
-            "QPushButton:hover { background: rgba(192, 140, 30, 0.18); }"
-            "QPushButton:disabled { color: #786d57; border-color: #3b3325; }"
+            "QPushButton:hover { background: #f0f0f3; }"
+            "QPushButton:disabled { color: #86868b; border-color: #e5e5ea; }"
         )
 
     def _nav_button_style(self, selected: bool) -> str:
         if selected:
             return (
                 "QPushButton {"
-                " background: rgba(192, 140, 30, 0.18);"
-                " color: #f0ddb0;"
-                " border: 1px solid rgba(192, 140, 30, 0.35);"
+                " background: #f0f0f3;"
+                " color: #1d1d1f;"
+                " border: 1px solid #0071e3;"
                 " border-radius: 8px;"
                 " padding: 0 18px;"
                 " text-align: left;"
@@ -1069,7 +1069,7 @@ class SettingsWindow(OpenHamWindowBase):
         return (
             "QPushButton {"
             " background: transparent;"
-            " color: #a99b7c;"
+            " color: #86868b;"
             " border: 1px solid transparent;"
             " border-radius: 8px;"
             " padding: 0 18px;"
@@ -1077,7 +1077,7 @@ class SettingsWindow(OpenHamWindowBase):
             " font-size: 14px;"
             "}"
             "QPushButton:hover {"
-            " background: rgba(192, 140, 30, 0.08);"
-            " color: #f0ddb0;"
+            " background: #f5f5f7;"
+            " color: #1d1d1f;"
             "}"
         )

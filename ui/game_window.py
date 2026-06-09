@@ -19,6 +19,7 @@ from PyQt6.QtWebChannel import QWebChannel
 
 from ui.window_base import OpenHamWindowBase
 from ui import icons
+from ui import theme
 from core.logging_setup import get_logger
 
 log = get_logger("game")
@@ -93,8 +94,8 @@ class GameWindow(OpenHamWindowBase):
         self._chat_btn.setFixedSize(30, 30)
         self._chat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._chat_btn.setStyleSheet(
-            "QPushButton{background:transparent;color:#c09030;border:none;font-size:15px;}"
-            "QPushButton:hover{background:rgba(192,140,30,0.2);border-radius:4px;}")
+            f"QPushButton{{background:transparent;border:none;border-radius:7px;}}"
+            f"QPushButton:hover{{background:{theme.HOVER};}}")
         self._chat_btn.clicked.connect(self._toggle_chat)
         self.header_tools_layout.addWidget(self._chat_btn)
 
@@ -104,7 +105,7 @@ class GameWindow(OpenHamWindowBase):
 
     def _build_chat_panel(self) -> QWidget:
         panel = QWidget()
-        panel.setStyleSheet("background:#181610;")
+        panel.setStyleSheet(f"background:{theme.BG};")
         v = QVBoxLayout(panel)
         v.setContentsMargins(8, 6, 8, 8)
         v.setSpacing(6)
@@ -112,19 +113,20 @@ class GameWindow(OpenHamWindowBase):
         self._chat_log.setReadOnly(True)
         self._chat_log.setFixedHeight(120)
         self._chat_log.setStyleSheet(
-            "QTextEdit{background:rgba(21,18,13,0.9);color:#d8cfb8;border:1px solid #4a3f2a;"
-            "border-radius:6px;font-size:13px;padding:6px;}")
+            f"QTextEdit{{background:{theme.SURFACE};color:{theme.TEXT};border:1px solid {theme.BORDER};"
+            "border-radius:8px;font-size:13px;padding:6px;}")
         row = QHBoxLayout(); row.setSpacing(6)
         self._chat_input = QLineEdit()
         self._chat_input.setPlaceholderText("发言…")
         self._chat_input.setStyleSheet(
-            "QLineEdit{background:rgba(21,18,13,0.9);color:#ede5d0;border:1px solid #4a3f2a;"
-            "border-radius:6px;padding:8px;}QLineEdit:focus{border-color:#c08c1e;}")
+            f"QLineEdit{{background:{theme.SURFACE};color:{theme.TEXT};border:1px solid {theme.BORDER_IN};"
+            f"border-radius:8px;padding:8px;}}QLineEdit:focus{{border-color:{theme.ACCENT};}}")
         self._chat_input.returnPressed.connect(self._send_chat)
         send = QPushButton("发送")
         send.setStyleSheet(
-            "QPushButton{background:#c08c1e;color:#1c1a14;border:none;border-radius:6px;"
-            "padding:8px 14px;font-weight:bold;}")
+            f"QPushButton{{background:{theme.ACCENT};color:#fff;border:none;border-radius:8px;"
+            "padding:8px 14px;font-weight:600;}"
+            f"QPushButton:hover{{background:{theme.ACCENT_HOV};}}")
         send.clicked.connect(self._send_chat)
         row.addWidget(self._chat_input, 1); row.addWidget(send)
         v.addWidget(self._chat_log); v.addLayout(row)
@@ -147,12 +149,12 @@ class GameWindow(OpenHamWindowBase):
     def add_chat(self, name: str, text: str, mine: bool = False):
         if name is None:
             self._chat_log.append(
-                f'<span style="color:#6f6a55;">— {icons.richify(text)} —</span>')
+                f'<span style="color:{theme.TEXT2};">— {icons.richify(text)} —</span>')
         else:
-            color = "#c9b173" if mine else "#9fd0c0"
+            color = theme.ACCENT if mine else "#0a7c66"
             self._chat_log.append(
-                f'<span style="color:{color};font-weight:bold;">{name}</span>'
-                f'<span style="color:#d8cfb8;">：{text}</span>')
+                f'<span style="color:{color};font-weight:600;">{name}</span>'
+                f'<span style="color:{theme.TEXT};">：{text}</span>')
         if not self._chat_panel.isVisible():
             self._chat_btn.setIcon(icons.qicon("offline"))
 
