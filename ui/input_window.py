@@ -637,7 +637,10 @@ class InputWindow(QWidget):
             "color: #c8c0a8; font-family: Consolas, 'Courier New', monospace; "
             "font-size: 12px; line-height: 1.8;"
         )
-        self.ai_label.setText(text)
+        rich = icons.richify(text)
+        if "<img" in rich:        # 转成富文本后换行会塌缩，需显式 <br>
+            rich = rich.replace("\n", "<br>")
+        self.ai_label.setText(rich)
         self._sync_ai_zone()
         self.input.clear()
         self._refit()

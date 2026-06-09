@@ -9,6 +9,7 @@ import ctypes
 from core.plugin_manager import (ALL_PLUGINS_META, get_plugin_config, 
                                  save_plugin_config, reload_plugins)
 from utils.paths import _base_dir
+from ui import icons
 
 _SHADOW = 20
 _PM_CARD_W = 960
@@ -221,7 +222,7 @@ class PluginItemWidget(QWidget):
         
         raw_desc = meta.get("desc", "").strip()
         display_title = raw_desc if raw_desc else meta.get("func_name", "Unknown Plugin")
-        title_lbl = QLabel(display_title)
+        title_lbl = QLabel(icons.richify(display_title))
         title_lbl.setStyleSheet("color: #d8cfb8; font-size: 15px; font-weight: bold;")
         
         display_sub = meta.get("module_name", meta.get("func_name", ""))
@@ -275,7 +276,7 @@ class PluginItemWidget(QWidget):
                 act_row.setContentsMargins(0, 0, 0, 0)
                 
                 desc_text = act_meta.get("desc", act_name)
-                lbl = QLabel(f"{desc_text}:")
+                lbl = QLabel(icons.richify(f"{desc_text}:"))
                 lbl.setStyleSheet("color: #a89f8a; font-size: 13px; min-width: 80px;")
                 
                 act_conf = conf_actions.get(act_name, {})
@@ -324,7 +325,8 @@ class PluginManagerWindow(OpenHamWindowBase):
         self.title_lbl.setText("插件管理")
         
     def _build_ui(self):
-        self.btn_open_folder = QPushButton("📂 打开目录")
+        self.btn_open_folder = QPushButton("打开目录")
+        self.btn_open_folder.setIcon(icons.qicon("folder"))
         self.btn_open_folder.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_open_folder.setStyleSheet("""
             QPushButton {

@@ -68,6 +68,19 @@ _MAP = {
     "plugins": ("fa5s.puzzle-piece", GOLD),
     "quit": ("fa5s.power-off", MUTED),
     "script": ("fa5s.scroll", GOLD),
+    "fix": ("fa5s.wrench", "#e0a04a"),
+    "history": ("fa5s.history", MUTED),
+    "save": ("fa5s.save", GOLD),
+    "file": ("fa5s.file-alt", GOLD),
+    "python": ("fa5b.python", GOLD),
+    "shell": ("fa5s.terminal", GOLD),
+    "powershell": ("fa5s.terminal", "#5a8ad0"),
+    "batch": ("fa5s.file-code", GOLD),
+    "idea": ("fa5s.lightbulb", "#e0c64a"),
+    "done": ("fa5s.flag-checkered", GREEN),
+    "plug": ("fa5s.plug", GOLD),
+    "coffee": ("fa5s.coffee", "#b0884a"),
+    "tools": ("fa5s.tools", GOLD),
 }
 
 # 源码里出现的 emoji -> 语义名（richify 用；含变体选择符 ️ 的放前面先匹配）
@@ -81,8 +94,13 @@ _EMOJI = [
     ("🟢", "online"), ("🔴", "offline"), ("👑", "host"),
     ("📥", "download"), ("📦", "package"), ("⏳", "loading"),
     ("🍅", "tomato"), ("🔍", "search"), ("≡", "list"),
-    ("↩", "enter"), ("📍", "pin"), ("📌", "pinned"),
+    ("📍", "pin"), ("📌", "pinned"),
     ("🔗", "link"), ("💬", "chat"),
+    ("📜", "script"), ("💡", "idea"), ("🎉", "done"),
+    ("🛠️", "tools"), ("🛠", "tools"), ("🦊", "git"), ("🧩", "plugins"),
+    ("🖥️", "shell"), ("🖥", "shell"), ("🐍", "python"), ("🔷", "powershell"),
+    ("📄", "file"), ("💾", "save"), ("📂", "folder"), ("🔌", "plug"),
+    ("☕", "coffee"), ("⚡", "bolt"), ("🚑", "fix"), ("✨", "ai"),
 ]
 
 _cache = {}

@@ -51,7 +51,8 @@ def _on_capture_finished(pixmap: QPixmap):
     window.show_window()
     window.input.clear()
     window.result_label.setStyleSheet("color: #8a7040; font-size: 12px;")
-    window.result_label.setText("🔍 正在识别截屏文字…")
+    from ui import icons
+    window.result_label.setText(icons.richify("🔍 正在识别截屏文字…"))
     
     def _bg_ocr():
         try:

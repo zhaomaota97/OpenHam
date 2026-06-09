@@ -106,7 +106,7 @@ class OpenHamWindowBase(QWidget):
         tb.setContentsMargins(16, 9, 12, 9)
         tb.setSpacing(10)
 
-        self.title_lbl = QLabel(title)
+        self.title_lbl = QLabel(icons.richify(title))
         self.title_lbl.setStyleSheet(
             "color: #c09030; font-size: 15px; font-weight: bold;"
             " background: transparent; border: none;"

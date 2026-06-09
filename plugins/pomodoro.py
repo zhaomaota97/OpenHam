@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QMenu, QSystemTrayIcon
 
 from core.plugin_manager import openham_plugin
 from ui.pomodoro import PomodoroOverlay
+from ui import icons
 
 # 模块级状态
 _api = None
@@ -29,7 +30,7 @@ def setup_pomodoro(api):
     tray_menu: QMenu = api.call("get_tray_menu")
     if tray_menu:
         # 我们把番茄钟状态插在最上面
-        _action_timer_label = QAction("🍅 剩余 --:--", tray_menu)
+        _action_timer_label = QAction(icons.qicon("tomato"), "剩余 --:--", tray_menu)
         _action_timer_label.setEnabled(False)
         _action_timer_label.setVisible(False)
         actions = tray_menu.actions()
@@ -57,9 +58,8 @@ def _update_countdown():
         _overlay.hide()
     else:
         m, s = divmod(int(remaining), 60)
-        label = f"🍅 剩余 {m:02d}:{s:02d}"
-        if tray: tray.setToolTip(f"OpenHam  {label}")
-        if _action_timer_label: _action_timer_label.setText(label)
+        if tray: tray.setToolTip(f"OpenHam  剩余 {m:02d}:{s:02d}")
+        if _action_timer_label: _action_timer_label.setText(f"剩余 {m:02d}:{s:02d}")
         _overlay.update_text(f"🍅 {m:02d}:{s:02d}")
 
 def parse_dynamic(text: str):
@@ -116,7 +116,7 @@ def execute_pomodoro(text: str, action: str = None):
         my_gen = _timer_gen
         _timer_end = time.time() + mins * 60
         if _action_timer_label:
-            _action_timer_label.setText(f"🍅 剩余 {mins:02d}:00")
+            _action_timer_label.setText(f"剩余 {mins:02d}:00")
             _action_timer_label.setVisible(True)
         if _action_timer_sep:
             _action_timer_sep.setVisible(True)

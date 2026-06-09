@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (QWidget, QLineEdit, QLabel, QVBoxLayout,
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtGui import QColor
 import ctypes
+from ui import icons
 
 MAX_LENGTH = 200  # AI 模式下允许输入更长的内容
 _SHADOW    = 24          # 阴影溢出留边
@@ -413,7 +414,8 @@ class _RunTabWidget(QWidget):
         self.stop_btn.clicked.connect(self.cancel)
         bottom.addWidget(self.stop_btn)
         
-        self.ai_fix_btn = QPushButton("🚑 让 AI 帮忙排错")
+        self.ai_fix_btn = QPushButton("让 AI 帮忙排错")
+        self.ai_fix_btn.setIcon(icons.qicon("fix"))
         self.ai_fix_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.ai_fix_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.ai_fix_btn.setStyleSheet("""
@@ -450,13 +452,13 @@ class _RunTabWidget(QWidget):
     def set_done(self, success: bool):
         self.stop_btn.hide()
         if success:
-            self.status_lbl.setText("✅  执行成功")
+            self.status_lbl.setText(icons.richify("✅  执行成功"))
             self.status_lbl.setStyleSheet(
                 "color: #50c870; font-size: 13px; font-weight: bold; "
                 "background: transparent; border: none;"
             )
         else:
-            self.status_lbl.setText("❌  执行失败")
+            self.status_lbl.setText(icons.richify("❌  执行失败"))
             self.status_lbl.setStyleSheet(
                 "color: #c05050; font-size: 13px; font-weight: bold; "
                 "background: transparent; border: none;"
@@ -473,7 +475,7 @@ class _RunTabWidget(QWidget):
         cursor.movePosition(QTextCursor.MoveOperation.End)
         self.log_edit.setTextCursor(cursor)
         parsed = ScriptManagerOverlay._parse_ansi(text, color).replace('\n', '<br>')
-        self.log_edit.insertHtml(parsed + '<br>')
+        self.log_edit.insertHtml(icons.richify(parsed) + '<br>')
         self.log_edit.ensureCursorVisible()
 
 from ui.window_base import OpenHamWindowBase
@@ -612,7 +614,8 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         tab.close_requested.connect(lambda t=tab: self._close_run_tab_by_widget(t))
         tab.request_ai_fix.connect(lambda s=sid: self._handle_ai_fix_request(s))
         short_name = name[:18] + "…" if len(name) > 18 else name
-        idx = self._tab_widget.addTab(tab, f"⏳ {short_name}")
+        idx = self._tab_widget.addTab(tab, short_name)
+        self._tab_widget.setTabIcon(idx, icons.qicon("loading"))
         self._tab_widget.setCurrentIndex(idx)
         
         btn = QPushButton("×")
@@ -766,7 +769,8 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         header.addWidget(self._back_btn)
         header.addStretch()
 
-        self._ai_gen_btn = QPushButton("✨ 描述需求生成脚本")
+        self._ai_gen_btn = QPushButton("描述需求生成脚本")
+        self._ai_gen_btn.setIcon(icons.qicon("ai"))
         self._ai_gen_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._ai_gen_btn.setStyleSheet("""
             QPushButton { background: rgba(160,80,200,0.15); color: #d090f0;
@@ -777,7 +781,8 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._ai_gen_btn.hide()
         header.addWidget(self._ai_gen_btn)
 
-        self._hist_btn = QPushButton("📜 历史")
+        self._hist_btn = QPushButton("历史")
+        self._hist_btn.setIcon(icons.qicon("history"))
         self._hist_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._hist_btn.setStyleSheet("""
             QPushButton { background: rgba(200,180,80,0.15); color: #d0b050;
@@ -812,13 +817,14 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         type_row.setSpacing(6)
         self._type_btns: dict[str, QPushButton] = {}
         _TYPES = [
-            ("shell",      "🖥  Shell 逐行"),
-            ("python",     "🐍  Python"),
-            ("powershell", "🔷  PowerShell"),
-            ("batch",      "📄  批处理 (.bat)"),
+            ("shell",      "Shell 逐行"),
+            ("python",     "Python"),
+            ("powershell", "PowerShell"),
+            ("batch",      "批处理 (.bat)"),
         ]
         for tid, tlabel in _TYPES:
             btn = QPushButton(tlabel)
+            btn.setIcon(icons.qicon(tid))
             btn.setCheckable(True)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -858,21 +864,24 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
 
-        self._save_btn = QPushButton("💾  保存")
+        self._save_btn = QPushButton("保存")
+        self._save_btn.setIcon(icons.qicon("save"))
         self._save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._save_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._save_btn.setStyleSheet(self._action_btn_ss("#c09030", "rgba(192,140,30,0.18)", "rgba(192,140,30,0.33)"))
         self._save_btn.clicked.connect(self._save_script)
         btn_row.addWidget(self._save_btn)
 
-        self._run_btn = QPushButton("▶  运行")
+        self._run_btn = QPushButton("运行")
+        self._run_btn.setIcon(icons.qicon("play", color="#50c870"))
         self._run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._run_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._run_btn.setStyleSheet(self._action_btn_ss("#50c870", "rgba(50,140,80,0.18)", "rgba(50,140,80,0.35)"))
         self._run_btn.clicked.connect(self._run_current)
         btn_row.addWidget(self._run_btn)
 
-        self._del_btn = QPushButton("🗑  删除")
+        self._del_btn = QPushButton("删除")
+        self._del_btn.setIcon(icons.qicon("delete"))
         self._del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._del_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._del_btn.setStyleSheet(self._action_btn_ss("#e66", "rgba(200,60,60,0.15)", "rgba(200,60,60,0.3)"))
@@ -1015,7 +1024,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._set_script_type(s.get("script_type", "shell"))
         self._edit_status.setText("")
         self._del_btn.show()
-        self._ai_gen_btn.setText("✨ AI助手修改脚本")
+        self._ai_gen_btn.setText("AI助手修改脚本")
         self._ai_gen_btn.show()
         self._hist_btn.show()
         self._left_stack.setCurrentIndex(1)
@@ -1054,7 +1063,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         load_dotenv()
         api_key = app_config.get_api_key()
         if not api_key:
-            self._edit_status.setText("❌ 未配置 API Key：请在「设置 → AI 模型」中填写")
+            self._edit_status.setText(icons.richify("❌ 未配置 API Key：请在「设置 → AI 模型」中填写"))
             self._edit_status.setStyleSheet("color: #e66666;")
             return
             
@@ -1070,10 +1079,10 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             self._generate_script_from_ai(req.strip(), api_key)
 
     def _generate_script_from_ai(self, req: str, api_key: str):
-        self._edit_status.setText("⏳ AI 正在生成中，请稍候...")
+        self._edit_status.setText(icons.richify("⏳ AI 正在生成中，请稍候..."))
         self._edit_status.setStyleSheet("color: #c09030;")
         self._ai_gen_btn.setEnabled(False)
-        self._ai_gen_btn.setText("✨ 生成中...")
+        self._ai_gen_btn.setText("生成中...")
         
         def _worker():
             try:
@@ -1135,7 +1144,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_ai_gen_progress(self, length: int):
-        self._edit_status.setText(f"⏳ AI 正在生成中 (已接收 {length} 字符)")
+        self._edit_status.setText(icons.richify(f"⏳ AI 正在生成中 (已接收 {length} 字符)"))
 
     def _on_ai_gen_done(self, data: dict):
         req = data.pop("__prompt__", "")
@@ -1152,7 +1161,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             
         self._ai_gen_btn.setEnabled(True)
         is_edit = bool(self._back_btn.isVisible() and self._script_edit.toPlainText().strip())
-        self._ai_gen_btn.setText("✨ AI助手修改脚本" if is_edit else "✨ 描述需求生成脚本")
+        self._ai_gen_btn.setText("AI助手修改脚本" if is_edit else "描述需求生成脚本")
         self._trigger_input.setText(data.get("trigger", ""))
         
         # If the generated description is a bit long, ensure it's not a tuple or something weird
@@ -1165,14 +1174,14 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         # Fill script text
         self._script_edit.setPlainText(str(data.get("commands", "")))
         
-        self._edit_status.setText("✅ AI 脚本已生成完毕（请检查并保存）")
+        self._edit_status.setText(icons.richify("✅ AI 脚本已生成完毕（请检查并保存）"))
         self._edit_status.setStyleSheet("color: #50c870;")
 
     def _on_ai_gen_error(self, err: str):
         self._ai_gen_btn.setEnabled(True)
         is_edit = bool(self._back_btn.isVisible() and self._script_edit.toPlainText().strip())
-        self._ai_gen_btn.setText("✨ AI助手修改脚本" if is_edit else "✨ 描述需求生成脚本")
-        self._edit_status.setText(f"❌ 生成失败: {err}")
+        self._ai_gen_btn.setText("AI助手修改脚本" if is_edit else "描述需求生成脚本")
+        self._edit_status.setText(icons.richify(f"❌ 生成失败: {err}"))
         self._edit_status.setStyleSheet("color: #e66666;")
 
     def _cleanup_orphaned_scripts(self, scripts: list):
@@ -1209,7 +1218,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._hist_back_btn.clicked.connect(lambda: self._left_stack.setCurrentIndex(1))
         header.addWidget(self._hist_back_btn)
         
-        lbl = QLabel("📜 本地历史草稿库")
+        lbl = QLabel(icons.richify("📜 本地历史草稿库"))
         lbl.setStyleSheet("color: #d090f0; font-weight: bold; font-size: 14px;")
         header.addWidget(lbl)
         header.addStretch()
@@ -1263,7 +1272,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         if not sel: return
         r = sel[0].data(Qt.ItemDataRole.UserRole)
         p = r.get("prompt", "")
-        self._hist_detail_prompt.setText(f"💡 需求: {p}")
+        self._hist_detail_prompt.setText(icons.richify(f"💡 需求: {p}"))
         d = r.get("data", {})
         c = d.get("commands", "")
         self._hist_detail_code.setPlainText(c)
@@ -1279,7 +1288,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._set_script_type(d.get("script_type", "shell"))
         self._script_edit.setPlainText(d.get("commands", ""))
         
-        self._edit_status.setText("✅ 已召回所选历史草稿")
+        self._edit_status.setText(icons.richify("✅ 已召回所选历史草稿"))
         self._edit_status.setStyleSheet("color: #50c870;")
         self._left_stack.setCurrentIndex(1)
 
@@ -1323,7 +1332,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             "shell": "🖥 Shell", "python": "🐍 Py",
             "powershell": "🔷 PS", "batch": "📄 Bat",
         }
-        type_tag = _TYPE_LABEL.get(stype, stype)
+        type_tag = icons.richify(_TYPE_LABEL.get(stype, stype), size=12)
         
         name_lbl = QLabel(f"{trigger if trigger else '(未设置触发命令)'}  "
                           f"<span style='font-size:10px;color:#5a7060;'>{type_tag}</span>")
@@ -1653,14 +1662,14 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         # 更新 Tab 标题 emoji
         idx = self._tab_widget.indexOf(run_tab)
         if idx >= 0:
-            old = self._tab_widget.tabText(idx)
-            # 剥离旧 emoji 前缀
-            name = old
+            # 剥离可能残留的旧 emoji 前缀，状态改用 Tab 图标表示
+            name = self._tab_widget.tabText(idx)
             for prefix in ("⏳ ", "✅ ", "❌ "):
                 if name.startswith(prefix):
                     name = name[len(prefix):]
                     break
-            self._tab_widget.setTabText(idx, ("✅ " if success else "❌ ") + name)
+            self._tab_widget.setTabText(idx, name)
+            self._tab_widget.setTabIcon(idx, icons.qicon("success" if success else "error"))
 
     def _stop_run_timer(self):
         if self._run_timer.isActive():
@@ -1696,7 +1705,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     # ── 小工具 ─────────────────────────────────────────────────────────────
 
     def _show_edit_status(self, msg: str, error: bool = False):
-        self._edit_status.setText(msg)
+        self._edit_status.setText(icons.richify(msg))
         self._edit_status.setStyleSheet(
             f"color: {'#c05050' if error else '#7ab86a'}; "
             "font-size: 12px; background: transparent; border: none;"
