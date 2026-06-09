@@ -756,7 +756,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._list_empty = QLabel("还没有脚本\n点右上角「新建脚本」开始")
         self._list_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._list_empty.setStyleSheet(
-            "color: #a8a8ad; font-size: 13px; line-height: 1.8; "
+            "color: #86868b; font-size: 13px; line-height: 1.8; "
             "background: transparent; border: none;"
         )
         self._list_empty.hide()
@@ -783,9 +783,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._ai_gen_btn.setIcon(icons.qicon("ai"))
         self._ai_gen_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._ai_gen_btn.setStyleSheet("""
-            QPushButton { background: #f5f3fc; color: #6e56cf;
-                border: 1px solid #e7e2f6; border-radius: 4px; font-weight: bold; font-size: 13px; padding: 4px 10px; }
-            QPushButton:hover { background: #e7e2f6; border-color: #6e56cf; }
+            QPushButton { background: #ffffff; color: #6e56cf;
+                border: 1px solid #d8d8dc; border-radius: 9px; font-weight: 500; font-size: 13px; padding: 6px 12px; }
+            QPushButton:hover { background: #f5f3fc; border-color: #ddd8f3; }
         """)
         self._ai_gen_btn.clicked.connect(self._open_ai_gen_dialog)
         self._ai_gen_btn.hide()
@@ -795,9 +795,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._hist_btn.setIcon(icons.qicon("history"))
         self._hist_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._hist_btn.setStyleSheet("""
-            QPushButton { background: #f7f6ea; color: #8a7310;
-                border: 1px solid #ececef; border-radius: 4px; font-weight: bold; font-size: 13px; padding: 4px 6px; }
-            QPushButton:hover { background: #ececef; border-color: #d2d2d7; }
+            QPushButton { background: #ffffff; color: #1d1d1f;
+                border: 1px solid #d8d8dc; border-radius: 9px; font-size: 13px; padding: 6px 12px; }
+            QPushButton:hover { background: #f5f5f6; }
         """)
         self._hist_btn.clicked.connect(self._go_history)
         self._hist_btn.hide()
@@ -1769,7 +1769,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             QPushButton {{
                 background: {bg}; color: {color};
                 font-size: 13px; border: 1px solid {border};
-                border-radius: 5px; padding: 6px 16px;
+                border-radius: 9px; padding: 7px 16px;
             }}
             QPushButton:hover {{ background: {border}; }}
         """

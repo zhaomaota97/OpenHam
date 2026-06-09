@@ -76,7 +76,7 @@ _MAP = {
     "file": ("fa5s.file-alt", GOLD),
     "python": ("fa5b.python", GOLD),
     "shell": ("fa5s.terminal", GOLD),
-    "powershell": ("fa5s.terminal", "#5a8ad0"),
+    "powershell": ("fa5s.terminal", "#86868b"),
     "batch": ("fa5s.file-code", GOLD),
     "idea": ("fa5s.lightbulb", "#e0c64a"),
     "done": ("fa5s.flag-checkered", GREEN),

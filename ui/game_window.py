@@ -151,7 +151,7 @@ class GameWindow(OpenHamWindowBase):
             self._chat_log.append(
                 f'<span style="color:{theme.TEXT2};">— {icons.richify(text)} —</span>')
         else:
-            color = theme.ACCENT if mine else "#0a7c66"
+            color = theme.ACCENT if mine else "#5b6470"
             self._chat_log.append(
                 f'<span style="color:{color};font-weight:600;">{name}</span>'
                 f'<span style="color:{theme.TEXT};">：{text}</span>')

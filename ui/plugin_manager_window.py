@@ -119,15 +119,15 @@ class TagInputWidget(QScrollArea):
         super().__init__(parent)
         self.plugin_id = plugin_id
         self.setWidgetResizable(True)
-        self.setStyleSheet("QScrollArea { border: 1px solid #e5e5ea; border-radius: 4px; background: #ffffff; }")
+        self.setStyleSheet("QScrollArea { border: 1px solid #d8d8dc; border-radius: 9px; background: #ffffff; }")
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.setFixedHeight(34)
-        
+        self.setFixedHeight(44)
+
         self.container = QWidget()
         self.container.setStyleSheet("background: transparent;")
         self.layout = QHBoxLayout(self.container)
-        self.layout.setContentsMargins(4, 2, 4, 2)
+        self.layout.setContentsMargins(10, 7, 10, 7)
         self.layout.setSpacing(6)
         self.setWidget(self.container)
         
@@ -182,8 +182,8 @@ class TagInputWidget(QScrollArea):
         conflict_owner = _check_conflict(t, self.plugin_id)
         if conflict_owner:
             self.input_box.clear()
-            self.setStyleSheet("QScrollArea { border: 1px solid #d70015; border-radius: 4px; background: #ffffff; }")
-            QTimer.singleShot(800, lambda: self.setStyleSheet("QScrollArea { border: 1px solid #e5e5ea; border-radius: 4px; background: #ffffff; }"))
+            self.setStyleSheet("QScrollArea { border: 1px solid #d70015; border-radius: 9px; background: #ffffff; }")
+            QTimer.singleShot(800, lambda: self.setStyleSheet("QScrollArea { border: 1px solid #d8d8dc; border-radius: 9px; background: #ffffff; }"))
             
             from PyQt6.QtWidgets import QToolTip
             # 在输入框的正下方弹出一个轻量级的跟随提示气泡

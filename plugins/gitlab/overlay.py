@@ -809,9 +809,9 @@ class GitLabOverlay(QWidget):
         edit_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         edit_btn.setToolTip("编辑关注分支")
         edit_btn.setStyleSheet("""
-            QPushButton { background: transparent; color: #6a7a8a;
+            QPushButton { background: transparent; color: #6e6e73;
                 font-size: 13px; border: none; border-radius: 3px; }
-            QPushButton:hover { background: #3a6db5; color: #3a6db5; }
+            QPushButton:hover { background: #f5f5f6; color: #1d1d1f; }
         """)
         edit_btn.clicked.connect(
             lambda checked, u=url, b=list(branches): self._start_edit_repo(u, b)
@@ -854,7 +854,7 @@ class GitLabOverlay(QWidget):
         h.setContentsMargins(5, 1, 2, 1)
         h.setSpacing(1)
         lbl = QLabel(branch)
-        lbl.setStyleSheet("color: #3a6db5; font-size: 11px; background: transparent; border: none;")
+        lbl.setStyleSheet("color: #6e6e73; font-size: 11px; background: transparent; border: none;")
         h.addWidget(lbl)
         x_btn = QPushButton("×")
         x_btn.setFixedSize(14, 14)

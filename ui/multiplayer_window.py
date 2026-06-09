@@ -613,7 +613,7 @@ class MultiplayerWindow(OpenHamWindowBase):
             self.status_lbl.setText("未进入房间")
 
     def _append(self, name: str, text: str, mine: bool = False):
-        color = theme.ACCENT if mine else "#0a7c66"
+        color = theme.ACCENT if mine else "#5b6470"
         self.chat_log.append(
             f'<span style="color:{color};font-weight:600;">{name}</span>'
             f'<span style="color:{theme.TEXT};">：{text}</span>'
