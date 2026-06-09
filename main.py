@@ -149,6 +149,18 @@ def main():
     _ui_font = QFont("Microsoft YaHei UI", 10)
     _ui_font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
     app.setFont(_ui_font)
+    # 加载 Qt 中文翻译：让标准右键菜单（撤销/剪切/复制/粘贴/全选等）显示中文
+    try:
+        from PyQt6.QtCore import QTranslator, QLibraryInfo
+        _tr_dir = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+        app._qt_translators = []
+        for _name in ("qtbase_zh_CN", "qt_zh_CN"):
+            _t = QTranslator()
+            if _t.load(_name, _tr_dir):
+                app.installTranslator(_t)
+                app._qt_translators.append(_t)   # 保持引用，避免被回收
+    except Exception as _e:
+        log.warning("加载 Qt 中文翻译失败：%s", _e)
     # 全局浅色主题：右键菜单、提示、滚动条、对话框等标准控件统一「精致白」
     app.setStyleSheet(theme.app_qss())
 
