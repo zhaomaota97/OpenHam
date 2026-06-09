@@ -127,5 +127,13 @@
     "triggers": [
       "联机"
     ]
+  },
+  "plugins.translate.execute_translate": {
+    "enabled": true,
+    "triggers": [
+      "翻译",
+      "fy",
+      "translate"
+    ]
   }
 }

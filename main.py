@@ -210,7 +210,25 @@ def main():
     plugin_api.register_handler("get_tray_hotkey_str", lambda: hotkey_str)
     plugin_api.register_handler("get_config", lambda key, default=None: config.get(key, default))
     plugin_api.register_handler("show_toast", _show_toast)
-    
+
+    # 插件注册全局热键：低级钩子在钩子线程触发，这里用 Qt 信号派发回 UI 线程执行
+    class _PluginHotkeySignal(QObject):
+        fired = pyqtSignal(object)
+    _pl_hotkey_sig = _PluginHotkeySignal()
+    _pl_hotkey_sig.fired.connect(lambda cb: cb(), Qt.ConnectionType.QueuedConnection)
+    app._pl_hotkey_sig = _pl_hotkey_sig   # 保活
+
+    def _register_plugin_hotkey(hotkey_combo, callback):
+        from utils.global_hotkey import add_hotkey_aggressive
+        try:
+            ok = add_hotkey_aggressive(hotkey_combo, lambda: _pl_hotkey_sig.fired.emit(callback))
+            log.info("插件全局热键注册 %s：%s", hotkey_combo, "成功" if ok else "失败")
+            return ok
+        except Exception as e:
+            log.warning("插件全局热键注册失败 %s：%s", hotkey_combo, e)
+            return False
+    plugin_api.register_handler("register_hotkey", _register_plugin_hotkey)
+
     # 全部核心依赖注册完毕，触发插件 setup 生命周期钩子
     load_plugins()
 

@@ -195,3 +195,25 @@ def claim_hotkey_aggressive(hotkey: str, callback, reinstall_ms: int = 2500) -> 
     _ll_timer.timeout.connect(_ll_ref.reinstall)
     _ll_timer.start(reinstall_ms)
     return True
+
+
+# 额外的低级钩子热键（如划词翻译），各自独立安装，互不影响主热键。
+_ll_extra = []
+
+
+def add_hotkey_aggressive(hotkey: str, callback, reinstall_ms: int = 2500) -> bool:
+    """再注册一个低级钩子热键（可多次调用，每个热键独立一条钩子+重装定时器）。
+    callback 在钩子线程里被调用，应尽量轻量（建议内部用 Qt 信号派发到 UI 线程）。"""
+    parsed = parse_hotkey(hotkey)
+    if not parsed:
+        return False
+    mods, vk = parsed
+    h = _LLHotkey(mods, vk, callback)
+    if not h.install():
+        return False
+    from PyQt6.QtCore import QTimer
+    t = QTimer()
+    t.timeout.connect(h.reinstall)
+    t.start(reinstall_ms)
+    _ll_extra.append((h, t))   # 保活引用
+    return True
