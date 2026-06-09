@@ -395,7 +395,7 @@ class _RunTabWidget(QWidget):
 
         bottom = QHBoxLayout()
         bottom.setSpacing(8)
-        self.status_lbl = QLabel("▶  执行中…")
+        self.status_lbl = QLabel(icons.richify("▶  执行中…"))
         self.status_lbl.setStyleSheet(
             "color: #c09030; font-size: 13px; font-weight: bold; "
             "background: transparent; border: none;"
@@ -592,7 +592,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         w.setStyleSheet("background: transparent;")
         lay = QVBoxLayout(w)
         lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl = QLabel("点击左侧脚本的  ▶ 运行  按钮\n即可在此查看实时执行日志\n\n可同时运行多个脚本，各自独立显示")
+        lbl = QLabel(icons.richify("点击左侧脚本的  ▶ 运行  按钮\n即可在此查看实时执行日志\n\n可同时运行多个脚本，各自独立显示").replace("\n", "<br>"))
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl.setStyleSheet(
             "color: #3a3020; font-size: 14px; line-height: 2; "
@@ -764,7 +764,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
         # 顶部导航行
         header = QHBoxLayout()
-        self._back_btn = self._icon_btn("←", "#5a9a5a", "返回列表")
+        self._back_btn = self._icon_btn("", "#5a9a5a", "返回列表", icon="back")
         self._back_btn.clicked.connect(self._go_list)
         header.addWidget(self._back_btn)
         header.addStretch()
@@ -910,7 +910,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         vbox.setSpacing(8)
 
         status_row = QHBoxLayout()
-        self._log_status_lbl = QLabel("▶  执行中…")
+        self._log_status_lbl = QLabel(icons.richify("▶  执行中…"))
         self._log_status_lbl.setStyleSheet(
             "color: #c09030; font-size: 13px; font-weight: bold; "
             "background: transparent; border: none;"
@@ -1214,7 +1214,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
         # 头部
         header = QHBoxLayout()
-        self._hist_back_btn = self._icon_btn("←", "#5a9a5a", "返回编辑")
+        self._hist_back_btn = self._icon_btn("", "#5a9a5a", "返回编辑", icon="back")
         self._hist_back_btn.clicked.connect(lambda: self._left_stack.setCurrentIndex(1))
         header.addWidget(self._hist_back_btn)
         
@@ -1223,7 +1223,8 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         header.addWidget(lbl)
         header.addStretch()
         
-        self._hist_recall_btn = QPushButton("↩ 召回至当前草稿")
+        self._hist_recall_btn = QPushButton("召回至当前草稿")
+        self._hist_recall_btn.setIcon(icons.qicon("enter"))
         self._hist_recall_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._hist_recall_btn.setStyleSheet("""
             QPushButton { background: rgba(80,200,112,0.15); color: #50c870;
@@ -1357,7 +1358,8 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         h.addLayout(info, 1)
 
         # 运行按钮
-        run_b = QPushButton("▶")
+        run_b = QPushButton()
+        run_b.setIcon(icons.qicon("play", color="#50c870"))
         run_b.setToolTip("运行脚本")
         run_b.setFixedSize(28, 28)
         run_b.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1713,8 +1715,10 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         QTimer.singleShot(2500, lambda: self._edit_status.setText(""))
 
     @staticmethod
-    def _icon_btn(text: str, color: str, tip: str = "") -> QPushButton:
-        btn = QPushButton(text)
+    def _icon_btn(text: str, color: str, tip: str = "", icon: str = "") -> QPushButton:
+        btn = QPushButton("" if icon else text)
+        if icon:
+            btn.setIcon(icons.qicon(icon, color=color))
         btn.setFixedSize(30, 30)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)

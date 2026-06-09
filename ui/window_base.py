@@ -139,7 +139,8 @@ class OpenHamWindowBase(QWidget):
         tb.addWidget(self.pin_btn)
 
         # 关闭按钮
-        self.close_btn = QPushButton("✕")
+        self.close_btn = QPushButton()
+        self.close_btn.setIcon(icons.qicon("close", color="#9a8a6a"))
         self.close_btn.setFixedSize(30, 30)
         self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.close_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)

@@ -589,14 +589,15 @@ class MultiplayerWindow(OpenHamWindowBase):
     # ── 辅助 ──────────────────────────────────────────────────────────
 
     def _refresh_members(self):
+        from PyQt6.QtWidgets import QListWidgetItem
         self.member_list.clear()
         for cid, name in self.client.members.items():
             label = name
             if cid == self.client.self_id:
                 label += "（我）"
-            if cid == self.client.host_id:
-                label = "👑 " + label
-            self.member_list.addItem(label)
+            is_host = (cid == self.client.host_id)
+            item = QListWidgetItem(icons.qicon("host") if is_host else icons.qicon(""), label)
+            self.member_list.addItem(item)
 
     def _set_in_room(self, in_room: bool):
         self.msg_input.setEnabled(in_room)

@@ -161,7 +161,8 @@ class TagInputWidget(QScrollArea):
         lbl = QLabel(text)
         lbl.setStyleSheet("color: #ebdbb2;")
         
-        close_btn = QPushButton("✕")
+        close_btn = QPushButton()
+        close_btn.setIcon(icons.qicon("close", color="#c87a6a"))
         close_btn.setFixedSize(14, 14)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.setStyleSheet("QPushButton { color: #ebdbb2; background: transparent; border: none; font-weight: bold; font-size: 10px; } QPushButton:hover { color: #fb4934; }")

@@ -130,7 +130,7 @@ def execute_pomodoro(text: str, action: str = None):
         def _run(gen=my_gen, m=mins):
             time.sleep(m * 60)
             if _timer_gen == gen and show_toast:
-                show_toast("🍅 番茄钟", f"{m} 分钟到了！好好休息一下 ☕")
+                show_toast("番茄钟", f"{m} 分钟到了！好好休息一下")
                 
         threading.Thread(target=_run, daemon=True).start()
         return {"type": "result", "content": f"✅ 🍅 {mins} 分钟，加油！"}

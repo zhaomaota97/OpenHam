@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QWidget, QApplication
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize, QRect
 from PyQt6.QtGui import QColor, QPainter, QFont
+from ui import icons
 class PomodoroOverlay(QWidget):
     """屏幕右下角半透明、展击穿透的番茄钟倒计时层。"""
 
@@ -36,13 +37,22 @@ class PomodoroOverlay(QWidget):
         p.setBrush(QColor(20, 18, 12, 185))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawRoundedRect(self.rect(), 10, 10)
-        # 文字
+        # 番茄图标 + 时间文字（图标替代原先的 🍅 emoji）
         font = QFont()
         font.setPointSize(18)
         font.setBold(True)
         p.setFont(font)
+        txt = icons.strip(self._text)
+        pm = icons.qicon("tomato").pixmap(QSize(26, 26))
+        icon_w = pm.width() if not pm.isNull() else 0
+        gap = 8 if icon_w else 0
+        tw = p.fontMetrics().horizontalAdvance(txt)
+        x0 = (self.width() - (icon_w + gap + tw)) // 2
+        if icon_w:
+            p.drawPixmap(x0, (self.height() - pm.height()) // 2, pm)
         p.setPen(QColor("#e8d89a"))
-        p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._text)
+        p.drawText(QRect(x0 + icon_w + gap, 0, tw + 6, self.height()),
+                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, txt)
         p.end()
 
 

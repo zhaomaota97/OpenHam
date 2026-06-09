@@ -377,14 +377,16 @@ class InputWindow(QWidget):
             if ac:
                 target, desc = ac
                 self._auto_complete_target = target
-                raw_txt = f"⇥ 按 Tab 补全: {target}  ({desc})" if desc else f"⇥ 按 Tab 补全: {target}"
+                raw_txt = f"按 Tab 补全: {target}  ({desc})" if desc else f"按 Tab 补全: {target}"
                 fm = self.count_label.fontMetrics()
-                self.count_label.setText(fm.elidedText(raw_txt, Qt.TextElideMode.ElideRight, 500))
+                self.count_label.setText(icons.img("tab") + " "
+                                         + fm.elidedText(raw_txt, Qt.TextElideMode.ElideRight, 500))
                 self.count_label.setStyleSheet("color: #8a9a7a; font-size: 12px;")
             else:
                 if text.strip():
                     fm = self.count_label.fontMetrics()
-                    self.count_label.setText(fm.elidedText("↩ 询问 AI", Qt.TextElideMode.ElideRight, 500))
+                    self.count_label.setText(icons.img("enter") + " "
+                                             + fm.elidedText("询问 AI", Qt.TextElideMode.ElideRight, 500))
                     self.count_label.setStyleSheet("color: #6a8a9a; font-size: 13px;")
                 else:
                     self.count_label.setText(f"{count} / {MAX_LENGTH}")
@@ -684,7 +686,7 @@ class InputWindow(QWidget):
             self.file_list.hide()
         else:
             self.result_label.setStyleSheet("color: #6a5a3a; font-size: 12px;")
-            self.result_label.setText(f"找到 {len(results)} 个  ↵打开  Ctrl+↵打开文件夹")
+            self.result_label.setText(icons.richify(f"找到 {len(results)} 个  ↵打开  Ctrl+↵打开文件夹"))
             for r in results:
                 self._add_file_item(r['name'], r['path'], r['dir'])
             item_h = 48
@@ -783,7 +785,9 @@ class InputWindow(QWidget):
         self.app_list.show()
         # 提示并入右侧原有提示位（不再占用左侧独立说明行），沿用蓝灰提示色
         self.count_label.setStyleSheet("color: #6a8a9a; font-size: 13px;")
-        self.count_label.setText("← → 选择   ↵ 启动   ⇧↵ 问 AI")
+        _hint = "← → 选择   ↵ 启动   ⇧↵ 问 AI"
+        _hint = _hint.replace("←", icons.img("back")).replace("→", icons.img("forward"))
+        self.count_label.setText(icons.richify(_hint))
         self._refit()
 
     def clear_app_results(self):

@@ -86,6 +86,15 @@ _MAP = {
     "lock": ("fa5s.lock", AMBER),
     "signal": ("fa5s.wifi", GOLD),
     "check": ("fa5s.check", GREEN),
+    "close": ("fa5s.times", MUTED),
+    "back": ("fa5s.arrow-left", "#7aa87a"),
+    "forward": ("fa5s.arrow-right", MUTED),
+    "up": ("fa5s.arrow-up", MUTED),
+    "down": ("fa5s.arrow-down", MUTED),
+    "shift": ("fa5s.long-arrow-alt-up", MUTED),
+    "tab": ("fa5s.long-arrow-alt-right", MUTED),
+    "enter": ("fa5s.level-down-alt", MUTED),
+    "dot_off": ("fa5s.circle", MUTED),
 }
 
 # 源码里出现的 emoji -> 语义名（richify 用；含变体选择符 ️ 的放前面先匹配）
@@ -108,6 +117,13 @@ _EMOJI = [
     ("☕", "coffee"), ("⚡", "bolt"), ("🚑", "fix"),
     ("📶", "signal"), ("✏️", "edit"), ("✏", "edit"), ("✚", "add"),
     ("🔒", "lock"), ("📦", "package"),
+    # 通用符号字形（非 prose 箭头）→ 图标
+    ("✕", "close"), ("✗", "close"), ("✘", "close"),
+    ("✓", "check"), ("✔", "check"), ("✔️", "check"),
+    ("↻", "refresh"), ("↺", "refresh"), ("⟳", "refresh"),
+    ("▶", "play"), ("▶️", "play"), ("◀", "back"),
+    ("↵", "enter"), ("↩", "enter"), ("↩️", "enter"),
+    ("⇧", "shift"), ("⇥", "tab"),
 ]
 
 _cache = {}

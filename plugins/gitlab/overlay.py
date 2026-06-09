@@ -197,13 +197,15 @@ class _BranchMultiSelect(QWidget):
         for b in options:
             it = QListWidgetItem()
             it.setData(Qt.ItemDataRole.UserRole, b)
-            it.setText(("✓  " if b in self._sel else "    ") + b)
+            it.setText("  " + b)
+            it.setIcon(icons.qicon("check" if b in self._sel else ""))
             it.setForeground(QColor("#c09030" if b in self._sel else "#d8cfb8"))
             self._list.addItem(it)
 
     def _redraw_item(self, item):
         b = item.data(Qt.ItemDataRole.UserRole)
-        item.setText(("✓  " if b in self._sel else "    ") + b)
+        item.setText("  " + b)
+        item.setIcon(icons.qicon("check" if b in self._sel else ""))
         item.setForeground(QColor("#c09030" if b in self._sel else "#d8cfb8"))
 
     def _refresh_tags(self):
@@ -351,7 +353,7 @@ class GitLabOverlay(QWidget):
         tb.addSpacing(4)
 
         # 刷新按钮紧跟标题（视图模式显示）
-        self._refresh_btn = self._icon_btn("↻", "#8a7a5a", "刷新")
+        self._refresh_btn = self._icon_btn("", "#8a7a5a", "刷新", icon="refresh")
         self._refresh_btn.clicked.connect(self.refresh_requested.emit)
         tb.addWidget(self._refresh_btn)
         tb.addStretch()
@@ -362,12 +364,13 @@ class GitLabOverlay(QWidget):
         self._edit_btn.clicked.connect(self.switch_to_edit)
 
         # 编辑模式专属
-        self._done_btn = self._icon_btn("←", "#5a9a5a", "完成，返回查看")
+        self._done_btn = self._icon_btn("", "#5a9a5a", "完成，返回查看", icon="back")
         self._done_btn.hide()
         self._done_btn.clicked.connect(self.switch_to_view)
 
         # 始终显示
-        close_btn = QPushButton("✕")
+        close_btn = QPushButton()
+        close_btn.setIcon(icons.qicon("close", color="#9a8a6a"))
         close_btn.setFixedSize(30, 30)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -531,7 +534,8 @@ class GitLabOverlay(QWidget):
         wh_row.setSpacing(8)
         wh_lbl = QLabel("Webhook:")
         wh_lbl.setStyleSheet("color: #5a6858; font-size: 11px; background: transparent; border: none;")
-        self._wh_btn = QPushButton("● OFF")
+        self._wh_btn = QPushButton("OFF")
+        self._wh_btn.setIcon(icons.qicon("dot_off"))
         self._wh_btn.setFixedWidth(62)
         self._wh_btn.setCheckable(True)
         self._wh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -551,8 +555,10 @@ class GitLabOverlay(QWidget):
 
     # ── 小工具 ────────────────────────────────────────────────────────────
 
-    def _icon_btn(self, text: str, color: str, tip: str = "") -> QPushButton:
-        btn = QPushButton(text)
+    def _icon_btn(self, text: str, color: str, tip: str = "", icon: str = "") -> QPushButton:
+        btn = QPushButton("" if icon else text)
+        if icon:
+            btn.setIcon(icons.qicon(icon, color=color))
         btn.setFixedSize(30, 30)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -703,7 +709,7 @@ class GitLabOverlay(QWidget):
             bi.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
             tbl.setItem(row, 0, bi)
             if bd.get("error"):
-                ei = QTableWidgetItem(f"⚠  {bd['error']}")
+                ei = QTableWidgetItem(icons.qicon("warn"), "  " + icons.strip(str(bd['error'])))
                 ei.setForeground(QColor("#c05050"))
                 tbl.setItem(row, 1, ei)
                 tbl.setSpan(row, 1, 1, 4)
@@ -731,7 +737,7 @@ class GitLabOverlay(QWidget):
         self.edit_mode_opened.emit()
 
     def switch_to_view(self):
-        self._title_label.setText("📦  仓库最新提交")
+        self._title_label.setText(icons.richify("📦  仓库最新提交"))
         self._done_btn.hide()
         self._edit_btn.show()
         self._refresh_btn.show()
@@ -760,7 +766,8 @@ class GitLabOverlay(QWidget):
             self._repos_layout.insertWidget(0, empty)
         # Webhook
         self._wh_btn.setChecked(webhook_enabled)
-        self._wh_btn.setText("● ON" if webhook_enabled else "● OFF")
+        self._wh_btn.setText("ON" if webhook_enabled else "OFF")
+        self._wh_btn.setIcon(icons.qicon("online" if webhook_enabled else "dot_off"))
         self._wh_btn.setStyleSheet(self._toggle_ss(webhook_enabled))
         self._wh_info.setText(
             f"已启用，将此地址填入 GitLab → Settings → Webhooks：\n{webhook_url}"
@@ -884,9 +891,9 @@ class GitLabOverlay(QWidget):
         self._branch_select.set_options(list(result), set(self._pending_current_branches))
         self._branch_select.show()
         self._add_btn.show()
-        self._add_btn.setText(
-            "✔  更新关注分支" if self._pending_current_branches else "✚  添加到关注列表"
-        )
+        _updating = bool(self._pending_current_branches)
+        self._add_btn.setText("更新关注分支" if _updating else "添加到关注列表")
+        self._add_btn.setIcon(icons.qicon("check" if _updating else "add"))
         self._add_btn.setEnabled(bool(self._branch_select.get_selected()))
         self.adjustSize()
 
@@ -929,13 +936,15 @@ class GitLabOverlay(QWidget):
         self._branch_select.clear()
         self._branch_select.hide()
         self._add_btn.hide()
-        self._add_btn.setText("✚  添加到关注列表")
+        self._add_btn.setText("添加到关注列表")
+        self._add_btn.setIcon(icons.qicon("add"))
         self._fetch_status.hide()
         self._pending_url = ""
         self._pending_current_branches = []
 
     def _on_webhook_toggle(self, checked: bool):
-        self._wh_btn.setText("● ON" if checked else "● OFF")
+        self._wh_btn.setText("ON" if checked else "OFF")
+        self._wh_btn.setIcon(icons.qicon("online" if checked else "dot_off"))
         self._wh_btn.setStyleSheet(self._toggle_ss(checked))
         self.webhook_toggle.emit(checked)
 
