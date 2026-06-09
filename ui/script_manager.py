@@ -547,19 +547,19 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._tab_widget.setMovable(True)
         self._tab_widget.setStyleSheet("""
             QTabWidget::pane {
-                border: none; background: transparent;
+                border: none; border-top: 1px solid #ececef;
+                background: transparent; top: -1px;
             }
+            QTabBar { qproperty-drawBase: 0; background: transparent; }
             QTabBar::tab {
-                background: #f5f5f7;
-                color: #86868b; border: 1px solid #f0f0f3;
-                border-bottom: none; border-radius: 5px 5px 0 0;
-                padding: 5px 12px; font-size: 12px; min-width: 80px;
+                background: transparent; color: #6e6e73;
+                border: none; border-radius: 8px;
+                padding: 7px 16px; margin: 0 4px 6px 0;
+                font-size: 13px; min-width: 64px;
             }
-            QTabBar::tab:selected {
-                background: #f5f5f7; color: #1d1d1f;
-                border-color: #1d1d1f;
-            }
-            QTabBar::tab:hover:!selected { background: #ffffff; }
+            QTabBar::tab:selected { background: #f0f0f2; color: #1d1d1f; font-weight: 600; }
+            QTabBar::tab:hover:!selected { background: #f5f5f6; }
+            QTabBar::close-button { subcontrol-position: right; margin-left: 4px; }
         """)
         self._tab_widget.tabCloseRequested.connect(self._close_run_tab)
         self._tab_widget.setMinimumWidth(350)
