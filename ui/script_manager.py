@@ -198,7 +198,7 @@ class ThemeConfirmDialog(QDialog):
             QWidget {
                 background-color: #ffffff;
                 border-radius: 12px;
-                border: 1px solid #0071e3;
+                border: 1px solid #1d1d1f;
             }
             QLabel { border: none; background: transparent; }
         """)
@@ -247,7 +247,7 @@ class ThemeConfirmDialog(QDialog):
 
 
 class ThemeInputDialog(QDialog):
-    def __init__(self, parent, title: str, text: str, default_input: str = "", ok_text: str = "确定", ok_color: str = "#5e5ce6"):
+    def __init__(self, parent, title: str, text: str, default_input: str = "", ok_text: str = "确定", ok_color: str = "#6e56cf"):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog |
             Qt.WindowType.NoDropShadowWindowHint
@@ -266,7 +266,7 @@ class ThemeInputDialog(QDialog):
             QWidget {
                 background-color: #ffffff;
                 border-radius: 12px;
-                border: 1px solid #0071e3;
+                border: 1px solid #1d1d1f;
             }
             QLabel { border: none; background: transparent; }
         """)
@@ -311,7 +311,7 @@ class ThemeInputDialog(QDialog):
                 border-radius: 6px; color: #1d1d1f; font-size: 13px;
                 padding: 10px; font-family: Consolas, 'Courier New', monospace;
             }
-            QTextEdit:focus { border-color: #0071e3; }
+            QTextEdit:focus { border-color: #1d1d1f; }
             QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
             QScrollBar::handle:vertical { background: #ececef; border-radius: 3px; min-height: 20px; }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
@@ -335,9 +335,9 @@ class ThemeInputDialog(QDialog):
         ok_b.setCursor(Qt.CursorShape.PointingHandCursor)
         ok_b.setFixedHeight(30)
         ok_b.setStyleSheet(f"""
-            QPushButton {{ background: #ececfd; color: {ok_color};
-                border: 1px solid #dcdcfa; border-radius: 6px; font-size: 12px; padding: 0 16px; font-weight: bold; }}
-            QPushButton:hover {{ background: #dcdcfa; border-color: #5e5ce6; }}
+            QPushButton {{ background: #f5f3fc; color: {ok_color};
+                border: 1px solid #e7e2f6; border-radius: 6px; font-size: 12px; padding: 0 16px; font-weight: bold; }}
+            QPushButton:hover {{ background: #e7e2f6; border-color: #6e56cf; }}
         """)
         ok_b.clicked.connect(self.accept)
         
@@ -398,7 +398,7 @@ class _RunTabWidget(QWidget):
         bottom.setSpacing(8)
         self.status_lbl = QLabel(icons.richify("▶  执行中…"))
         self.status_lbl.setStyleSheet(
-            "color: #0071e3; font-size: 13px; font-weight: bold; "
+            "color: #1d1d1f; font-size: 13px; font-weight: bold; "
             "background: transparent; border: none;"
         )
         bottom.addWidget(self.status_lbl, 1)
@@ -564,8 +564,8 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                 padding: 5px 12px; font-size: 12px; min-width: 80px;
             }
             QTabBar::tab:selected {
-                background: #f5f5f7; color: #0071e3;
-                border-color: #0071e3;
+                background: #f5f5f7; color: #1d1d1f;
+                border-color: #1d1d1f;
             }
             QTabBar::tab:hover:!selected { background: #ffffff; }
         """)
@@ -774,9 +774,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._ai_gen_btn.setIcon(icons.qicon("ai"))
         self._ai_gen_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._ai_gen_btn.setStyleSheet("""
-            QPushButton { background: #ececfd; color: #5e5ce6;
-                border: 1px solid #dcdcfa; border-radius: 4px; font-weight: bold; font-size: 13px; padding: 4px 10px; }
-            QPushButton:hover { background: #dcdcfa; border-color: #5e5ce6; }
+            QPushButton { background: #f5f3fc; color: #6e56cf;
+                border: 1px solid #e7e2f6; border-radius: 4px; font-weight: bold; font-size: 13px; padding: 4px 10px; }
+            QPushButton:hover { background: #e7e2f6; border-color: #6e56cf; }
         """)
         self._ai_gen_btn.clicked.connect(self._open_ai_gen_dialog)
         self._ai_gen_btn.hide()
@@ -849,7 +849,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                 font-family: Consolas, 'Courier New', monospace;
                 padding: 8px 10px;
             }
-            QTextEdit:focus { border-color: #0071e3; }
+            QTextEdit:focus { border-color: #1d1d1f; }
             QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
             QScrollBar::handle:vertical {
                 background: #ececef; border-radius: 3px; min-height: 20px;
@@ -869,7 +869,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._save_btn.setIcon(icons.qicon("save"))
         self._save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._save_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._save_btn.setStyleSheet(self._action_btn_ss("#0071e3", "#f0f0f3", "#ececef"))
+        self._save_btn.setStyleSheet(self._action_btn_ss("#1d1d1f", "#f0f0f3", "#ececef"))
         self._save_btn.clicked.connect(self._save_script)
         btn_row.addWidget(self._save_btn)
 
@@ -913,7 +913,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         status_row = QHBoxLayout()
         self._log_status_lbl = QLabel(icons.richify("▶  执行中…"))
         self._log_status_lbl.setStyleSheet(
-            "color: #0071e3; font-size: 13px; font-weight: bold; "
+            "color: #1d1d1f; font-size: 13px; font-weight: bold; "
             "background: transparent; border: none;"
         )
         status_row.addWidget(self._log_status_lbl)
@@ -1081,7 +1081,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
     def _generate_script_from_ai(self, req: str, api_key: str):
         self._edit_status.setText(icons.richify("⏳ AI 正在生成中，请稍候..."))
-        self._edit_status.setStyleSheet("color: #0071e3;")
+        self._edit_status.setStyleSheet("color: #1d1d1f;")
         self._ai_gen_btn.setEnabled(False)
         self._ai_gen_btn.setText("生成中...")
         
@@ -1220,7 +1220,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         header.addWidget(self._hist_back_btn)
         
         lbl = QLabel(icons.richify("📜 本地历史草稿库"))
-        lbl.setStyleSheet("color: #5e5ce6; font-weight: bold; font-size: 14px;")
+        lbl.setStyleSheet("color: #6e56cf; font-weight: bold; font-size: 14px;")
         header.addWidget(lbl)
         header.addStretch()
         
@@ -1499,7 +1499,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                 for i, cmd in enumerate(commands, 1):
                     if run_tab.is_cancelled:
                         break
-                    _log(f"⏳ [{i}/{total}]  {cmd}", "#0071e3")
+                    _log(f"⏳ [{i}/{total}]  {cmd}", "#1d1d1f")
                     try:
                         run_tab.proc = _subprocess.Popen(
                             cmd, shell=True,
@@ -1624,7 +1624,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         import html, re
         # 定制化 ANSI 颜色板：抛弃刺眼的终端标准色，改为贴合 OpenHam 主题的暖暗金/复古色系
         C = {
-            "30":"#ffffff", "31":"#d70015", "32":"#248a3d", "33":"#0071e3", 
+            "30":"#ffffff", "31":"#d70015", "32":"#248a3d", "33":"#1d1d1f", 
             "34":"#3a6db5", "35":"#9a4a8a", "36":"#2a8a72", "37":"#1d1d1f",
             "90":"#86868b", "91":"#d0382e", "92":"#248a3d", "93":"#9a7410", 
             "94":"#3a6db5", "95":"#a64d96", "96":"#1f7a4d", "97":"#ffffff"
@@ -1751,7 +1751,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                 border: 1px solid #ececef;
                 border-radius: 6px; font-size: 13px; padding: 6px 10px;
             }
-            QLineEdit:focus, QTextEdit:focus { border-color: #0071e3; }
+            QLineEdit:focus, QTextEdit:focus { border-color: #1d1d1f; }
         """
 
     @staticmethod
@@ -1769,8 +1769,8 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     def _type_btn_ss(active: bool) -> str:
         if active:
             return (
-                "QPushButton { background: #eaf2fd; color: #0071e3; "
-                "border: 1px solid #0071e3; border-radius: 8px; "
+                "QPushButton { background: #f0f0f2; color: #1d1d1f; "
+                "border: 1px solid #1d1d1f; border-radius: 8px; "
                 "font-size: 12px; padding: 5px 12px; font-weight: 600; }"
             )
         return (

@@ -12,40 +12,44 @@
 各窗口尽量不再自带样式表，统一继承这里的 app_qss()；只有结构性差异才局部覆盖。
 """
 
-# ── 调色板 ────────────────────────────────────────────────────────────
-BG        = "#f5f5f7"   # 仅 hover / 极少数次级底
+# ── 调色板（石墨近黑主色 · 中性灰阶 · 克制强调）────────────────────────
+# 高级感来自克制：中性为主、近黑作主色、强调极少。刺眼饱和色一律避免。
+BG        = "#ffffff"
 CARD      = "#ffffff"   # 卡片 / 所有内容表面
 SURFACE   = "#ffffff"
-SUBTLE    = "#f5f5f7"   # hover
+SUBTLE    = "#f5f5f6"   # 仅 hover
+SELECT    = "#ececee"   # 选中态（中性浅灰，不刺眼）
 
 TEXT      = "#1d1d1f"
-TEXT2     = "#86868b"
-TEXT3     = "#b0b0b5"
+TEXT2     = "#6e6e73"
+TEXT3     = "#a8a8ad"
 
-ACCENT      = "#0071e3"
-ACCENT_HOV  = "#0077ed"
-ACCENT_PRE  = "#006edb"
-ACCENT_SOFT = "#eaf2fd"
+# 主操作 = 石墨近黑（Linear / Vercel 那种高级感），不再用亮蓝
+ACCENT      = "#1d1d1f"
+ACCENT_HOV  = "#37373a"
+ACCENT_PRE  = "#000000"
+ACCENT_SOFT = "#f0f0f2"   # 极淡中性填充（active tab 等）
 
-INDIGO      = "#5e5ce6"
-INDIGO_HOV  = "#6e6cf0"
-INDIGO_SOFT = "#f3f2ff"
+# 唯一的彩色点缀：AI 用精致紫
+INDIGO      = "#6e56cf"
+INDIGO_HOV  = "#7c66d9"
+INDIGO_SOFT = "#f5f3fc"
 
-BORDER      = "#e8e8ed"   # 分隔/容器边
-BORDER_IN   = "#d2d2d7"   # 输入框/按钮边
-HOVER       = "rgba(0,0,0,0.05)"
+BORDER      = "#ececef"   # 分隔/容器边（更轻）
+BORDER_IN   = "#d8d8dc"   # 输入框/按钮边
+HOVER       = "rgba(0,0,0,0.04)"
 
-SUCCESS = "#248a3d"
+SUCCESS = "#1f8f43"
 DANGER  = "#d70015"
 WARN    = "#b25000"
 
-SEL_BG  = ACCENT
-SEL_FG  = "#ffffff"
+SEL_BG  = SELECT
+SEL_FG  = TEXT
 
-R_CARD = 12
-R_BTN  = 8
-R_IN   = 8
-R_ITEM = 6
+R_CARD = 14
+R_BTN  = 9
+R_IN   = 9
+R_ITEM = 7
 
 
 def app_qss() -> str:
@@ -97,9 +101,9 @@ def app_qss() -> str:
         background: {SURFACE}; color: {TEXT};
         border: 1px solid {BORDER}; border-radius: 10px; outline: none; padding: 4px;
     }}
-    QListWidget::item {{ border-radius: {R_ITEM}px; padding: 7px 8px; }}
+    QListWidget::item {{ border-radius: {R_ITEM}px; padding: 8px 9px; }}
     QListWidget::item:hover {{ background: {SUBTLE}; }}
-    QListWidget::item:selected {{ background: {ACCENT}; color: #ffffff; }}
+    QListWidget::item:selected {{ background: {SELECT}; color: {TEXT}; }}
 
     /* ── 下拉框 ───────────────────────────────────────── */
     QComboBox {{

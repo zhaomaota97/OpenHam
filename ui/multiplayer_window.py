@@ -696,7 +696,7 @@ class MultiplayerWindow(OpenHamWindowBase):
                 font-size: 13px;
             }}
             QListWidget#members::item {{ padding: 6px 6px; border-radius: {theme.R_ITEM}px; }}
-            QListWidget#members::item:selected {{ background: {theme.ACCENT}; color: #fff; }}
+            QListWidget#members::item:selected {{ background: {theme.SELECT}; color: {theme.TEXT}; }}
             QPushButton {{
                 background: {theme.SURFACE}; color: {theme.TEXT};
                 border: 1px solid {theme.BORDER_IN}; border-radius: {theme.R_BTN}px; padding: 8px 16px;

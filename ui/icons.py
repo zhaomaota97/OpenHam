@@ -21,8 +21,8 @@ MUTED = "#86868b"
 GREEN = "#248a3d"
 RED = "#d70015"
 AMBER = "#b25000"
-PURPLE = "#5e5ce6"
-ACCENT = "#0071e3"
+PURPLE = "#6e56cf"
+ACCENT = "#1d1d1f"
 
 # 语义名 -> (Font Awesome 名, 默认颜色)
 _MAP = {

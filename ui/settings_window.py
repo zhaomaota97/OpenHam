@@ -1009,7 +1009,7 @@ class SettingsWindow(OpenHamWindowBase):
             " border-radius: 6px;"
             " padding: 8px 10px;"
             "}"
-            "QLineEdit:focus { border-color: #0071e3; }"
+            "QLineEdit:focus { border-color: #1d1d1f; }"
         )
 
     def _editor_style(self) -> str:
@@ -1026,7 +1026,7 @@ class SettingsWindow(OpenHamWindowBase):
     def _primary_button_style(self) -> str:
         return (
             "QPushButton {"
-            " background: #0071e3;"
+            " background: #1d1d1f;"
             " color: #ffffff;"
             " border: none;"
             " border-radius: 6px;"
@@ -1034,7 +1034,7 @@ class SettingsWindow(OpenHamWindowBase):
             " font-size: 13px;"
             " font-weight: bold;"
             "}"
-            "QPushButton:hover { background: #0077ed; }"
+            "QPushButton:hover { background: #37373a; }"
             "QPushButton:disabled { background: #b0b0b5; color: #ffffff; }"
         )
 
@@ -1058,7 +1058,7 @@ class SettingsWindow(OpenHamWindowBase):
                 "QPushButton {"
                 " background: #f0f0f3;"
                 " color: #1d1d1f;"
-                " border: 1px solid #0071e3;"
+                " border: 1px solid #1d1d1f;"
                 " border-radius: 8px;"
                 " padding: 0 18px;"
                 " text-align: left;"

@@ -52,7 +52,7 @@ class _BranchMultiSelect(QWidget):
     _CSS_BOX = ("QWidget#msBox{background:#ffffff;"
                 "border:1px solid #d2d2d7;border-radius:6px;}")
     _CSS_BOX_FOCUS = ("QWidget#msBox{background:#ffffff;"
-                      "border:1px solid #0071e3;border-radius:6px;}")
+                      "border:1px solid #1d1d1f;border-radius:6px;}")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -199,14 +199,14 @@ class _BranchMultiSelect(QWidget):
             it.setData(Qt.ItemDataRole.UserRole, b)
             it.setText("  " + b)
             it.setIcon(icons.qicon("check" if b in self._sel else ""))
-            it.setForeground(QColor("#0071e3" if b in self._sel else "#1d1d1f"))
+            it.setForeground(QColor("#1d1d1f" if b in self._sel else "#1d1d1f"))
             self._list.addItem(it)
 
     def _redraw_item(self, item):
         b = item.data(Qt.ItemDataRole.UserRole)
         item.setText("  " + b)
         item.setIcon(icons.qicon("check" if b in self._sel else ""))
-        item.setForeground(QColor("#0071e3" if b in self._sel else "#1d1d1f"))
+        item.setForeground(QColor("#1d1d1f" if b in self._sel else "#1d1d1f"))
 
     def _refresh_tags(self):
         # 保留末尾两项：_input（count-2）+ stretch（count-1）
@@ -228,7 +228,7 @@ class _BranchMultiSelect(QWidget):
         h.setContentsMargins(5, 1, 2, 1)
         h.setSpacing(1)
         lbl = QLabel(branch)
-        lbl.setStyleSheet("color:#0071e3;font-size:11px;background:transparent;border:none;")
+        lbl.setStyleSheet("color:#1d1d1f;font-size:11px;background:transparent;border:none;")
         h.addWidget(lbl)
         x = QPushButton("×")
         x.setFixedSize(14, 14)
@@ -346,7 +346,7 @@ class GitLabOverlay(QWidget):
 
         self._title_label = QLabel(icons.richify("📦  仓库最新提交"))
         self._title_label.setStyleSheet(
-            "color: #0071e3; font-size: 15px; font-weight: bold; "
+            "color: #1d1d1f; font-size: 15px; font-weight: bold; "
             "background: transparent; border: none;"
         )
         tb.addWidget(self._title_label)
@@ -462,7 +462,7 @@ class GitLabOverlay(QWidget):
                 border: 1px solid #f5f5f7;
                 border-radius: 5px; font-size: 13px; padding: 5px 10px;
             }
-            QLineEdit:focus { border-color: #0071e3; }
+            QLineEdit:focus { border-color: #1d1d1f; }
         """)
         self._url_input.returnPressed.connect(self._on_fetch_clicked)
         url_row.addWidget(self._url_input)
@@ -473,7 +473,7 @@ class GitLabOverlay(QWidget):
         self._fetch_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._fetch_btn.setStyleSheet("""
             QPushButton {
-                background: #f5f5f7; color: #0071e3;
+                background: #f5f5f7; color: #1d1d1f;
                 font-size: 12px; border: 1px solid #d2d2d7;
                 border-radius: 5px; padding: 5px;
             }
@@ -525,7 +525,7 @@ class GitLabOverlay(QWidget):
         footer = QWidget()
         footer.setStyleSheet("""
             QWidget {
-                background: #0071e3;
+                background: #1d1d1f;
                 border-top: 1px solid #f5f5f7;
             }
         """)
@@ -634,7 +634,7 @@ class GitLabOverlay(QWidget):
             if name:
                 lbl = QLabel(f"  {name}")
                 lbl.setStyleSheet(
-                    "color: #0071e3; font-size: 14px; font-weight: bold; "
+                    "color: #1d1d1f; font-size: 14px; font-weight: bold; "
                     "padding: 2px; background: transparent; border: none;"
                 )
                 self._view_layout.insertWidget(self._view_layout.count() - 1, lbl)
@@ -689,7 +689,7 @@ class GitLabOverlay(QWidget):
                 border-radius: 6px; gridline-color: #f5f5f7;
             }
             QHeaderView::section {
-                background-color: #f5f5f7; color: #0071e3;
+                background-color: #f5f5f7; color: #1d1d1f;
                 font-size: 13px; font-weight: bold; border: none;
                 border-right: 1px solid #f5f5f7;
                 border-bottom: 1px solid #f5f5f7;
@@ -705,7 +705,7 @@ class GitLabOverlay(QWidget):
         for row, bd in enumerate(branches):
             tbl.setRowHeight(row, self._ROW_H)
             bi = QTableWidgetItem(bd.get("branch", ""))
-            bi.setForeground(QColor("#0071e3"))
+            bi.setForeground(QColor("#1d1d1f"))
             bi.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
             tbl.setItem(row, 0, bi)
             if bd.get("error"):
@@ -783,7 +783,7 @@ class GitLabOverlay(QWidget):
         row = QWidget()
         row.setStyleSheet("""
             QWidget {
-                background: #0071e3;
+                background: #1d1d1f;
                 border: 1px solid #f5f5f7;
                 border-radius: 5px;
             }
@@ -847,8 +847,8 @@ class GitLabOverlay(QWidget):
         """单个可删除的分支标签 widget。"""
         w = QWidget()
         w.setStyleSheet(
-            "QWidget { background: #cfe0ef; "
-            "border: 1px solid #cfe0ef; border-radius: 3px; }"
+            "QWidget { background: #eceef1; "
+            "border: 1px solid #eceef1; border-radius: 3px; }"
         )
         h = QHBoxLayout(w)
         h.setContentsMargins(5, 1, 2, 1)

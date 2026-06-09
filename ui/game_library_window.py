@@ -141,7 +141,7 @@ class GameLibraryWindow(OpenHamWindowBase):
                 font-size: 14px;
             }}
             QListWidget#list::item {{ padding: 9px 8px; border-radius: {theme.R_ITEM}px; }}
-            QListWidget#list::item:selected {{ background: {theme.ACCENT}; color: #fff; }}
+            QListWidget#list::item:selected {{ background: {theme.SELECT}; color: {theme.TEXT}; }}
             QPushButton {{
                 background: {theme.SURFACE}; color: {theme.TEXT};
                 border: 1px solid {theme.BORDER_IN}; border-radius: {theme.R_BTN}px; padding: 8px 14px; font-size: 13px;
@@ -150,8 +150,8 @@ class GameLibraryWindow(OpenHamWindowBase):
             QPushButton#primary {{ background: {theme.ACCENT}; color: #fff; font-weight: 600; border: none; }}
             QPushButton#primary:hover {{ background: {theme.ACCENT_HOV}; }}
             QPushButton#ai {{
-                background: {theme.INDIGO_SOFT}; color: {theme.INDIGO};
-                border: 1px solid #dcdcfa; font-weight: 600;
+                background: {theme.CARD}; color: {theme.INDIGO};
+                border: 1px solid {theme.BORDER_IN}; font-weight: 500;
             }}
-            QPushButton#ai:hover {{ background: #e0e0fb; }}
+            QPushButton#ai:hover {{ background: {theme.INDIGO_SOFT}; border-color: #ddd8f3; }}
         """

@@ -50,7 +50,7 @@ class ToggleSwitch(QPushButton):
         if checked:
             self.setStyleSheet("""
                 QPushButton {
-                    background-color: #0071e3;
+                    background-color: #1d1d1f;
                     border-radius: 11px;
                     color: #ffffff;
                 }
@@ -143,7 +143,7 @@ class TagInputWidget(QScrollArea):
             
         self.input_box = QLineEdit()
         self.input_box.setPlaceholderText("敲回车新增...")
-        self.input_box.setStyleSheet("background: transparent; color: #0071e3; border: none; min-width: 140px;")
+        self.input_box.setStyleSheet("background: transparent; color: #1d1d1f; border: none; min-width: 140px;")
         self.input_box.returnPressed.connect(self._on_submit)
         
         self.layout.addWidget(self.input_box)
@@ -405,14 +405,14 @@ class PluginManagerWindow(OpenHamWindowBase):
         self.btn_save.setFixedHeight(36)
         self.btn_save.setStyleSheet("""
             QPushButton {
-                background: #0071e3;
+                background: #1d1d1f;
                 color: #ffffff;
                 border-radius: 8px;
                 font-size: 14px;
                 font-weight: 600;
                 padding: 0 18px;
             }
-            QPushButton:hover { background: #0077ed; }
+            QPushButton:hover { background: #37373a; }
         """)
         self.btn_save.clicked.connect(self._save_and_close)
         
