@@ -24,6 +24,7 @@ class GameLibraryWindow(OpenHamWindowBase):
 
     def _build(self):
         root = QWidget()
+        root.setObjectName("glRoot")
         root.setStyleSheet(self._qss())
         v = QVBoxLayout(root)
         v.setContentsMargins(16, 14, 16, 14)
@@ -133,7 +134,7 @@ class GameLibraryWindow(OpenHamWindowBase):
 
     def _qss(self) -> str:
         return f"""
-            QWidget {{ background: transparent; }}
+            QWidget#glRoot {{ background: transparent; }}
             QLabel#hint {{ color: {theme.TEXT2}; font-size: 12px; }}
             QListWidget#list {{
                 background: {theme.SURFACE}; color: {theme.TEXT};

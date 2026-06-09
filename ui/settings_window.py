@@ -249,14 +249,10 @@ class SettingsWindow(OpenHamWindowBase):
         body.setSpacing(20)
 
         nav = QWidget()
+        nav.setObjectName("settingsNav")
         nav.setFixedWidth(150)
         nav.setStyleSheet(
-            """
-            QWidget {
-                background: #f5f5f7;
-                border-right: 1px solid #f5f5f7;
-            }
-            """
+            "QWidget#settingsNav { background: #f5f5f7; border-right: 1px solid #ececef; }"
         )
         nav_layout = QVBoxLayout(nav)
         nav_layout.setContentsMargins(0, 8, 0, 8)

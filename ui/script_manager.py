@@ -194,11 +194,12 @@ class ThemeConfirmDialog(QDialog):
         outer.setContentsMargins(0, 0, 0, 0)
         
         card = QWidget()
+        card.setObjectName("smCard")
         card.setStyleSheet("""
-            QWidget {
+            QWidget#smCard {
                 background-color: #ffffff;
                 border-radius: 12px;
-                border: 1px solid #1d1d1f;
+                border: 1px solid #ececef;
             }
             QLabel { border: none; background: transparent; }
         """)
@@ -262,11 +263,12 @@ class ThemeInputDialog(QDialog):
         outer.setContentsMargins(0, 0, 0, 0)
         
         card = QWidget()
+        card.setObjectName("smCard")
         card.setStyleSheet("""
-            QWidget {
+            QWidget#smCard {
                 background-color: #ffffff;
                 border-radius: 12px;
-                border: 1px solid #1d1d1f;
+                border: 1px solid #ececef;
             }
             QLabel { border: none; background: transparent; }
         """)
@@ -1326,11 +1328,12 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                 self._list_widget.setItemWidget(item, self._make_script_row(s))
     def _make_script_row(self, s: dict) -> QWidget:
         row = QWidget()
+        row.setObjectName("smScriptRow")
         row.setStyleSheet("""
-            QWidget {
-                background: #f5f5f7;
-                border: 1px solid #f5f5f7;
-                border-radius: 6px;
+            QWidget#smScriptRow {
+                background: #f7f7f9;
+                border: 1px solid #ececef;
+                border-radius: 8px;
             }
         """)
         h = QHBoxLayout(row)

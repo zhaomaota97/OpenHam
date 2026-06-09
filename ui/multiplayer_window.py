@@ -64,6 +64,7 @@ class MultiplayerWindow(OpenHamWindowBase):
 
     def _build_content(self):
         root = QWidget()
+        root.setObjectName("mpRoot")
         root.setStyleSheet(self._qss())
         v = QVBoxLayout(root)
         v.setContentsMargins(16, 14, 16, 14)
@@ -721,7 +722,7 @@ class MultiplayerWindow(OpenHamWindowBase):
 
     def _qss(self) -> str:
         return f"""
-            QWidget {{ background: transparent; }}
+            QWidget#mpRoot {{ background: transparent; }}
             QLabel {{ color: {theme.TEXT2}; font-size: 12px; }}
             QLabel#status {{ color: {theme.TEXT}; font-size: 13px; font-weight: 600; }}
             QLineEdit {{

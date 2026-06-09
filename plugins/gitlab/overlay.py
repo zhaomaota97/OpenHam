@@ -220,9 +220,10 @@ class _BranchMultiSelect(QWidget):
 
     def _make_tag(self, branch: str) -> QWidget:
         w = QWidget()
+        w.setObjectName("ghTagBox")
         w.setStyleSheet(
-            "QWidget{background:#f5f5f7;"
-            "border:1px solid #d2d2d7;border-radius:3px;}"
+            "QWidget#ghTagBox{background:#f5f5f7;"
+            "border:1px solid #d2d2d7;border-radius:8px;}"
         )
         h = QHBoxLayout(w)
         h.setContentsMargins(5, 1, 2, 1)
@@ -523,12 +524,9 @@ class GitLabOverlay(QWidget):
 
         # ── Webhook 底部固定栏 ─────────────────────────────────────────
         footer = QWidget()
-        footer.setStyleSheet("""
-            QWidget {
-                background: #1d1d1f;
-                border-top: 1px solid #f5f5f7;
-            }
-        """)
+        footer.setObjectName("ghFooter")
+        footer.setStyleSheet(
+            "QWidget#ghFooter { background: #f5f5f7; border-top: 1px solid #ececef; }")
         wh_row = QHBoxLayout(footer)
         wh_row.setContentsMargins(14, 6, 14, 8)
         wh_row.setSpacing(8)
@@ -781,13 +779,9 @@ class GitLabOverlay(QWidget):
         name     = repo.get("name", url.rsplit("/", 1)[-1])
         branches = list(repo.get("branches", []))
         row = QWidget()
-        row.setStyleSheet("""
-            QWidget {
-                background: #1d1d1f;
-                border: 1px solid #f5f5f7;
-                border-radius: 5px;
-            }
-        """)
+        row.setObjectName("ghRepoRow")
+        row.setStyleSheet(
+            "QWidget#ghRepoRow { background: #ffffff; border: 1px solid #ececef; border-radius: 8px; }")
         vbox = QVBoxLayout(row)
         vbox.setContentsMargins(10, 6, 6, 6)
         vbox.setSpacing(4)
@@ -846,9 +840,10 @@ class GitLabOverlay(QWidget):
     def _make_branch_tag(self, branch: str, url: str, repo_name: str, all_branches: list) -> QWidget:
         """单个可删除的分支标签 widget。"""
         w = QWidget()
+        w.setObjectName("ghBranchTag")
         w.setStyleSheet(
-            "QWidget { background: #eceef1; "
-            "border: 1px solid #eceef1; border-radius: 3px; }"
+            "QWidget#ghBranchTag { background: #eceef1; "
+            "border: 1px solid #e0e0e4; border-radius: 7px; }"
         )
         h = QHBoxLayout(w)
         h.setContentsMargins(5, 1, 2, 1)
