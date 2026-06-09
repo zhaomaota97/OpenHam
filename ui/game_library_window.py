@@ -91,7 +91,7 @@ class GameLibraryWindow(OpenHamWindowBase):
         g = self._selected()
         if not g:
             return
-        if QMessageBox.question(self, "删除游戏", f"删除「{g['name']}」？此操作不可恢复。") == QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, "从游戏库移除", f"把「{g['name']}」从游戏库移除？\n（只是从库里移除，不影响已发布到房间的游戏）") == QMessageBox.StandardButton.Yes:
             game_library.delete_game(g["folder"])
             self._refresh()
 
