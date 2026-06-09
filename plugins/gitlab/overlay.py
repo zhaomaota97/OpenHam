@@ -365,7 +365,7 @@ class GitLabOverlay(QWidget):
         self._edit_btn.clicked.connect(self.switch_to_edit)
 
         # 编辑模式专属
-        self._done_btn = self._icon_btn("", "#5a9a5a", "完成，返回查看", icon="back")
+        self._done_btn = self._icon_btn("", "#86868b", "完成，返回查看", icon="back")
         self._done_btn.hide()
         self._done_btn.clicked.connect(self.switch_to_view)
 

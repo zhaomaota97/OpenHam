@@ -782,7 +782,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
         # 顶部导航行
         header = QHBoxLayout()
-        self._back_btn = self._icon_btn("", "#248a3d", "返回列表", icon="back")
+        self._back_btn = self._icon_btn("", "#86868b", "返回列表", icon="back")
         self._back_btn.clicked.connect(self._go_list)
         header.addWidget(self._back_btn)
         header.addStretch()
@@ -1229,7 +1229,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
         # 头部
         header = QHBoxLayout()
-        self._hist_back_btn = self._icon_btn("", "#248a3d", "返回编辑", icon="back")
+        self._hist_back_btn = self._icon_btn("", "#86868b", "返回编辑", icon="back")
         self._hist_back_btn.clicked.connect(lambda: self._left_stack.setCurrentIndex(1))
         header.addWidget(self._hist_back_btn)
         

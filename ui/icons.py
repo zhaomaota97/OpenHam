@@ -46,7 +46,6 @@ _MAP = {
     "tomato": ("fa5s.stopwatch", "#e0584a"),
     "search": ("fa5s.search", MUTED),
     "list": ("fa5s.bars", MUTED),
-    "enter": ("fa5s.reply", MUTED),
     "settings": ("fa5s.cog", GOLD),
     "pin": ("fa5s.thumbtack", TEXT),
     "pinned": ("fa5s.thumbtack", GOLD),
@@ -90,13 +89,13 @@ _MAP = {
     "check": ("fa5s.check", GREEN),
     "stop": ("fa5s.stop", RED),
     "close": ("fa5s.times", MUTED),
-    "back": ("fa5s.arrow-left", "#7aa87a"),
+    "back": ("fa5s.arrow-left", MUTED),
     "forward": ("fa5s.arrow-right", MUTED),
     "up": ("fa5s.arrow-up", MUTED),
     "down": ("fa5s.arrow-down", MUTED),
     "shift": ("fa5s.long-arrow-alt-up", MUTED),
     "tab": ("fa5s.long-arrow-alt-right", MUTED),
-    "enter": ("fa5s.level-down-alt", MUTED),
+    "enter": ("mdi6.keyboard-return", MUTED),
     "dot_off": ("fa5s.circle", MUTED),
 }
 
@@ -159,7 +158,8 @@ def _png_path(name: str, color: str, px: int):
     if fa is None:
         return None
     col = color or default
-    key = f"{name}_{col.lstrip('#')}_{px}"
+    # 缓存键含字形名：改了图标字形也会生成新缓存，不会复用旧 PNG
+    key = f"{name}_{fa.replace('.', '-')}_{col.lstrip('#')}_{px}"
     if key in _cache:
         return _cache[key]
     qta = _qta()
