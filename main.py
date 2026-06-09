@@ -42,10 +42,14 @@ log = get_logger("main")
 
 
 def _ensure_single_instance():
-    mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "OpenHam_SingleInstance")
-    if ctypes.windll.kernel32.GetLastError() == 183:
-        sys.exit(0)
-    return mutex
+    k = ctypes.windll.kernel32
+    for _ in range(30):  # 最多等 3 秒：自动重启时旧实例可能还没退出释放锁
+        mutex = k.CreateMutexW(None, False, "OpenHam_SingleInstance")
+        if k.GetLastError() != 183:   # 不是 ERROR_ALREADY_EXISTS → 拿到锁
+            return mutex
+        k.CloseHandle(mutex)
+        _time.sleep(0.1)
+    sys.exit(0)
 
 
 

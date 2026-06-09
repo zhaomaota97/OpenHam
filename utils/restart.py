@@ -1,6 +1,7 @@
 """自动重启 OpenHam（用于更新/安装组件后）。
 
-先排程一个延迟 2 秒再启动的进程（等当前实例退出、释放单实例锁），随后退出当前实例。
+直接启动新进程（不经 cmd，避免引号/路径问题），随后退出当前实例。
+新实例的单实例锁会重试等待几秒，等旧实例退出后再接管。
 """
 import os
 import sys
@@ -8,19 +9,23 @@ import subprocess
 
 from utils.paths import _base_dir
 
+DETACHED_PROCESS = 0x00000008
+CREATE_NO_WINDOW = 0x08000000
+
 
 def restart_app():
     base = _base_dir()
     exe = os.path.join(base, "OpenHam.exe")
-    if os.path.exists(exe):
-        inner = f'timeout /t 2 /nobreak >nul & start "" "{exe}"'
-    else:
-        py = os.path.join(base, "runtime", "pythonw.exe")
-        if not os.path.exists(py):
-            py = sys.executable
-        inner = f'timeout /t 2 /nobreak >nul & start "" "{py}" "{os.path.join(base, "main.py")}"'
     try:
-        subprocess.Popen(["cmd", "/c", inner], creationflags=0x08000000)  # CREATE_NO_WINDOW
+        if os.path.exists(exe):
+            args = [exe]
+        else:
+            py = os.path.join(base, "runtime", "pythonw.exe")
+            if not os.path.exists(py):
+                py = sys.executable
+            args = [py, os.path.join(base, "main.py")]
+        subprocess.Popen(args, cwd=base, close_fds=True,
+                         creationflags=DETACHED_PROCESS | CREATE_NO_WINDOW)
     except Exception:
         pass
     try:
