@@ -9,8 +9,29 @@ import re
 from dotenv import load_dotenv
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer, Qt
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QAction, QKeySequence
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QAction, QKeySequence, QFont
 import keyboard as kb
+
+# ── 高 DPI 感知（必须在创建任何窗口之前）──────────────────────────────
+# 不声明 DPI 感知时，系统缩放(125%/150%)会把窗口当位图拉伸 → 文字发虚。
+# 这里声明 Per-Monitor V2，让 Qt 按真实像素渲染，文字才清晰。
+def _set_dpi_aware():
+    try:
+        # PER_MONITOR_AWARE_V2 = -4
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PER_MONITOR_AWARE
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+_set_dpi_aware()
 
 # ── Qt WebEngine 预初始化（必须在 QApplication 创建前完成）──────────────
 # 游戏沙箱窗口用 QWebEngineView。Qt 要求其初始化早于 QApplication，否则
@@ -124,6 +145,10 @@ def main():
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    # 统一清晰的 UI 字体（微软雅黑 UI 在 Windows 上中英文都锐利）
+    _ui_font = QFont("Microsoft YaHei UI", 10)
+    _ui_font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
+    app.setFont(_ui_font)
     # 全局浅色主题：右键菜单、提示、滚动条、对话框等标准控件统一「精致白」
     app.setStyleSheet(theme.app_qss())
 

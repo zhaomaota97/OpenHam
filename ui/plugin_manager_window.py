@@ -36,39 +36,33 @@ def _win_force_foreground(hwnd: int):
 
 
 class ToggleSwitch(QPushButton):
-    """简易的滑动开关 UI"""
+    """iOS / mac 风格滑动开关：圆角轨道 + 白色滑块，开=绿，关=浅灰。"""
     def __init__(self, checked=True, parent=None):
         super().__init__(parent)
-        self.setFixedSize(40, 22)
+        self.setFixedSize(44, 26)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setCheckable(True)
         self.setChecked(checked)
-        self.toggled.connect(self._update_style)
-        self._update_style(self.isChecked())
+        self.setStyleSheet("QPushButton{border:none;background:transparent;}")
+        self.toggled.connect(lambda _=None: self.update())
 
-    def _update_style(self, checked):
-        if checked:
-            self.setStyleSheet("""
-                QPushButton {
-                    background-color: #1d1d1f;
-                    border-radius: 11px;
-                    color: #ffffff;
-                }
-            """)
-            self.setText("ON")
-        else:
-            self.setStyleSheet("""
-                QPushButton {
-                    background-color: #e5e5ea;
-                    border-radius: 11px;
-                    color: #6e6e73;
-                }
-            """)
-            self.setText("OFF")
-        f = self.font()
-        f.setPixelSize(10)
-        f.setBold(True)
-        self.setFont(f)
+    def paintEvent(self, _e):
+        from PyQt6.QtGui import QPainter, QColor
+        from PyQt6.QtCore import QRectF
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        on = self.isChecked()
+        r = self.rect()
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#30a46c") if on else QColor("#e3e3e6"))
+        p.drawRoundedRect(QRectF(r), r.height() / 2, r.height() / 2)
+        d = r.height() - 6
+        x = (r.width() - d - 3) if on else 3
+        p.setBrush(QColor(0, 0, 0, 26))
+        p.drawEllipse(QRectF(x, 4, d, d))         # 滑块投影
+        p.setBrush(QColor("#ffffff"))
+        p.drawEllipse(QRectF(x, 3, d, d))
+        p.end()
 
 from PyQt6.QtCore import QTimer
 
@@ -154,19 +148,20 @@ class TagInputWidget(QScrollArea):
         self.tags.append(text)
         
         tag_w = QWidget()
-        tag_w.setStyleSheet("background: #eef1f4; border-radius: 4px;")
+        tag_w.setStyleSheet("background: #f4f4f6; border: 1px solid #e6e6e9; border-radius: 7px;")
         t_layout = QHBoxLayout(tag_w)
-        t_layout.setContentsMargins(6, 2, 4, 2)
-        t_layout.setSpacing(4)
-        
+        t_layout.setContentsMargins(9, 3, 5, 3)
+        t_layout.setSpacing(5)
+
         lbl = QLabel(text)
-        lbl.setStyleSheet("color: #1d1d1f;")
-        
+        lbl.setStyleSheet("color: #1d1d1f; background: transparent; border: none; font-size: 12px;")
+
         close_btn = QPushButton()
-        close_btn.setIcon(icons.qicon("close", color="#c87a6a"))
-        close_btn.setFixedSize(14, 14)
+        close_btn.setIcon(icons.qicon("close", color="#a8a8ad"))
+        close_btn.setIconSize(QSize(9, 9))
+        close_btn.setFixedSize(16, 16)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet("QPushButton { color: #1d1d1f; background: transparent; border: none; font-weight: bold; font-size: 10px; } QPushButton:hover { color: #d70015; }")
+        close_btn.setStyleSheet("QPushButton { background: transparent; border: none; border-radius: 8px; } QPushButton:hover { background: #ffe8e6; }")
         close_btn.clicked.connect(lambda: self._remove_tag(text, tag_w))
         
         t_layout.addWidget(lbl)

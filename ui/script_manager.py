@@ -279,17 +279,7 @@ class ThemeInputDialog(QDialog):
         title_lay.setContentsMargins(0, 0, 0, 0)
         title_lay.setSpacing(8)
         
-        try:
-            from PyQt6.QtGui import QPixmap
-            import os
-            logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logo.png")
-            if os.path.exists(logo_path):
-                logo_lbl = QLabel()
-                pix = QPixmap(logo_path)
-                logo_lbl.setPixmap(pix.scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-                title_lay.addWidget(logo_lbl)
-        except Exception:
-            pass
+        # （移除标题旁的 logo 小图：在浅色主题下显脏，标题保持纯文字更干净）
 
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet("color: #1d1d1f; font-size: 15px; font-weight: bold;")
@@ -526,9 +516,11 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     # ── UI 构建 ────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        self._new_btn = self._icon_btn("＋", "#86868b", "新建脚本")
+        # 标题栏不再放「＋」按钮（新建入口移到列表页头部，更清晰）。
+        # 保留对象以兼容各处 show()/hide() 调用，但不加入任何布局（不可见）。
+        self._new_btn = self._icon_btn("", "#86868b", "新建脚本", icon="add")
         self._new_btn.clicked.connect(self._go_new)
-        self.header_tools_layout.addWidget(self._new_btn)
+        self._new_btn.hide()
 
         # ── 左右分栏 ────────────────────────────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -712,8 +704,24 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         page = QWidget()
         page.setStyleSheet("background: transparent;")
         vbox = QVBoxLayout(page)
-        vbox.setContentsMargins(14, 10, 14, 14)
-        vbox.setSpacing(6)
+        vbox.setContentsMargins(16, 14, 16, 16)
+        vbox.setSpacing(12)
+
+        # 头部：标题 + 始终可见的「新建脚本」按钮
+        head = QHBoxLayout(); head.setSpacing(8)
+        _h = QLabel("我的脚本")
+        _h.setStyleSheet("color:#1d1d1f;font-size:14px;font-weight:600;background:transparent;border:none;")
+        head.addWidget(_h); head.addStretch()
+        _nb = QPushButton(" 新建脚本")
+        _nb.setIcon(icons.qicon("add", color="#ffffff"))
+        _nb.setCursor(Qt.CursorShape.PointingHandCursor)
+        _nb.setStyleSheet(
+            "QPushButton{background:#1d1d1f;color:#fff;border:none;border-radius:9px;"
+            "padding:7px 14px;font-size:13px;font-weight:600;}"
+            "QPushButton:hover{background:#37373a;}")
+        _nb.clicked.connect(self._go_new)
+        head.addWidget(_nb)
+        vbox.addLayout(head)
 
         self._list_widget = QListWidget()
         self._list_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -745,9 +753,10 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         )
         vbox.addWidget(self._list_widget)
 
-        self._list_empty = QLabel("  暂无脚本，点击 ＋ 新建")
+        self._list_empty = QLabel("还没有脚本\n点右上角「新建脚本」开始")
+        self._list_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._list_empty.setStyleSheet(
-            "color: #86868b; font-size: 13px; padding: 20px 6px; "
+            "color: #a8a8ad; font-size: 13px; line-height: 1.8; "
             "background: transparent; border: none;"
         )
         self._list_empty.hide()
