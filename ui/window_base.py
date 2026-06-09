@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout,
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from utils.window_effects import disable_native_window_effects
+from ui import icons
 
 def _base_dir() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -121,7 +122,8 @@ class OpenHamWindowBase(QWidget):
         tb.addStretch()
 
         # 固定按钮
-        self.pin_btn = QPushButton("📍")
+        self.pin_btn = QPushButton()
+        self.pin_btn.setIcon(icons.qicon("pin", color="#9a8a6a"))
         self.pin_btn.setFixedSize(30, 30)
         self.pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.pin_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -177,7 +179,8 @@ class OpenHamWindowBase(QWidget):
         """零闪烁切换置顶：直接用 Win32 SetWindowPos，不重建窗口。"""
         self.is_pinned = not self.is_pinned
         _set_topmost_native(int(self.winId()), self.is_pinned)
-        self.pin_btn.setText("📌" if self.is_pinned else "📍")
+        self.pin_btn.setIcon(icons.qicon("pinned" if self.is_pinned else "pin",
+                                         color="#c2922e" if self.is_pinned else "#9a8a6a"))
 
     def hide_window(self):
         self.hide()

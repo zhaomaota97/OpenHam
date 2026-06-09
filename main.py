@@ -22,6 +22,7 @@ except Exception:
     _qtwe = None
 
 from ui import InputWindow, ScriptManagerOverlay
+from ui import icons
 from ui.plugin_manager_window import PluginManagerWindow
 from ui.settings_window import SettingsWindow
 from ui.tray import _make_tray_icon, _show_toast
@@ -180,15 +181,15 @@ def main():
     """)
     action_title = tray_menu.addAction("OpenHam 0.1.0")
     action_title.setEnabled(False)
-    action_show = tray_menu.addAction("打开主窗口")
+    action_show = tray_menu.addAction(icons.qicon("home"), "打开主窗口")
     action_show.setShortcut(QKeySequence(hotkey_label))
     action_show.setShortcutVisibleInContextMenu(True)
-    action_script_config = tray_menu.addAction("脚本配置")
-    action_plugin_config = tray_menu.addAction("插件管理")
-    action_settings = tray_menu.addAction("设置...")
-    action_update = tray_menu.addAction("检查更新")
+    action_script_config = tray_menu.addAction(icons.qicon("script"), "脚本配置")
+    action_plugin_config = tray_menu.addAction(icons.qicon("plugins"), "插件管理")
+    action_settings = tray_menu.addAction(icons.qicon("settings"), "设置...")
+    action_update = tray_menu.addAction(icons.qicon("refresh"), "检查更新")
     tray_menu.addSeparator()
-    action_quit = tray_menu.addAction("Exit")
+    action_quit = tray_menu.addAction(icons.qicon("quit"), "Exit")
     
     # 向插件注册底层能力
     plugin_api.register_handler("get_tray_menu", lambda: tray_menu)

@@ -8,6 +8,7 @@ import ctypes
 import os
 from core.script_engine import evaluate_expr, preview
 from utils.window_effects import disable_native_window_effects
+from ui import icons
 
 MAX_LENGTH = 200  # AI 模式下允许输入更长的内容
 _SHADOW    = 0           # 无阴影留边，窗口矩形 = 卡片本身
@@ -568,7 +569,7 @@ class InputWindow(QWidget):
         self.ai_label.setStyleSheet(
             f"color: {color}; font-size: 13px; line-height: 1.6;"
         )
-        self.ai_label.setText(text)
+        self.ai_label.setText(icons.richify(text))
         self._sync_ai_zone()
         self._refit()
         self.input.clear()
@@ -583,7 +584,7 @@ class InputWindow(QWidget):
         else:
             color = "#c05050"
         self.count_label.setStyleSheet(f"color: {color}; font-size: 12px;")
-        self.count_label.setText(result)
+        self.count_label.setText(icons.richify(result))
         self.result_label.setText("")
         self.input.clear()
         # 清空上次 AI 回答和 QR

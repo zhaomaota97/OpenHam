@@ -18,6 +18,7 @@ from PyQt6.QtWebEngineCore import QWebEngineScript
 from PyQt6.QtWebChannel import QWebChannel
 
 from ui.window_base import OpenHamWindowBase
+from ui import icons
 from core.logging_setup import get_logger
 
 log = get_logger("game")
@@ -87,7 +88,8 @@ class GameWindow(OpenHamWindowBase):
         self.content_layout.addWidget(self.view, 1)
 
         # 标题栏聊天开关 + 可折叠聊天面板（嵌在游戏窗口内）
-        self._chat_btn = QPushButton("💬")
+        self._chat_btn = QPushButton()
+        self._chat_btn.setIcon(icons.qicon("chat"))
         self._chat_btn.setFixedSize(30, 30)
         self._chat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._chat_btn.setStyleSheet(
@@ -132,7 +134,7 @@ class GameWindow(OpenHamWindowBase):
         self._chat_panel.setVisible(not self._chat_panel.isVisible())
         if self._chat_panel.isVisible():
             self._chat_input.setFocus()
-            self._chat_btn.setText("💬")
+            self._chat_btn.setIcon(icons.qicon("chat"))
 
     def _send_chat(self):
         text = self._chat_input.text().strip()
@@ -144,14 +146,15 @@ class GameWindow(OpenHamWindowBase):
 
     def add_chat(self, name: str, text: str, mine: bool = False):
         if name is None:
-            self._chat_log.append(f'<span style="color:#6f6a55;">— {text} —</span>')
+            self._chat_log.append(
+                f'<span style="color:#6f6a55;">— {icons.richify(text)} —</span>')
         else:
             color = "#c9b173" if mine else "#9fd0c0"
             self._chat_log.append(
                 f'<span style="color:{color};font-weight:bold;">{name}</span>'
                 f'<span style="color:#d8cfb8;">：{text}</span>')
         if not self._chat_panel.isVisible():
-            self._chat_btn.setText("🔴")
+            self._chat_btn.setIcon(icons.qicon("offline"))
 
     def load_game(self, entry_path: str, self_id: str, is_host: bool,
                   name: str = "游戏", player_name: str = "玩家"):

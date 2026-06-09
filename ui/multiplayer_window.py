@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from ui.window_base import OpenHamWindowBase
+from ui import icons
 from core.relay_client import RelayClient
 from core import app_config, meow_code, game_package, game_transfer
 from core.game_package import GamePackageError
@@ -79,10 +80,12 @@ class MultiplayerWindow(OpenHamWindowBase):
         action = QHBoxLayout(); action.setSpacing(8)
         self.create_btn = QPushButton("建房")
         self.create_btn.setObjectName("primary")
+        self.create_btn.setIcon(icons.qicon("host", color="#1c1a14"))
         self.create_btn.clicked.connect(self._on_create)
         self.meow_input = QLineEdit()
         self.meow_input.setPlaceholderText("粘贴房间口令")
         self.join_btn = QPushButton("进房")
+        self.join_btn.setIcon(icons.qicon("enter"))
         self.join_btn.clicked.connect(self._on_join)
         action.addWidget(self.create_btn)
         action.addWidget(self.meow_input, 1)
@@ -95,9 +98,11 @@ class MultiplayerWindow(OpenHamWindowBase):
         self.status_lbl.setObjectName("status")
         self.status_lbl.setWordWrap(True)
         self.copy_btn = QPushButton("复制")
+        self.copy_btn.setIcon(icons.qicon("copy"))
         self.copy_btn.clicked.connect(self._copy_meow)
         self.copy_btn.hide()
         self.lib_btn = QPushButton("加载游戏")
+        self.lib_btn.setIcon(icons.qicon("game"))
         self.lib_btn.clicked.connect(self._open_library)
         status.addWidget(self.status_lbl, 1)
         status.addWidget(self.lib_btn)
@@ -124,6 +129,7 @@ class MultiplayerWindow(OpenHamWindowBase):
         self.msg_input.returnPressed.connect(self._on_send)
         self.send_btn = QPushButton("发送")
         self.send_btn.setObjectName("primary")
+        self.send_btn.setIcon(icons.qicon("send", color="#1c1a14"))
         self.send_btn.clicked.connect(self._on_send)
         bottom.addWidget(self.msg_input, 1)
         bottom.addWidget(self.send_btn)
@@ -342,7 +348,7 @@ class MultiplayerWindow(OpenHamWindowBase):
             return
         self._invent_chars = 0
         self._system("✨ AI 正在发明游戏…")
-        self.status_lbl.setText("✨ AI 发明游戏中… 已生成 0 字")
+        self.status_lbl.setText(icons.richify("✨ AI 发明游戏中… 已生成 0 字"))
         self.lib_btn.setEnabled(False)
         threading.Thread(target=self._invent_worker, args=(req,), daemon=True).start()
 
@@ -404,14 +410,14 @@ class MultiplayerWindow(OpenHamWindowBase):
             return
         self._invent_chars = 0
         self._system("✨ AI 正在修改游戏…")
-        self.status_lbl.setText("✨ AI 修改游戏中… 已生成 0 字")
+        self.status_lbl.setText(icons.richify("✨ AI 修改游戏中… 已生成 0 字"))
         self.lib_btn.setEnabled(False)
         threading.Thread(target=self._invent_worker, args=(req, base_html, folder), daemon=True).start()
 
     def _on_invent_chunk(self, piece: str):
         # 用户不关心 AI 具体输出，只显示字符数计数，让其有进展感
         self._invent_chars += len(piece)
-        self.status_lbl.setText(f"✨ AI 发明游戏中… 已生成 {self._invent_chars} 字")
+        self.status_lbl.setText(icons.richify(f"✨ AI 发明游戏中… 已生成 {self._invent_chars} 字"))
 
     def _on_invent_done(self, result: dict):
         self.lib_btn.setEnabled(True)
@@ -615,6 +621,7 @@ class MultiplayerWindow(OpenHamWindowBase):
         )
 
     def _system(self, text: str):
+        text = icons.richify(text)
         self.chat_log.append(f'<span style="color:#6f6a55;">— {text} —</span>')
         if self._game_win is not None:
             self._game_win.add_chat(None, text)
@@ -644,7 +651,7 @@ class MultiplayerWindow(OpenHamWindowBase):
         if self._room_state:
             parts.append(self._room_state)
         parts.append(f"口令 {self._room_meow}")
-        self.status_lbl.setText("　·　".join(parts))
+        self.status_lbl.setText(icons.richify("　·　".join(parts)))
 
     # ── 生命周期 ───────────────────────────────────────────────────────
 

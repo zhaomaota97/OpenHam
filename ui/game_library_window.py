@@ -1,11 +1,12 @@
 """游戏库窗口：管理自己的游戏（AI 发明的 + 导入的），一键发布到房间。"""
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem, QPushButton,
     QLabel, QFileDialog, QMessageBox,
 )
 from PyQt6.QtCore import Qt
 
 from ui.window_base import OpenHamWindowBase
+from ui import icons
 from core import game_library
 from core.game_package import GamePackageError
 
@@ -28,10 +29,12 @@ class GameLibraryWindow(OpenHamWindowBase):
         v.setSpacing(10)
 
         top = QHBoxLayout(); top.setSpacing(8)
-        invent = QPushButton("✨ 发明新游戏")
+        invent = QPushButton("发明新游戏")
         invent.setObjectName("ai")
+        invent.setIcon(icons.qicon("ai"))
         invent.clicked.connect(self._invent)
-        imp = QPushButton("📁 导入游戏")
+        imp = QPushButton("导入游戏")
+        imp.setIcon(icons.qicon("import"))
         imp.clicked.connect(self._import)
         top.addWidget(invent)
         top.addWidget(imp)
@@ -49,13 +52,16 @@ class GameLibraryWindow(OpenHamWindowBase):
         v.addWidget(self.list, 1)
 
         bot = QHBoxLayout(); bot.setSpacing(8)
-        pub = QPushButton("🚀 发布到房间")
+        pub = QPushButton("发布到房间")
         pub.setObjectName("primary")
+        pub.setIcon(icons.qicon("publish", color="#1c1a14"))
         pub.clicked.connect(self._publish)
-        modify = QPushButton("✨ AI 修改")
+        modify = QPushButton("AI 修改")
         modify.setObjectName("ai")
+        modify.setIcon(icons.qicon("ai"))
         modify.clicked.connect(self._modify)
-        dele = QPushButton("🗑 删除")
+        dele = QPushButton("删除")
+        dele.setIcon(icons.qicon("delete"))
         dele.clicked.connect(self._delete)
         bot.addWidget(pub, 1)
         bot.addWidget(modify)
@@ -68,12 +74,12 @@ class GameLibraryWindow(OpenHamWindowBase):
         self.list.clear()
         self._games = game_library.list_games()
         for g in self._games:
-            self.list.addItem("🎮  " + g["name"])
+            self.list.addItem(QListWidgetItem(icons.qicon("game"), g["name"]))
         if self._games:
             self.list.setCurrentRow(0)
             self.hint.setText("选一个游戏 → 发布到房间（双击也行）。")
         else:
-            self.hint.setText("还没有游戏。点「✨ 发明新游戏」让 AI 现做一个，或「📁 导入游戏」。")
+            self.hint.setText("还没有游戏。点「发明新游戏」让 AI 现做一个，或「导入游戏」。")
 
     def _selected(self):
         i = self.list.currentRow()
@@ -102,9 +108,9 @@ class GameLibraryWindow(OpenHamWindowBase):
         try:
             game_library.import_folder(folder)
             self._refresh()
-            self.hint.setText("✅ 导入成功。")
+            self.hint.setText(icons.richify("✅ 导入成功。"))
         except GamePackageError as e:
-            self.hint.setText(f"⚠️ 导入失败：{e}")
+            self.hint.setText(icons.richify(f"⚠️ 导入失败：{e}"))
 
     def _invent(self):
         self.hide_window()
