@@ -641,7 +641,7 @@ class InputWindow(QWidget):
         self.clear_file_results()
         self.clear_app_results()
         self.ai_label.setStyleSheet(
-            "color: #c8c0a8; font-family: Consolas, 'Courier New', monospace; "
+            f"color: {theme.TEXT}; font-family: Consolas, 'Courier New', monospace; "
             "font-size: 12px; line-height: 1.8;"
         )
         rich = icons.richify(text)

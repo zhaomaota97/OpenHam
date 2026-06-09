@@ -691,7 +691,7 @@ class MultiplayerWindow(OpenHamWindowBase):
                 font-size: 13px;
             }}
             QListWidget#members {{
-                background: {theme.SUBTLE}; color: {theme.TEXT};
+                background: {theme.SURFACE}; color: {theme.TEXT};
                 border: 1px solid {theme.BORDER}; border-radius: 10px; padding: 4px;
                 font-size: 13px;
             }}

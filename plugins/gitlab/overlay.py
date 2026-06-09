@@ -237,7 +237,7 @@ class _BranchMultiSelect(QWidget):
         x.setFlat(True)
         x.setStyleSheet(
             "QPushButton{color:#86868b;background:transparent;border:none;"
-            "font-size:12px;padding:0;} QPushButton:hover{color:#ff9500;}"
+            "font-size:12px;padding:0;} QPushButton:hover{color:#b25000;}"
         )
         x.clicked.connect(lambda checked, b=branch: self._remove_tag(b))
         h.addWidget(x)
@@ -379,7 +379,7 @@ class GitLabOverlay(QWidget):
                 background: transparent; color: #86868b;
                 font-size: 16px; border: none; border-radius: 4px;
             }
-            QPushButton:hover { background: #ff3b30; color: #fff; }
+            QPushButton:hover { background: #d70015; color: #fff; }
         """)
         close_btn.clicked.connect(self.hide)
 
@@ -494,7 +494,7 @@ class GitLabOverlay(QWidget):
 
         self._fetch_status = QLabel("")
         self._fetch_status.setStyleSheet(
-            "color: #ff3b30; font-size: 12px; background: transparent; border: none; padding: 2px;"
+            "color: #d70015; font-size: 12px; background: transparent; border: none; padding: 2px;"
         )
         self._fetch_status.hide()
         ep.addWidget(self._fetch_status)
@@ -506,12 +506,12 @@ class GitLabOverlay(QWidget):
         self._add_btn.setEnabled(False)
         self._add_btn.setStyleSheet("""
             QPushButton {
-                background: #e9f9ee; color: #50a850;
+                background: #e9f9ee; color: #248a3d;
                 font-size: 13px; border: 1px solid #b7ebc6;
                 border-radius: 5px; padding: 6px;
             }
             QPushButton:hover:enabled { background: #b7ebc6; }
-            QPushButton:disabled { color: #2f9a64; border-color: #e9f9ee; }
+            QPushButton:disabled { color: #1f7a4d; border-color: #e9f9ee; }
         """)
         self._add_btn.clicked.connect(self._on_add_clicked)
         self._add_btn.hide()
@@ -594,8 +594,8 @@ class GitLabOverlay(QWidget):
     @staticmethod
     def _toggle_ss(on: bool) -> str:
         if on:
-            return ("QPushButton { background: #e9f9ee; color: #50c870; "
-                    "border: 1px solid #34c759; border-radius: 5px; "
+            return ("QPushButton { background: #e9f9ee; color: #248a3d; "
+                    "border: 1px solid #248a3d; border-radius: 5px; "
                     "font-size: 11px; font-weight: bold; padding: 4px; }")
         return ("QPushButton { background: #f5f5f7; color: #86868b; "
                 "border: 1px solid #d2d2d7; border-radius: 5px; "
@@ -642,7 +642,7 @@ class GitLabOverlay(QWidget):
             if error:
                 err = QLabel(icons.richify(f"  ⚠  {error}"))
                 err.setStyleSheet(
-                    "color: #ff3b30; font-size: 13px; padding: 4px 6px;"
+                    "color: #d70015; font-size: 13px; padding: 4px 6px;"
                     " background: transparent; border: none;"
                 )
                 self._view_layout.insertWidget(self._view_layout.count() - 1, err)
@@ -710,7 +710,7 @@ class GitLabOverlay(QWidget):
             tbl.setItem(row, 0, bi)
             if bd.get("error"):
                 ei = QTableWidgetItem(icons.qicon("warn"), "  " + icons.strip(str(bd['error'])))
-                ei.setForeground(QColor("#ff3b30"))
+                ei.setForeground(QColor("#d70015"))
                 tbl.setItem(row, 1, ei)
                 tbl.setSpan(row, 1, 1, 4)
             else:
@@ -864,7 +864,7 @@ class GitLabOverlay(QWidget):
         x_btn.setStyleSheet("""
             QPushButton { color: #86868b; background: transparent;
                 font-size: 12px; border: none; padding: 0; }
-            QPushButton:hover { color: #ff3b30; }
+            QPushButton:hover { color: #d70015; }
         """)
         x_btn.clicked.connect(
             lambda checked, removed=branch: self.repo_add_requested.emit(

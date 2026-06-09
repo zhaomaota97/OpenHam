@@ -1041,14 +1041,14 @@ class SettingsWindow(OpenHamWindowBase):
     def _secondary_button_style(self) -> str:
         return (
             "QPushButton {"
-            " background: #f5f5f7;"
+            " background: #ffffff;"
             " color: #1d1d1f;"
-            " border: 1px solid #e5e5ea;"
-            " border-radius: 6px;"
+            " border: 1px solid #d2d2d7;"
+            " border-radius: 8px;"
             " padding: 8px 14px;"
             " font-size: 13px;"
             "}"
-            "QPushButton:hover { background: #f0f0f3; }"
+            "QPushButton:hover { background: #f5f5f7; }"
             "QPushButton:disabled { color: #86868b; border-color: #e5e5ea; }"
         )
 

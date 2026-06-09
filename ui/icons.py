@@ -18,9 +18,9 @@ import tempfile
 GOLD = "#86868b"    # （沿用旧名）现为中性灰，作多数图标默认色
 TEXT = "#1d1d1f"
 MUTED = "#86868b"
-GREEN = "#34c759"
-RED = "#ff3b30"
-AMBER = "#ff9500"
+GREEN = "#248a3d"
+RED = "#d70015"
+AMBER = "#b25000"
 PURPLE = "#5e5ce6"
 ACCENT = "#0071e3"
 

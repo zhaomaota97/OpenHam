@@ -52,6 +52,7 @@ class ToggleSwitch(QPushButton):
                 QPushButton {
                     background-color: #0071e3;
                     border-radius: 11px;
+                    color: #ffffff;
                 }
             """)
             self.setText("ON")
@@ -60,7 +61,7 @@ class ToggleSwitch(QPushButton):
                 QPushButton {
                     background-color: #e5e5ea;
                     border-radius: 11px;
-                    color: #b0b0b5;
+                    color: #6e6e73;
                 }
             """)
             self.setText("OFF")
@@ -165,7 +166,7 @@ class TagInputWidget(QScrollArea):
         close_btn.setIcon(icons.qicon("close", color="#c87a6a"))
         close_btn.setFixedSize(14, 14)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet("QPushButton { color: #1d1d1f; background: transparent; border: none; font-weight: bold; font-size: 10px; } QPushButton:hover { color: #ff3b30; }")
+        close_btn.setStyleSheet("QPushButton { color: #1d1d1f; background: transparent; border: none; font-weight: bold; font-size: 10px; } QPushButton:hover { color: #d70015; }")
         close_btn.clicked.connect(lambda: self._remove_tag(text, tag_w))
         
         t_layout.addWidget(lbl)
@@ -186,7 +187,7 @@ class TagInputWidget(QScrollArea):
         conflict_owner = _check_conflict(t, self.plugin_id)
         if conflict_owner:
             self.input_box.clear()
-            self.setStyleSheet("QScrollArea { border: 1px solid #ff3b30; border-radius: 4px; background: #ffffff; }")
+            self.setStyleSheet("QScrollArea { border: 1px solid #d70015; border-radius: 4px; background: #ffffff; }")
             QTimer.singleShot(800, lambda: self.setStyleSheet("QScrollArea { border: 1px solid #e5e5ea; border-radius: 4px; background: #ffffff; }"))
             
             from PyQt6.QtWidgets import QToolTip
@@ -359,13 +360,13 @@ class PluginManagerWindow(OpenHamWindowBase):
                 outline: none;
             }
             QListWidget::item {
-                background: #f7f7f9;
-                border: 1px solid #ececef;
+                background: #ffffff;
+                border: 1px solid #e8e8ed;
                 border-radius: 10px;
                 margin-bottom: 8px;
             }
             QListWidget::item:hover {
-                background: #f0f0f3;
+                background: #f5f5f7;
             }
             QScrollBar:vertical {
                 border: none;

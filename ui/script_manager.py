@@ -179,7 +179,7 @@ class ScriptEditor(QTextEdit):
 from PyQt6.QtWidgets import QDialog
 
 class ThemeConfirmDialog(QDialog):
-    def __init__(self, parent, title: str, text: str, ok_text: str = "确认删除", ok_color: str = "#ff3b30"):
+    def __init__(self, parent, title: str, text: str, ok_text: str = "确认删除", ok_color: str = "#d70015"):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog |
             Qt.WindowType.NoDropShadowWindowHint
@@ -236,7 +236,7 @@ class ThemeConfirmDialog(QDialog):
         ok_b.setStyleSheet(f"""
             QPushButton {{ background: #ffeceb; color: {ok_color};
                 border: 1px solid #ffd4d1; border-radius: 6px; font-size: 12px; padding: 0 12px; }}
-            QPushButton:hover {{ background: #ffd4d1; border-color: #ff3b30; }}
+            QPushButton:hover {{ background: #ffd4d1; border-color: #d70015; }}
         """)
         ok_b.clicked.connect(self.accept)
         
@@ -407,10 +407,10 @@ class _RunTabWidget(QWidget):
         self.stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.stop_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.stop_btn.setStyleSheet("""
-            QPushButton { background: #ffeceb; color: #ff3b30;
+            QPushButton { background: #ffeceb; color: #d70015;
                 border: 1px solid #ffd4d1; border-radius: 4px;
                 font-size: 12px; padding: 4px 10px; }
-            QPushButton:hover { background: #ffd4d1; border-color: #ff3b30; }
+            QPushButton:hover { background: #ffd4d1; border-color: #d70015; }
         """)
         self.stop_btn.clicked.connect(self.cancel)
         bottom.addWidget(self.stop_btn)
@@ -423,7 +423,7 @@ class _RunTabWidget(QWidget):
             QPushButton { background: #fff3e0; color: #b5701a;
                 border: 1px solid #ffd9a8; border-radius: 4px;
                 font-size: 12px; padding: 4px 10px; }
-            QPushButton:hover { background: #ffd9a8; border-color: #ff9500; }
+            QPushButton:hover { background: #ffd9a8; border-color: #b25000; }
         """)
         self.ai_fix_btn.clicked.connect(self._trigger_ai_fix)
         self.ai_fix_btn.hide()
@@ -433,10 +433,10 @@ class _RunTabWidget(QWidget):
         self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.close_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.close_btn.setStyleSheet("""
-            QPushButton { background: #f0f0f3; color: #ccc;
-                border: 1px solid #e5e5ea; border-radius: 4px;
-                font-size: 12px; padding: 4px 10px; }
-            QPushButton:hover { background: #e5e5ea; border-color: #d2d2d7; }
+            QPushButton { background: #ffffff; color: #1d1d1f;
+                border: 1px solid #d2d2d7; border-radius: 8px;
+                font-size: 12px; padding: 4px 12px; }
+            QPushButton:hover { background: #f5f5f7; }
         """)
         self.close_btn.clicked.connect(self.close_requested.emit)
         bottom.addWidget(self.close_btn)
@@ -455,13 +455,13 @@ class _RunTabWidget(QWidget):
         if success:
             self.status_lbl.setText(icons.richify("✅  执行成功"))
             self.status_lbl.setStyleSheet(
-                "color: #34c759; font-size: 13px; font-weight: bold; "
+                "color: #248a3d; font-size: 13px; font-weight: bold; "
                 "background: transparent; border: none;"
             )
         else:
             self.status_lbl.setText(icons.richify("❌  执行失败"))
             self.status_lbl.setStyleSheet(
-                "color: #ff3b30; font-size: 13px; font-weight: bold; "
+                "color: #d70015; font-size: 13px; font-weight: bold; "
                 "background: transparent; border: none;"
             )
             if not self.is_cancelled:
@@ -596,7 +596,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         lbl = QLabel(icons.richify("点击左侧脚本的  ▶ 运行  按钮\n即可在此查看实时执行日志\n\n可同时运行多个脚本，各自独立显示").replace("\n", "<br>"))
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl.setStyleSheet(
-            "color: #f7f3ea; font-size: 14px; line-height: 2; "
+            "color: #86868b; font-size: 14px; line-height: 2; "
             "background: transparent; border: none;"
         )
         lay.addWidget(lbl)
@@ -624,7 +624,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setStyleSheet("""
             QPushButton { background: transparent; border: none; color: #86868b; font-weight: bold; font-family: Arial; font-size: 15px; margin-bottom: 2px; }
-            QPushButton:hover { color: #ff3b30; }
+            QPushButton:hover { color: #d70015; }
         """)
         btn.clicked.connect(lambda _=False, t=tab: self._close_run_tab_by_widget(t))
         self._tab_widget.tabBar().setTabButton(idx, self._tab_widget.tabBar().ButtonPosition.RightSide, btn)
@@ -765,7 +765,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
         # 顶部导航行
         header = QHBoxLayout()
-        self._back_btn = self._icon_btn("", "#34c759", "返回列表", icon="back")
+        self._back_btn = self._icon_btn("", "#248a3d", "返回列表", icon="back")
         self._back_btn.clicked.connect(self._go_list)
         header.addWidget(self._back_btn)
         header.addStretch()
@@ -874,10 +874,10 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         btn_row.addWidget(self._save_btn)
 
         self._run_btn = QPushButton("运行")
-        self._run_btn.setIcon(icons.qicon("play", color="#34c759"))
+        self._run_btn.setIcon(icons.qicon("play", color="#248a3d"))
         self._run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._run_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._run_btn.setStyleSheet(self._action_btn_ss("#34c759", "#e9f9ee", "#b7ebc6"))
+        self._run_btn.setStyleSheet(self._action_btn_ss("#248a3d", "#e9f9ee", "#b7ebc6"))
         self._run_btn.clicked.connect(self._run_current)
         btn_row.addWidget(self._run_btn)
 
@@ -885,7 +885,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._del_btn.setIcon(icons.qicon("delete"))
         self._del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._del_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._del_btn.setStyleSheet(self._action_btn_ss("#ff3b30", "#ffeceb", "#ffd4d1"))
+        self._del_btn.setStyleSheet(self._action_btn_ss("#d70015", "#ffeceb", "#ffd4d1"))
         self._del_btn.clicked.connect(self._confirm_delete_current)
         btn_row.addWidget(self._del_btn)
 
@@ -895,7 +895,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         # 状态提示
         self._edit_status = QLabel("")
         self._edit_status.setStyleSheet(
-            "color: #34c759; font-size: 12px; background: transparent; border: none;"
+            "color: #248a3d; font-size: 12px; background: transparent; border: none;"
         )
         vbox.addWidget(self._edit_status)
         vbox.addStretch()
@@ -924,9 +924,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._stop_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._stop_btn.setStyleSheet("""
-            QPushButton { background: #ffeceb; color: #ff3b30;
+            QPushButton { background: #ffeceb; color: #d70015;
                 border: 1px solid #ffd4d1; border-radius: 4px; font-size: 12px; padding: 4px 10px; }
-            QPushButton:hover { background: #ffd4d1; border-color: #ff3b30; }
+            QPushButton:hover { background: #ffd4d1; border-color: #d70015; }
         """)
         self._stop_btn.clicked.connect(self._cancel_run)
         self._stop_btn.hide()
@@ -1065,7 +1065,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         api_key = app_config.get_api_key()
         if not api_key:
             self._edit_status.setText(icons.richify("❌ 未配置 API Key：请在「设置 → AI 模型」中填写"))
-            self._edit_status.setStyleSheet("color: #ff3b30;")
+            self._edit_status.setStyleSheet("color: #d70015;")
             return
             
         is_edit = bool(self._back_btn.isVisible() and self._script_edit.toPlainText().strip())
@@ -1176,14 +1176,14 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._script_edit.setPlainText(str(data.get("commands", "")))
         
         self._edit_status.setText(icons.richify("✅ AI 脚本已生成完毕（请检查并保存）"))
-        self._edit_status.setStyleSheet("color: #34c759;")
+        self._edit_status.setStyleSheet("color: #248a3d;")
 
     def _on_ai_gen_error(self, err: str):
         self._ai_gen_btn.setEnabled(True)
         is_edit = bool(self._back_btn.isVisible() and self._script_edit.toPlainText().strip())
         self._ai_gen_btn.setText("AI助手修改脚本" if is_edit else "描述需求生成脚本")
         self._edit_status.setText(icons.richify(f"❌ 生成失败: {err}"))
-        self._edit_status.setStyleSheet("color: #ff3b30;")
+        self._edit_status.setStyleSheet("color: #d70015;")
 
     def _cleanup_orphaned_scripts(self, scripts: list):
         """清理 workspace 目录下没有被确保存档的游离脚本"""
@@ -1215,7 +1215,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
         # 头部
         header = QHBoxLayout()
-        self._hist_back_btn = self._icon_btn("", "#34c759", "返回编辑", icon="back")
+        self._hist_back_btn = self._icon_btn("", "#248a3d", "返回编辑", icon="back")
         self._hist_back_btn.clicked.connect(lambda: self._left_stack.setCurrentIndex(1))
         header.addWidget(self._hist_back_btn)
         
@@ -1228,9 +1228,9 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._hist_recall_btn.setIcon(icons.qicon("enter"))
         self._hist_recall_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._hist_recall_btn.setStyleSheet("""
-            QPushButton { background: #e9f9ee; color: #34c759;
+            QPushButton { background: #e9f9ee; color: #248a3d;
                 border: 1px solid #b7ebc6; border-radius: 4px; font-weight: bold; font-size: 13px; padding: 4px 10px; }
-            QPushButton:hover { background: #b7ebc6; border-color: #34c759; }
+            QPushButton:hover { background: #b7ebc6; border-color: #248a3d; }
         """)
         self._hist_recall_btn.clicked.connect(self._recall_history_record)
         header.addWidget(self._hist_recall_btn)
@@ -1291,7 +1291,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._script_edit.setPlainText(d.get("commands", ""))
         
         self._edit_status.setText(icons.richify("✅ 已召回所选历史草稿"))
-        self._edit_status.setStyleSheet("color: #34c759;")
+        self._edit_status.setStyleSheet("color: #248a3d;")
         self._left_stack.setCurrentIndex(1)
 
 
@@ -1360,7 +1360,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
         # 运行按钮
         run_b = QPushButton()
-        run_b.setIcon(icons.qicon("play", color="#34c759"))
+        run_b.setIcon(icons.qicon("play", color="#248a3d"))
         run_b.setToolTip("运行脚本")
         run_b.setFixedSize(28, 28)
         run_b.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1487,7 +1487,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             self.run_finished.emit(run_tab, success)
 
         if not content:
-            _log("(没有内容)", "#ff3b30")
+            _log("(没有内容)", "#d70015")
             _done(False)
             return
 
@@ -1515,20 +1515,20 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                                 break
                         run_tab.proc.wait()
                         if run_tab.is_cancelled:
-                            _log(f"⚠️ 已中止。完成 {i-1} / {total} 步", "#ff3b30")
+                            _log(f"⚠️ 已中止。完成 {i-1} / {total} 步", "#d70015")
                             _done(False)
                             return
                         if run_tab.proc.returncode != 0:
-                            _log(f"❌ 步骤 {i} 失败（退出码 {run_tab.proc.returncode}）", "#ff3b30")
+                            _log(f"❌ 步骤 {i} 失败（退出码 {run_tab.proc.returncode}）", "#d70015")
                             _log(f"ℹ️  已完成 {i-1} / {total} 步", "#86868b")
                             _done(False)
                             return
-                        _log(f"✅ 步骤 {i} 完成", "#34c759")
+                        _log(f"✅ 步骤 {i} 完成", "#248a3d")
                     except Exception as e:
-                        _log(f"❌ 步骤 {i} 异常：{e}", "#ff3b30")
+                        _log(f"❌ 步骤 {i} 异常：{e}", "#d70015")
                         _done(False)
                         return
-                _log(f"\n🎉 全部 {total} 步执行完毕！", "#34c759")
+                _log(f"\n🎉 全部 {total} 步执行完毕！", "#248a3d")
                 _done(True)
 
             t = _threading.Thread(target=_worker_shell, daemon=True)
@@ -1563,7 +1563,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                     with open(tmp_path, "w", encoding="utf-8") as tf:
                         tf.write(body)
                 except Exception as e:
-                    _log(f"❌ 写脚本文件失败：{e}", "#ff3b30")
+                    _log(f"❌ 写脚本文件失败：{e}", "#d70015")
                     _done(False)
                     return
 
@@ -1603,17 +1603,17 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                             break
                     run_tab.proc.wait()
                     if run_tab.is_cancelled:
-                        _log("⚠️ 已手动终止运行", "#ff3b30")
+                        _log("⚠️ 已手动终止运行", "#d70015")
                         _done(False)
                         return
                     if run_tab.proc.returncode != 0:
-                        _log(f"❌ 执行失败（退出码 {run_tab.proc.returncode}）", "#ff3b30")
+                        _log(f"❌ 执行失败（退出码 {run_tab.proc.returncode}）", "#d70015")
                         _done(False)
                     else:
-                        _log("\n🎉 执行完毕！", "#34c759")
+                        _log("\n🎉 执行完毕！", "#248a3d")
                         _done(True)
                 except Exception as e:
-                    _log(f"❌ 运行异常：{e}", "#ff3b30")
+                    _log(f"❌ 运行异常：{e}", "#d70015")
                     _done(False)
 
             t = _threading.Thread(target=_worker_file, daemon=True)
@@ -1624,10 +1624,10 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         import html, re
         # 定制化 ANSI 颜色板：抛弃刺眼的终端标准色，改为贴合 OpenHam 主题的暖暗金/复古色系
         C = {
-            "30":"#ffffff", "31":"#ff3b30", "32":"#34c759", "33":"#0071e3", 
+            "30":"#ffffff", "31":"#d70015", "32":"#248a3d", "33":"#0071e3", 
             "34":"#3a6db5", "35":"#9a4a8a", "36":"#2a8a72", "37":"#1d1d1f",
-            "90":"#86868b", "91":"#d0382e", "92":"#34c759", "93":"#9a7410", 
-            "94":"#3a6db5", "95":"#a64d96", "96":"#2f9a64", "97":"#ffffff"
+            "90":"#86868b", "91":"#d0382e", "92":"#248a3d", "93":"#9a7410", 
+            "94":"#3a6db5", "95":"#a64d96", "96":"#1f7a4d", "97":"#ffffff"
         }
         B = {
             "40":"#ffffff", "41":"#fbeeee", "42":"#eef8f1", "43":"#86868b", 
@@ -1710,7 +1710,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     def _show_edit_status(self, msg: str, error: bool = False):
         self._edit_status.setText(icons.richify(msg))
         self._edit_status.setStyleSheet(
-            f"color: {'#ff3b30' if error else '#34c759'}; "
+            f"color: {'#d70015' if error else '#248a3d'}; "
             "font-size: 12px; background: transparent; border: none;"
         )
         QTimer.singleShot(2500, lambda: self._edit_status.setText(""))
@@ -1769,15 +1769,15 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     def _type_btn_ss(active: bool) -> str:
         if active:
             return (
-                "QPushButton { background: #ececef; color: #0071e3; "
-                "border: 1px solid #0071e3; border-radius: 5px; "
-                "font-size: 12px; padding: 4px 10px; }"
+                "QPushButton { background: #eaf2fd; color: #0071e3; "
+                "border: 1px solid #0071e3; border-radius: 8px; "
+                "font-size: 12px; padding: 5px 12px; font-weight: 600; }"
             )
         return (
-            "QPushButton { background: #f5f5f7; color: #86868b; "
-            "border: 1px solid #f0f0f3; border-radius: 5px; "
-            "font-size: 12px; padding: 4px 10px; }"
-            "QPushButton:hover { color: #86868b; border-color: #ececef; }"
+            "QPushButton { background: #ffffff; color: #86868b; "
+            "border: 1px solid #d2d2d7; border-radius: 8px; "
+            "font-size: 12px; padding: 5px 12px; }"
+            "QPushButton:hover { background: #f5f5f7; }"
         )
 
     _PLACEHOLDERS = {
