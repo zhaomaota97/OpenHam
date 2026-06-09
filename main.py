@@ -91,10 +91,29 @@ def _format_hotkey_label(hotkey: str) -> str:
     return "+".join(pretty)
 
 
+def _ensure_qtawesome():
+    """图标库必须就绪：缺失则当场从镜像装上（约 3MB，很快），保证图标可见。
+    增量更新的依赖同步偶尔会失败，这里作为兜底，避免界面图标全空。"""
+    import importlib.util
+    if importlib.util.find_spec("qtawesome") is not None:
+        return
+    try:
+        import subprocess
+        log.info("检测到缺少 qtawesome，正在安装…")
+        flags = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
+        subprocess.run([sys.executable, "-m", "pip", "install", "qtawesome"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       creationflags=flags, timeout=180)
+        importlib.invalidate_caches()
+    except Exception as e:
+        log.warning("自动安装 qtawesome 失败：%s（图标将降级显示）", e)
+
+
 def main():
     setup_logging()
     log.info("OpenHam 启动")
     _mutex = _ensure_single_instance()
+    _ensure_qtawesome()
 
     config = load_config()
     hotkey_str = config.get("hotkey", "<alt>+<space>")
