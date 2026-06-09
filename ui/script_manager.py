@@ -393,13 +393,15 @@ class _RunTabWidget(QWidget):
         )
         bottom.addWidget(self.status_lbl, 1)
 
-        self.stop_btn = QPushButton("⏹ 停止")
+        self.stop_btn = QPushButton(" 停止")
+        self.stop_btn.setIcon(icons.qicon("stop", color="#d70015"))
+        self.stop_btn.setIconSize(QSize(10, 10))
         self.stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.stop_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.stop_btn.setStyleSheet("""
             QPushButton { background: #ffeceb; color: #d70015;
-                border: 1px solid #ffd4d1; border-radius: 4px;
-                font-size: 12px; padding: 4px 10px; }
+                border: 1px solid #ffd4d1; border-radius: 8px;
+                font-size: 12px; padding: 5px 12px; }
             QPushButton:hover { background: #ffd4d1; border-color: #d70015; }
         """)
         self.stop_btn.clicked.connect(self.cancel)
@@ -516,11 +518,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
     # ── UI 构建 ────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        # 标题栏不再放「＋」按钮（新建入口移到列表页头部，更清晰）。
-        # 保留对象以兼容各处 show()/hide() 调用，但不加入任何布局（不可见）。
-        self._new_btn = self._icon_btn("", "#86868b", "新建脚本", icon="add")
-        self._new_btn.clicked.connect(self._go_new)
-        self._new_btn.hide()
+        # 新建入口在列表页头部的「新建脚本」按钮，标题栏不再放按钮。
 
         # ── 左右分栏 ────────────────────────────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -545,16 +543,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._tab_widget = QTabWidget()
         self._tab_widget.setTabsClosable(True)
         self._tab_widget.setMovable(True)
-        # 渲染清晰的关闭图标（常态灰 / 悬停红），避免透明标签下默认 × 不可见
-        def _u(p):
-            return p.replace("\\", "/") if p else ""
-        _x = _u(icons._png_path("close", "#8a8a90", 11))
-        _xh = _u(icons._png_path("close", "#d70015", 11))
-        _close_css = (
-            f"QTabBar::close-button {{ image: url('{_x}'); subcontrol-position: right;"
-            f" margin: 0 6px 0 2px; }}"
-            f"QTabBar::close-button:hover {{ image: url('{_xh}'); }}"
-        ) if _x else ""
+        # 关闭按钮用真实控件(见 _new_run_tab 里的 setTabButton)，这里不碰 close-button 子控件
         self._tab_widget.setStyleSheet("""
             QTabWidget::pane {
                 border: none; border-top: 1px solid #ececef;
@@ -569,7 +558,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             }
             QTabBar::tab:selected { background: #f0f0f2; color: #1d1d1f; font-weight: 600; }
             QTabBar::tab:hover:!selected { background: #f5f5f6; }
-        """ + _close_css)
+        """)
         self._tab_widget.tabCloseRequested.connect(self._close_run_tab)
         self._tab_widget.setMinimumWidth(350)
         
@@ -620,13 +609,15 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._tab_widget.setTabIcon(idx, icons.qicon("loading"))
         self._tab_widget.setCurrentIndex(idx)
         
-        btn = QPushButton("×")
-        btn.setFixedSize(16, 16)
+        btn = QPushButton()
+        btn.setIcon(icons.qicon("close", color="#8a8a90"))
+        btn.setIconSize(QSize(11, 11))
+        btn.setFixedSize(18, 18)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet("""
-            QPushButton { background: transparent; border: none; color: #86868b; font-weight: bold; font-family: Arial; font-size: 15px; margin-bottom: 2px; }
-            QPushButton:hover { color: #d70015; }
-        """)
+        btn.setToolTip("关闭")
+        btn.setStyleSheet(
+            "QPushButton { background: transparent; border: none; border-radius: 9px; }"
+            "QPushButton:hover { background: #ffe8e6; }")
         btn.clicked.connect(lambda _=False, t=tab: self._close_run_tab_by_widget(t))
         self._tab_widget.tabBar().setTabButton(idx, self._tab_widget.tabBar().ButtonPosition.RightSide, btn)
         
@@ -1006,7 +997,6 @@ class ScriptManagerOverlay(OpenHamWindowBase):
 
         self._stop_run_timer()
         self.title_lbl.setText("脚本配置")
-        self._new_btn.show()
         self._back_btn.hide()
         self._left_stack.setCurrentIndex(0)
         self._reload_list()
@@ -1015,7 +1005,6 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         import uuid
         self._current_id = str(uuid.uuid4())
         self.title_lbl.setText("新建脚本")
-        self._new_btn.hide()
         self._back_btn.show()
         self._trigger_input.clear()
         self._desc_input.clear()
@@ -1035,7 +1024,6 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             return
         self._current_id = sid
         self.title_lbl.setText("编辑脚本")
-        self._new_btn.hide()
         self._back_btn.show()
         self._trigger_input.setText(s.get("trigger", ""))
         self._desc_input.setPlainText(s.get("description", ""))

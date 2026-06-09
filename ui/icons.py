@@ -88,6 +88,7 @@ _MAP = {
     "lock": ("fa5s.lock", AMBER),
     "signal": ("fa5s.wifi", GOLD),
     "check": ("fa5s.check", GREEN),
+    "stop": ("fa5s.stop", RED),
     "close": ("fa5s.times", MUTED),
     "back": ("fa5s.arrow-left", "#7aa87a"),
     "forward": ("fa5s.arrow-right", MUTED),
