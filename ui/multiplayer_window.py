@@ -20,6 +20,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 
 from ui.window_base import OpenHamWindowBase
 from ui import icons
+from ui import theme
 from core.relay_client import RelayClient
 from core import app_config, meow_code, game_package, game_transfer
 from core.game_package import GamePackageError
@@ -80,12 +81,10 @@ class MultiplayerWindow(OpenHamWindowBase):
         action = QHBoxLayout(); action.setSpacing(8)
         self.create_btn = QPushButton("建房")
         self.create_btn.setObjectName("primary")
-        self.create_btn.setIcon(icons.qicon("host", color="#1c1a14"))
         self.create_btn.clicked.connect(self._on_create)
         self.meow_input = QLineEdit()
         self.meow_input.setPlaceholderText("粘贴房间口令")
         self.join_btn = QPushButton("进房")
-        self.join_btn.setIcon(icons.qicon("enter"))
         self.join_btn.clicked.connect(self._on_join)
         action.addWidget(self.create_btn)
         action.addWidget(self.meow_input, 1)
@@ -97,11 +96,11 @@ class MultiplayerWindow(OpenHamWindowBase):
         self.status_lbl = QLabel("未进入房间")
         self.status_lbl.setObjectName("status")
         self.status_lbl.setWordWrap(True)
-        self.copy_btn = QPushButton("复制")
+        self.copy_btn = QPushButton(" 复制")
         self.copy_btn.setIcon(icons.qicon("copy"))
         self.copy_btn.clicked.connect(self._copy_meow)
         self.copy_btn.hide()
-        self.lib_btn = QPushButton("加载游戏")
+        self.lib_btn = QPushButton(" 加载游戏")
         self.lib_btn.setIcon(icons.qicon("game"))
         self.lib_btn.clicked.connect(self._open_library)
         status.addWidget(self.status_lbl, 1)
@@ -129,7 +128,6 @@ class MultiplayerWindow(OpenHamWindowBase):
         self.msg_input.returnPressed.connect(self._on_send)
         self.send_btn = QPushButton("发送")
         self.send_btn.setObjectName("primary")
-        self.send_btn.setIcon(icons.qicon("send", color="#1c1a14"))
         self.send_btn.clicked.connect(self._on_send)
         bottom.addWidget(self.msg_input, 1)
         bottom.addWidget(self.send_btn)
@@ -615,15 +613,15 @@ class MultiplayerWindow(OpenHamWindowBase):
             self.status_lbl.setText("未进入房间")
 
     def _append(self, name: str, text: str, mine: bool = False):
-        color = "#c9b173" if mine else "#9fd0c0"
+        color = theme.ACCENT if mine else "#0a7c66"
         self.chat_log.append(
-            f'<span style="color:{color};font-weight:bold;">{name}</span>'
-            f'<span style="color:#d8cfb8;">：{text}</span>'
+            f'<span style="color:{color};font-weight:600;">{name}</span>'
+            f'<span style="color:{theme.TEXT};">：{text}</span>'
         )
 
     def _system(self, text: str):
         text = icons.richify(text)
-        self.chat_log.append(f'<span style="color:#6f6a55;">— {text} —</span>')
+        self.chat_log.append(f'<span style="color:{theme.TEXT2};">— {text} —</span>')
         if self._game_win is not None:
             self._game_win.add_chat(None, text)
 
@@ -677,34 +675,35 @@ class MultiplayerWindow(OpenHamWindowBase):
         super().hide_window()
 
     def _qss(self) -> str:
-        return """
-            QWidget { background: transparent; }
-            QLabel { color: #a99b7c; font-size: 12px; }
-            QLabel#status { color: #c09030; font-size: 13px; font-weight: bold; }
-            QLineEdit {
-                background: rgba(21,18,13,0.92); color: #e6dcc2;
-                border: 1px solid #4a3f2a; border-radius: 6px; padding: 7px 9px;
-            }
-            QLineEdit:focus { border-color: #c08c1e; }
-            QLineEdit:disabled { color: #6f6552; }
-            QTextEdit#chat {
-                background: rgba(21,18,13,0.92); color: #d8cfb8;
-                border: 1px solid #4a3f2a; border-radius: 8px; padding: 8px;
+        return f"""
+            QWidget {{ background: transparent; }}
+            QLabel {{ color: {theme.TEXT2}; font-size: 12px; }}
+            QLabel#status {{ color: {theme.TEXT}; font-size: 13px; font-weight: 600; }}
+            QLineEdit {{
+                background: {theme.SURFACE}; color: {theme.TEXT};
+                border: 1px solid {theme.BORDER_IN}; border-radius: {theme.R_IN}px; padding: 8px 10px;
+            }}
+            QLineEdit:focus {{ border-color: {theme.ACCENT}; }}
+            QLineEdit:disabled {{ color: {theme.TEXT3}; background: {theme.SUBTLE}; }}
+            QTextEdit#chat {{
+                background: {theme.SURFACE}; color: {theme.TEXT};
+                border: 1px solid {theme.BORDER}; border-radius: 10px; padding: 8px;
                 font-size: 13px;
-            }
-            QListWidget#members {
-                background: rgba(28,25,18,0.85); color: #d8cfb8;
-                border: 1px solid #4a3f2a; border-radius: 8px; padding: 4px;
+            }}
+            QListWidget#members {{
+                background: {theme.SUBTLE}; color: {theme.TEXT};
+                border: 1px solid {theme.BORDER}; border-radius: 10px; padding: 4px;
                 font-size: 13px;
-            }
-            QListWidget#members::item { padding: 4px 6px; border-radius: 4px; }
-            QPushButton {
-                background: rgba(192,140,30,0.10); color: #e6dcc2;
-                border: 1px solid #4a3f2a; border-radius: 6px; padding: 7px 14px;
+            }}
+            QListWidget#members::item {{ padding: 6px 6px; border-radius: {theme.R_ITEM}px; }}
+            QListWidget#members::item:selected {{ background: {theme.ACCENT}; color: #fff; }}
+            QPushButton {{
+                background: {theme.SURFACE}; color: {theme.TEXT};
+                border: 1px solid {theme.BORDER_IN}; border-radius: {theme.R_BTN}px; padding: 8px 16px;
                 font-size: 13px;
-            }
-            QPushButton:hover { background: rgba(192,140,30,0.20); }
-            QPushButton#primary { background: #c08c1e; color: #1c1a14; font-weight: bold; border: none; }
-            QPushButton#primary:hover { background: #d39c28; }
-            QPushButton:disabled { color: #6f6552; background: rgba(192,140,30,0.05); }
+            }}
+            QPushButton:hover {{ background: {theme.SUBTLE}; }}
+            QPushButton#primary {{ background: {theme.ACCENT}; color: #fff; font-weight: 600; border: none; }}
+            QPushButton#primary:hover {{ background: {theme.ACCENT_HOV}; }}
+            QPushButton:disabled {{ color: {theme.TEXT3}; background: {theme.SUBTLE}; }}
         """

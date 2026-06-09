@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from utils.window_effects import disable_native_window_effects
 from ui import icons
+from ui import theme
 
 def _base_dir() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -80,12 +81,12 @@ class OpenHamWindowBase(QWidget):
         # ── 卡片 ──────────────────────────────────────────────────
         self.card = QWidget()
         self.card.setObjectName("card")
-        self.card.setStyleSheet("""
-            #card {
-                background-color: #1e1c14;
-                border-radius: 10px;
-                border: 1px solid rgba(192, 140, 30, 0.45);
-            }
+        self.card.setStyleSheet(f"""
+            #card {{
+                background-color: {theme.CARD};
+                border-radius: {theme.R_CARD}px;
+                border: 1px solid {theme.BORDER};
+            }}
         """)
 
         self.card_layout = QVBoxLayout(self.card)
@@ -95,12 +96,12 @@ class OpenHamWindowBase(QWidget):
         # ── 标题栏 ────────────────────────────────────────────────
         self.title_bar = QWidget()
         self.title_bar.setObjectName("baseTitleBar")
-        self.title_bar.setStyleSheet("""
-            #baseTitleBar {
-                background-color: #272416;
-                border-radius: 10px 10px 0 0;
-                border-bottom: 1px solid rgba(192, 140, 30, 0.22);
-            }
+        self.title_bar.setStyleSheet(f"""
+            #baseTitleBar {{
+                background-color: {theme.CARD};
+                border-radius: {theme.R_CARD}px {theme.R_CARD}px 0 0;
+                border-bottom: 1px solid {theme.BORDER};
+            }}
         """)
         tb = QHBoxLayout(self.title_bar)
         tb.setContentsMargins(16, 9, 12, 9)
@@ -108,7 +109,7 @@ class OpenHamWindowBase(QWidget):
 
         self.title_lbl = QLabel(icons.richify(title))
         self.title_lbl.setStyleSheet(
-            "color: #c09030; font-size: 15px; font-weight: bold;"
+            f"color: {theme.TEXT}; font-size: 14px; font-weight: 600;"
             " background: transparent; border: none;"
         )
         tb.addWidget(self.title_lbl)
@@ -123,33 +124,31 @@ class OpenHamWindowBase(QWidget):
 
         # 固定按钮
         self.pin_btn = QPushButton()
-        self.pin_btn.setIcon(icons.qicon("pin", color="#9a8a6a"))
-        self.pin_btn.setFixedSize(30, 30)
+        self.pin_btn.setIcon(icons.qicon("pin", color=theme.TEXT2))
+        self.pin_btn.setFixedSize(28, 28)
         self.pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.pin_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.pin_btn.setToolTip("始终显示在最前 / 取消固定")
-        self.pin_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent; color: #7a6a4a;
-                font-size: 14px; border: none; border-radius: 4px;
-            }
-            QPushButton:hover { background: rgba(192, 140, 30, 0.20); color: #fff; }
+        self.pin_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: none; border-radius: 7px;
+            }}
+            QPushButton:hover {{ background: {theme.HOVER}; }}
         """)
         self.pin_btn.clicked.connect(self.toggle_pin)
         tb.addWidget(self.pin_btn)
 
         # 关闭按钮
         self.close_btn = QPushButton()
-        self.close_btn.setIcon(icons.qicon("close", color="#9a8a6a"))
-        self.close_btn.setFixedSize(30, 30)
+        self.close_btn.setIcon(icons.qicon("close", color=theme.TEXT2))
+        self.close_btn.setFixedSize(28, 28)
         self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.close_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.close_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent; color: #7a6a4a;
-                font-size: 16px; border: none; border-radius: 4px;
-            }
-            QPushButton:hover { background: rgba(180, 50, 30, 0.60); color: #fff; }
+        self.close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: none; border-radius: 7px;
+            }}
+            QPushButton:hover {{ background: rgba(255,59,48,0.12); }}
         """)
         self.close_btn.clicked.connect(self.hide_window)
         tb.addWidget(self.close_btn)
@@ -181,7 +180,7 @@ class OpenHamWindowBase(QWidget):
         self.is_pinned = not self.is_pinned
         _set_topmost_native(int(self.winId()), self.is_pinned)
         self.pin_btn.setIcon(icons.qicon("pinned" if self.is_pinned else "pin",
-                                         color="#c2922e" if self.is_pinned else "#9a8a6a"))
+                                         color=theme.ACCENT if self.is_pinned else theme.TEXT2))
 
     def hide_window(self):
         self.hide()

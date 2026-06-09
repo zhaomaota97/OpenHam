@@ -9,6 +9,7 @@ import os
 from core.script_engine import evaluate_expr, preview
 from utils.window_effects import disable_native_window_effects
 from ui import icons
+from ui import theme
 
 MAX_LENGTH = 200  # AI 模式下允许输入更长的内容
 _SHADOW    = 0           # 无阴影留边，窗口矩形 = 卡片本身
@@ -128,39 +129,41 @@ class InputWindow(QWidget):
         self.card = QWidget()
         self.card.setObjectName("card")
         self.card.setFixedWidth(_CARD_W)
-        self.card.setStyleSheet("""
-            #card {
-                background-color: #1c1a14;
-                border-radius: 12px;
-                border: 1px solid rgba(192, 140, 30, 0.45);
-            }
-            QLineEdit {
+        self.card.setStyleSheet(f"""
+            #card {{
+                background-color: {theme.CARD};
+                border-radius: {theme.R_CARD}px;
+                border: 1px solid {theme.BORDER};
+            }}
+            QLineEdit {{
                 background: transparent;
-                color: #ede5d0;
+                color: {theme.TEXT};
                 border: none;
                 font-size: 20px;
-                selection-background-color: #5a4010;
-            }
-            QLabel {
+                selection-background-color: {theme.ACCENT};
+                selection-color: #ffffff;
+            }}
+            QLabel {{
                 background: transparent;
-                color: #6a5a3a;
+                color: {theme.TEXT2};
                 font-size: 12px;
-            }
-            QTextEdit {
+            }}
+            QTextEdit {{
                 background: transparent;
                 border: none;
-            }
-            QScrollBar:vertical {
+                color: {theme.TEXT};
+            }}
+            QScrollBar:vertical {{
                 border: none;
-                background: rgba(0, 0, 0, 0);
+                background: transparent;
                 width: 6px;
                 border-radius: 3px;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(192, 140, 30, 0.4);
+            }}
+            QScrollBar::handle:vertical {{
+                background: #c7c7cc;
                 border-radius: 3px;
                 min-height: 20px;
-            }
+            }}
         """)
 
         card_layout = QVBoxLayout(self.card)
@@ -185,7 +188,7 @@ class InputWindow(QWidget):
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(
-            "background: rgba(192, 140, 30, 0.15); "
+            f"background: {theme.BORDER}; "
             "max-height: 1px; border: none; margin: 0;"
         )
         card_layout.addSpacing(10)
@@ -212,22 +215,23 @@ class InputWindow(QWidget):
         self.file_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.file_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.file_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.file_list.setStyleSheet("""
-            QListWidget {
+        self.file_list.setStyleSheet(f"""
+            QListWidget {{
                 background: transparent;
                 border: none;
                 outline: none;
                 padding: 2px 0;
-            }
-            QListWidget::item {
+            }}
+            QListWidget::item {{
+                color: {theme.TEXT};
                 border-radius: 6px;
-            }
-            QListWidget::item:selected {
-                background: rgba(192, 140, 30, 0.20);
-            }
-            QListWidget::item:hover:!selected {
-                background: rgba(192, 140, 30, 0.09);
-            }
+            }}
+            QListWidget::item:selected {{
+                background: {theme.ACCENT_SOFT};
+            }}
+            QListWidget::item:hover:!selected {{
+                background: {theme.SUBTLE};
+            }}
         """)
         self.file_list.hide()
         self.file_list.itemDoubleClicked.connect(
@@ -247,35 +251,35 @@ class InputWindow(QWidget):
         self.app_list.setSpacing(2)
         self.app_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.app_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.app_list.setStyleSheet("""
-            QListWidget {
+        self.app_list.setStyleSheet(f"""
+            QListWidget {{
                 background: transparent;
                 border: none;
                 outline: none;
                 padding: 2px 0;
-            }
-            QListWidget::item {
-                color: #c8bfa6;
+            }}
+            QListWidget::item {{
+                color: {theme.TEXT};
                 border-radius: 8px;
                 padding: 4px 0;
-            }
-            QListWidget::item:selected {
-                background: rgba(192, 140, 30, 0.22);
-                color: #ede5d0;
-            }
-            QListWidget::item:hover:!selected {
-                background: rgba(192, 140, 30, 0.10);
-            }
-            QScrollBar:horizontal {
+            }}
+            QListWidget::item:selected {{
+                background: {theme.ACCENT_SOFT};
+                color: {theme.TEXT};
+            }}
+            QListWidget::item:hover:!selected {{
+                background: {theme.SUBTLE};
+            }}
+            QScrollBar:horizontal {{
                 border: none;
-                background: rgba(0, 0, 0, 0);
+                background: transparent;
                 height: 5px;
-            }
-            QScrollBar::handle:horizontal {
-                background: rgba(192, 140, 30, 0.4);
+            }}
+            QScrollBar::handle:horizontal {{
+                background: #c7c7cc;
                 border-radius: 2px;
                 min-width: 24px;
-            }
+            }}
         """)
         self.app_list.hide()
         self.app_list.itemDoubleClicked.connect(
@@ -290,7 +294,7 @@ class InputWindow(QWidget):
         self.ai_label.setFrameShape(QFrame.Shape.NoFrame)
         self.ai_label.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.ai_label.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.ai_label.setStyleSheet("color: #d8cfb8; font-size: 13px; line-height: 1.6;")
+        self.ai_label.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px; line-height: 1.6;")
         self.ai_label.hide()
         
         card_layout.addSpacing(6)
@@ -332,13 +336,13 @@ class InputWindow(QWidget):
             self.ai_label.setText("")
             self._sync_ai_zone(show=False)
             self.clear_qr()
-            self.count_label.setStyleSheet("color: #c09030; font-size: 12px;")
+            self.count_label.setStyleSheet(f"color: {theme.ACCENT}; font-size: 12px;")
             self.count_label.setText(icons.richify("≡ 文件搜索"))
             self.result_label.setText("")
             if query:
                 self._search_query = query
                 self.result_label.setText("搜索中…")
-                self.result_label.setStyleSheet("color: #6a5a3a; font-size: 12px;")
+                self.result_label.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px;")
                 self._search_timer.start()
             else:
                 self._search_timer.stop()
@@ -354,9 +358,9 @@ class InputWindow(QWidget):
 
         # 接近上限变红提示
         if count >= MAX_LENGTH * 0.9:
-            self.count_label.setStyleSheet("color: #c05050; font-size: 12px;")
+            self.count_label.setStyleSheet(f"color: {theme.DANGER}; font-size: 12px;")
         else:
-            self.count_label.setStyleSheet("color: #6a5a3a; font-size: 12px;")
+            self.count_label.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px;")
         # 指令预览立即响应（无需计算，直接字典查找）
         cmd_preview = preview(text)
         self._auto_complete_target = None
@@ -366,7 +370,7 @@ class InputWindow(QWidget):
             fm = self.count_label.fontMetrics()
             elided = fm.elidedText(cmd_preview, Qt.TextElideMode.ElideRight, 500)
             self.count_label.setText(elided)
-            self.count_label.setStyleSheet("color: #c09030; font-size: 12px;")
+            self.count_label.setStyleSheet(f"color: {theme.ACCENT}; font-size: 12px;")
             self.result_label.setText("")
             self._eval_timer.stop()
             self._app_timer.stop()
@@ -381,13 +385,13 @@ class InputWindow(QWidget):
                 fm = self.count_label.fontMetrics()
                 self.count_label.setText(icons.img("tab") + " "
                                          + fm.elidedText(raw_txt, Qt.TextElideMode.ElideRight, 500))
-                self.count_label.setStyleSheet("color: #8a9a7a; font-size: 12px;")
+                self.count_label.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px;")
             else:
                 if text.strip():
                     fm = self.count_label.fontMetrics()
                     self.count_label.setText(icons.img("enter") + " "
                                              + fm.elidedText("询问 AI", Qt.TextElideMode.ElideRight, 500))
-                    self.count_label.setStyleSheet("color: #6a8a9a; font-size: 13px;")
+                    self.count_label.setStyleSheet(f"color: {theme.ACCENT}; font-size: 13px;")
                 else:
                     self.count_label.setText(f"{count} / {MAX_LENGTH}")
             self.result_label.setText("")
@@ -422,7 +426,7 @@ class InputWindow(QWidget):
         text = self.input.text()
         expr_result = evaluate_expr(text)
         if expr_result is not None:
-            self.result_label.setStyleSheet("color: #c09030; font-size: 12px;")
+            self.result_label.setStyleSheet(f"color: {theme.ACCENT}; font-size: 12px;")
             self.result_label.setText(expr_result)
         else:
             self.result_label.setText("")
@@ -527,7 +531,7 @@ class InputWindow(QWidget):
                 break
         if current.endswith("▌"):
             current = current[:-1]
-        self.ai_label.setStyleSheet("color: #d8cfb8; font-size: 13px; line-height: 1.6;")
+        self.ai_label.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px; line-height: 1.6;")
         self.ai_label.setText(current + text + "▌")
         self._sync_ai_zone()
         self._refit()
@@ -556,7 +560,7 @@ class InputWindow(QWidget):
         self._dot_frame = 0
         self.clear_qr()
         self.clear_app_results()
-        self.ai_label.setStyleSheet("color: #8a7040; font-size: 13px;")
+        self.ai_label.setStyleSheet(f"color: {theme.TEXT2}; font-size: 13px;")
         self.ai_label.setText("正在思考")
         self._sync_ai_zone()
         self._refit()
@@ -568,7 +572,7 @@ class InputWindow(QWidget):
         self._dot_timer.stop()
         self.clear_qr()
         self.clear_app_results()
-        color = "#c05050" if text.startswith("❌") else "#d8cfb8"
+        color = theme.DANGER if text.startswith("❌") else theme.TEXT
         self.ai_label.setStyleSheet(
             f"color: {color}; font-size: 13px; line-height: 1.6;"
         )
@@ -583,9 +587,9 @@ class InputWindow(QWidget):
     def show_result(self, result: str):
         """预设指令执行结果：✅ 金绿色，❌ 红色，显示于右侧，同时清空输入框和 AI 区域。"""
         if result.startswith("✅"):
-            color = "#7ab86a"
+            color = theme.SUCCESS
         else:
-            color = "#c05050"
+            color = theme.DANGER
         self.count_label.setStyleSheet(f"color: {color}; font-size: 12px;")
         self.count_label.setText(icons.richify(result))
         self.result_label.setText("")
@@ -666,7 +670,7 @@ class InputWindow(QWidget):
         self.input.clear()   # 先清空输入框，避免触发 _on_text_changed 时 qr_label 已可见
         self.qr_label.show()
         self.count_label.setText("手机扫码  ESC 关闭")
-        self.count_label.setStyleSheet("color: #7ab86a; font-size: 12px;")
+        self.count_label.setStyleSheet(f"color: {theme.SUCCESS}; font-size: 12px;")
         self.result_label.setText("")
         self._refit()
 
@@ -681,11 +685,11 @@ class InputWindow(QWidget):
     def show_file_results(self, results: list):
         self.file_list.clear()
         if not results:
-            self.result_label.setStyleSheet("color: #6a5a3a; font-size: 12px;")
+            self.result_label.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px;")
             self.result_label.setText("未找到文件")
             self.file_list.hide()
         else:
-            self.result_label.setStyleSheet("color: #6a5a3a; font-size: 12px;")
+            self.result_label.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px;")
             self.result_label.setText(icons.richify(f"找到 {len(results)} 个  ↵打开  Ctrl+↵打开文件夹"))
             for r in results:
                 self._add_file_item(r['name'], r['path'], r['dir'])
@@ -715,10 +719,10 @@ class InputWindow(QWidget):
         vl.setSpacing(1)
 
         name_lbl = QLabel(name)
-        name_lbl.setStyleSheet("color: #ede5d0; font-size: 13px; background: transparent;")
+        name_lbl.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px; background: transparent;")
         name_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         dir_lbl = QLabel(directory)
-        dir_lbl.setStyleSheet("color: #5a4a2a; font-size: 10px; background: transparent;")
+        dir_lbl.setStyleSheet(f"color: {theme.TEXT2}; font-size: 10px; background: transparent;")
         dir_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         vl.addWidget(name_lbl)
@@ -784,7 +788,7 @@ class InputWindow(QWidget):
         self.app_list.setCurrentRow(0)
         self.app_list.show()
         # 提示并入右侧原有提示位（不再占用左侧独立说明行），沿用蓝灰提示色
-        self.count_label.setStyleSheet("color: #6a8a9a; font-size: 13px;")
+        self.count_label.setStyleSheet(f"color: {theme.ACCENT}; font-size: 13px;")
         _hint = "← → 选择   ↵ 启动   ⇧↵ 问 AI"
         _hint = _hint.replace("←", icons.img("back")).replace("→", icons.img("forward"))
         self.count_label.setText(icons.richify(_hint))

@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt
 
 from ui.window_base import OpenHamWindowBase
 from ui import icons
+from ui import theme
 from core import game_library
 from core.game_package import GamePackageError
 
@@ -29,11 +30,11 @@ class GameLibraryWindow(OpenHamWindowBase):
         v.setSpacing(10)
 
         top = QHBoxLayout(); top.setSpacing(8)
-        invent = QPushButton("发明新游戏")
+        invent = QPushButton(" 发明新游戏")
         invent.setObjectName("ai")
         invent.setIcon(icons.qicon("ai"))
         invent.clicked.connect(self._invent)
-        imp = QPushButton("导入游戏")
+        imp = QPushButton(" 导入游戏")
         imp.setIcon(icons.qicon("import"))
         imp.clicked.connect(self._import)
         top.addWidget(invent)
@@ -52,16 +53,16 @@ class GameLibraryWindow(OpenHamWindowBase):
         v.addWidget(self.list, 1)
 
         bot = QHBoxLayout(); bot.setSpacing(8)
-        pub = QPushButton("发布到房间")
+        pub = QPushButton(" 发布到房间")
         pub.setObjectName("primary")
-        pub.setIcon(icons.qicon("publish", color="#1c1a14"))
+        pub.setIcon(icons.qicon("publish", color="#ffffff"))
         pub.clicked.connect(self._publish)
-        modify = QPushButton("AI 修改")
+        modify = QPushButton(" AI 修改")
         modify.setObjectName("ai")
         modify.setIcon(icons.qicon("ai"))
         modify.clicked.connect(self._modify)
-        dele = QPushButton("删除")
-        dele.setIcon(icons.qicon("delete"))
+        dele = QPushButton(" 删除")
+        dele.setIcon(icons.qicon("delete", color=theme.DANGER))
         dele.clicked.connect(self._delete)
         bot.addWidget(pub, 1)
         bot.addWidget(modify)
@@ -131,26 +132,26 @@ class GameLibraryWindow(OpenHamWindowBase):
         self.activateWindow()
 
     def _qss(self) -> str:
-        return """
-            QWidget { background: transparent; }
-            QLabel#hint { color: #8a9a7a; font-size: 12px; }
-            QListWidget#list {
-                background: rgba(21,18,13,0.92); color: #e6dcc2;
-                border: 1px solid #4a3f2a; border-radius: 8px; padding: 4px;
+        return f"""
+            QWidget {{ background: transparent; }}
+            QLabel#hint {{ color: {theme.TEXT2}; font-size: 12px; }}
+            QListWidget#list {{
+                background: {theme.SURFACE}; color: {theme.TEXT};
+                border: 1px solid {theme.BORDER}; border-radius: 10px; padding: 4px;
                 font-size: 14px;
-            }
-            QListWidget#list::item { padding: 9px 8px; border-radius: 5px; }
-            QListWidget#list::item:selected { background: rgba(192,140,30,0.25); color: #fff; }
-            QPushButton {
-                background: rgba(192,140,30,0.10); color: #e6dcc2;
-                border: 1px solid #4a3f2a; border-radius: 6px; padding: 8px 14px; font-size: 13px;
-            }
-            QPushButton:hover { background: rgba(192,140,30,0.20); }
-            QPushButton#primary { background: #c08c1e; color: #1c1a14; font-weight: bold; border: none; }
-            QPushButton#primary:hover { background: #d39c28; }
-            QPushButton#ai {
-                background: rgba(160,80,200,0.15); color: #d090f0;
-                border: 1px solid rgba(160,80,200,0.3); font-weight: bold;
-            }
-            QPushButton#ai:hover { background: rgba(160,80,200,0.3); }
+            }}
+            QListWidget#list::item {{ padding: 9px 8px; border-radius: {theme.R_ITEM}px; }}
+            QListWidget#list::item:selected {{ background: {theme.ACCENT}; color: #fff; }}
+            QPushButton {{
+                background: {theme.SURFACE}; color: {theme.TEXT};
+                border: 1px solid {theme.BORDER_IN}; border-radius: {theme.R_BTN}px; padding: 8px 14px; font-size: 13px;
+            }}
+            QPushButton:hover {{ background: {theme.SUBTLE}; }}
+            QPushButton#primary {{ background: {theme.ACCENT}; color: #fff; font-weight: 600; border: none; }}
+            QPushButton#primary:hover {{ background: {theme.ACCENT_HOV}; }}
+            QPushButton#ai {{
+                background: {theme.INDIGO_SOFT}; color: {theme.INDIGO};
+                border: 1px solid #dcdcfa; font-weight: 600;
+            }}
+            QPushButton#ai:hover {{ background: #e0e0fb; }}
         """

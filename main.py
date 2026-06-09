@@ -23,6 +23,7 @@ except Exception:
 
 from ui import InputWindow, ScriptManagerOverlay
 from ui import icons
+from ui import theme
 from ui.plugin_manager_window import PluginManagerWindow
 from ui.settings_window import SettingsWindow
 from ui.tray import _make_tray_icon, _show_toast
@@ -123,25 +124,8 @@ def main():
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
-    # 全局右键菜单（含输入框的剪切/复制/粘贴）统一深色主题，避免默认浅色菜单突兀
-    app.setStyleSheet("""
-        QMenu {
-            background-color: #1e1c14;
-            color: #ede5d0;
-            border: 1px solid rgba(192, 140, 30, 0.45);
-            border-radius: 8px;
-            padding: 4px 0;
-        }
-        QMenu::item {
-            background: transparent;
-            padding: 6px 18px;
-            margin: 0 3px;
-            border-radius: 4px;
-        }
-        QMenu::item:selected { background: rgba(192, 140, 30, 0.22); color: #ffffff; }
-        QMenu::item:disabled { color: #6f6552; }
-        QMenu::separator { height: 1px; background: rgba(192, 140, 30, 0.20); margin: 5px 10px; }
-    """)
+    # 全局浅色主题：右键菜单、提示、滚动条、对话框等标准控件统一「精致白」
+    app.setStyleSheet(theme.app_qss())
 
     window = InputWindow()
     # ── 浮层组件 ──
@@ -169,46 +153,18 @@ def main():
     tray.setToolTip(f"OpenHam  ({hotkey_str})")
     hotkey_label = _format_hotkey_label(hotkey_str)
 
-    tray_menu = QMenu()
-    tray_menu.setStyleSheet("""
-        QMenu {
-            background-color: #fcfcfc;
-            color: #111111;
-            border: none;
-            border-radius: 8px;
-            padding: 4px 0;
-        }
-        QMenu::item {
-            background-color: transparent;
-            padding: 4px 14px;
-            margin: 0 3px;
-            border-radius: 4px;
-        }
-        QMenu::item:selected {
-            background-color: #e6e6e6;
-            color: #111111;
-        }
-        QMenu::item:disabled {
-            color: #8f8f8f;
-            background-color: transparent;
-        }
-        QMenu::separator {
-            height: 1px;
-            background: #dddddd;
-            margin: 6px 10px;
-        }
-    """)
+    tray_menu = QMenu()   # 样式继承全局 theme.app_qss()
     action_title = tray_menu.addAction("OpenHam 0.1.0")
     action_title.setEnabled(False)
-    action_show = tray_menu.addAction(icons.qicon("home"), "打开主窗口")
+    action_show = tray_menu.addAction("打开主窗口")
     action_show.setShortcut(QKeySequence(hotkey_label))
     action_show.setShortcutVisibleInContextMenu(True)
-    action_script_config = tray_menu.addAction(icons.qicon("script"), "脚本配置")
-    action_plugin_config = tray_menu.addAction(icons.qicon("plugins"), "插件管理")
-    action_settings = tray_menu.addAction(icons.qicon("settings"), "设置...")
-    action_update = tray_menu.addAction(icons.qicon("refresh"), "检查更新")
+    action_script_config = tray_menu.addAction("脚本配置")
+    action_plugin_config = tray_menu.addAction("插件管理")
+    action_settings = tray_menu.addAction("设置...")
+    action_update = tray_menu.addAction("检查更新")
     tray_menu.addSeparator()
-    action_quit = tray_menu.addAction(icons.qicon("quit"), "Exit")
+    action_quit = tray_menu.addAction("退出")
     
     # 向插件注册底层能力
     plugin_api.register_handler("get_tray_menu", lambda: tray_menu)

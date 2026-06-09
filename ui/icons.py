@@ -14,18 +14,20 @@
 import os
 import tempfile
 
-GOLD = "#c2922e"
-TEXT = "#d8cfb8"
-MUTED = "#9a8a6a"
-GREEN = "#7ab86a"
-RED = "#c05050"
-AMBER = "#d9a531"
-PURPLE = "#b07ad0"
+# 「精致白」主题：图标多为中性灰，主操作用蓝，AI 用靛，状态用语义色
+GOLD = "#86868b"    # （沿用旧名）现为中性灰，作多数图标默认色
+TEXT = "#1d1d1f"
+MUTED = "#86868b"
+GREEN = "#34c759"
+RED = "#ff3b30"
+AMBER = "#ff9500"
+PURPLE = "#5e5ce6"
+ACCENT = "#0071e3"
 
 # 语义名 -> (Font Awesome 名, 默认颜色)
 _MAP = {
-    "game": ("fa5s.gamepad", GOLD),
-    "ai": ("fa5s.magic", PURPLE),
+    "game": ("fa5s.gamepad", ACCENT),
+    "ai": ("mdi6.creation", PURPLE),
     "import": ("fa5s.folder-open", GOLD),
     "publish": ("fa5s.rocket", GOLD),
     "delete": ("fa5s.trash-alt", "#c87a6a"),
