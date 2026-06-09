@@ -15,7 +15,7 @@ from core.plugin_manager import openham_plugin
 
 _SELECT_HOTKEY = "<ctrl>+<alt>+z"   # 划词翻译热键（低级钩子会吞掉此键，故选用极少冲突的组合）
 
-_state = {"win": None, "sig": None, "old_clip": ""}
+_state = {"win": None, "sig": None, "old_clip": "", "busy": False}
 
 
 class _Sig(QObject):
@@ -59,30 +59,49 @@ def _do_translate(text: str):
 
 
 def _grab_selection_and_translate():
-    """热键触发：模拟 Ctrl+C 抓取选中文字，再翻译。在 UI 线程执行。"""
+    """热键触发：抓取选中文字再翻译。在 UI 线程执行。
+
+    关键：用户此刻仍按住 Ctrl+Alt，直接模拟的 Ctrl+C 会被按住的 Alt 污染成
+    Ctrl+Alt+C（不是复制）。所以先等用户松开 Ctrl/Alt，再发干净的 Ctrl+C。
+    """
+    if _state.get("busy"):
+        return
+    _state["busy"] = True
+    _state["old_clip"] = (QApplication.clipboard().text() or "")
+    _wait_release_then_copy(0)
+
+
+def _wait_release_then_copy(tries: int):
+    import ctypes
+    try:
+        u = ctypes.windll.user32
+        ctrl = bool(u.GetAsyncKeyState(0x11) & 0x8000)   # VK_CONTROL
+        alt = bool(u.GetAsyncKeyState(0x12) & 0x8000)    # VK_MENU(Alt)
+    except Exception:
+        ctrl = alt = False
+    if (ctrl or alt) and tries < 40:                     # 最多等 ~600ms
+        QTimer.singleShot(15, lambda: _wait_release_then_copy(tries + 1))
+        return
     import keyboard as kb
-    cb = QApplication.clipboard()
-    _state["old_clip"] = cb.text() or ""
     try:
         kb.send("ctrl+c")
     except Exception:
         pass
-    # 给系统一点时间把选中内容写进剪贴板，再读取（不阻塞 UI）
-    QTimer.singleShot(140, _after_copy)
+    QTimer.singleShot(160, _after_copy)
 
 
 def _after_copy():
     cb = QApplication.clipboard()
     sel = (cb.text() or "").strip()
-    old = _state.get("old_clip", "")
-    text = sel if sel else old
-    # 还原用户原来的剪贴板，避免被我们 Ctrl+C 污染
-    if sel and old and sel != old:
-        QTimer.singleShot(60, lambda: cb.setText(old))
-    if not text:
-        _emit("没有选中文字")
+    old = (_state.get("old_clip") or "").strip()
+    _state["busy"] = False
+    # 剪贴板没变 → 说明没复制到新选中内容（没选中/不可复制），不翻译旧内容
+    if not sel or sel == old:
+        _emit("没有选中文字，请先选中再按 Ctrl+Alt+Z")
         return
-    _do_translate(text)
+    # 还原用户原来的剪贴板，避免被我们 Ctrl+C 污染
+    QTimer.singleShot(60, lambda: cb.setText(_state.get("old_clip") or ""))
+    _do_translate(sel)
 
 
 def setup_translate(api):
