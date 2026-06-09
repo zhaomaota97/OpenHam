@@ -81,6 +81,11 @@ _MAP = {
     "plug": ("fa5s.plug", GOLD),
     "coffee": ("fa5s.coffee", "#b0884a"),
     "tools": ("fa5s.tools", GOLD),
+    "add": ("fa5s.plus-circle", GREEN),
+    "edit": ("fa5s.pen", GOLD),
+    "lock": ("fa5s.lock", AMBER),
+    "signal": ("fa5s.wifi", GOLD),
+    "check": ("fa5s.check", GREEN),
 }
 
 # 源码里出现的 emoji -> 语义名（richify 用；含变体选择符 ️ 的放前面先匹配）
@@ -100,7 +105,9 @@ _EMOJI = [
     ("🛠️", "tools"), ("🛠", "tools"), ("🦊", "git"), ("🧩", "plugins"),
     ("🖥️", "shell"), ("🖥", "shell"), ("🐍", "python"), ("🔷", "powershell"),
     ("📄", "file"), ("💾", "save"), ("📂", "folder"), ("🔌", "plug"),
-    ("☕", "coffee"), ("⚡", "bolt"), ("🚑", "fix"), ("✨", "ai"),
+    ("☕", "coffee"), ("⚡", "bolt"), ("🚑", "fix"),
+    ("📶", "signal"), ("✏️", "edit"), ("✏", "edit"), ("✚", "add"),
+    ("🔒", "lock"), ("📦", "package"),
 ]
 
 _cache = {}
@@ -175,5 +182,17 @@ def richify(text: str, size: int = 14) -> str:
     for em, name in _EMOJI:
         if em in out:
             html = img(name, size=size)
-            out = out.replace(em, html if html else "")
+            if html:                      # 拿不到图标(qtawesome 未就绪)时保留原 emoji，避免空白
+                out = out.replace(em, html)
     return out
+
+
+def strip(text: str) -> str:
+    """去掉字符串里已知的 emoji（用于无法承载图标的纯文本场景，如下拉/省略文本）。"""
+    if not text:
+        return text
+    out = text
+    for em, _name in _EMOJI:
+        if em in out:
+            out = out.replace(em, "")
+    return out.replace("  ", " ").strip()

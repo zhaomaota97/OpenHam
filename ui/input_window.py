@@ -333,7 +333,7 @@ class InputWindow(QWidget):
             self._sync_ai_zone(show=False)
             self.clear_qr()
             self.count_label.setStyleSheet("color: #c09030; font-size: 12px;")
-            self.count_label.setText("≡ 文件搜索")
+            self.count_label.setText(icons.richify("≡ 文件搜索"))
             self.result_label.setText("")
             if query:
                 self._search_query = query
@@ -362,6 +362,7 @@ class InputWindow(QWidget):
         self._auto_complete_target = None
         
         if cmd_preview is not None:
+            cmd_preview = icons.strip(cmd_preview)
             fm = self.count_label.fontMetrics()
             elided = fm.elidedText(cmd_preview, Qt.TextElideMode.ElideRight, 500)
             self.count_label.setText(elided)

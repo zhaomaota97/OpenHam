@@ -9,6 +9,8 @@ from PyQt6.QtCore import Qt, pyqtSignal, QEvent
 from PyQt6.QtGui import QColor
 import ctypes
 
+from ui import icons
+
 MAX_LENGTH = 200  # AI 模式下允许输入更长的内容
 _SHADOW    = 24          # 阴影溢出留边
 _CARD_W    = 640         # 卡片宽度
@@ -340,7 +342,7 @@ class GitLabOverlay(QWidget):
         tb.setContentsMargins(16, 9, 12, 9)
         tb.setSpacing(0)
 
-        self._title_label = QLabel("📦  仓库最新提交")
+        self._title_label = QLabel(icons.richify("📦  仓库最新提交"))
         self._title_label.setStyleSheet(
             "color: #c09030; font-size: 15px; font-weight: bold; "
             "background: transparent; border: none;"
@@ -355,7 +357,8 @@ class GitLabOverlay(QWidget):
         tb.addStretch()
 
         # 视图模式专属
-        self._edit_btn = self._icon_btn("⚙", "#8a7a5a", "管理关注仓库")
+        self._edit_btn = self._icon_btn("", "#8a7a5a", "管理关注仓库")
+        self._edit_btn.setIcon(icons.qicon("settings", color="#8a7a5a"))
         self._edit_btn.clicked.connect(self.switch_to_edit)
 
         # 编辑模式专属
@@ -493,7 +496,8 @@ class GitLabOverlay(QWidget):
         self._fetch_status.hide()
         ep.addWidget(self._fetch_status)
 
-        self._add_btn = QPushButton("✚  添加到关注列表")
+        self._add_btn = QPushButton("添加到关注列表")
+        self._add_btn.setIcon(icons.qicon("add"))
         self._add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._add_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._add_btn.setEnabled(False)
@@ -595,7 +599,7 @@ class GitLabOverlay(QWidget):
 
     def show_loading(self):
         """显示加载中，弹出浮层（首次弹出时定位右上角，之后保留用户拖拽位置）。"""
-        self._title_label.setText("📦  仓库最新提交  ·  获取中…")
+        self._title_label.setText(icons.richify("📦  仓库最新提交  ·  获取中…"))
         self._loading_label.show()
         self.adjustSize()
         if not self._has_been_shown:
@@ -607,11 +611,11 @@ class GitLabOverlay(QWidget):
         """用结构化数据刷新视图表格。"""
         self._clear_view()
         self._loading_label.hide()
-        self._title_label.setText("📦  仓库最新提交")
+        self._title_label.setText(icons.richify("📦  仓库最新提交"))
         for repo_data in repos:
             # 引导信息（无仓库时的友好提示，不用红色）
             if repo_data.get("info"):
-                guide = QLabel(f"  {repo_data['info']}")
+                guide = QLabel(icons.richify(f"  {repo_data['info']}"))
                 guide.setStyleSheet(
                     "color: #6a7a5a; font-size: 13px; padding: 20px 6px;"
                     " background: transparent; border: none;"
@@ -630,7 +634,7 @@ class GitLabOverlay(QWidget):
                 self._view_layout.insertWidget(self._view_layout.count() - 1, lbl)
                 self._view_widgets.append(lbl)
             if error:
-                err = QLabel(f"  ⚠  {error}")
+                err = QLabel(icons.richify(f"  ⚠  {error}"))
                 err.setStyleSheet(
                     "color: #c05050; font-size: 13px; padding: 4px 6px;"
                     " background: transparent; border: none;"
