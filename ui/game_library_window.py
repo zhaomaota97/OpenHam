@@ -12,8 +12,8 @@ from core.game_package import GamePackageError
 
 class GameLibraryWindow(OpenHamWindowBase):
     def __init__(self, on_publish, on_invent, on_modify):
-        super().__init__(title="游戏库", shadow_size=0, min_w=520, min_h=460)
-        self.title_lbl.setText("游戏库")
+        super().__init__(title="加载游戏", shadow_size=0, min_w=520, min_h=460)
+        self.title_lbl.setText("加载游戏")
         self._on_publish = on_publish    # on_publish(folder)
         self._on_invent = on_invent      # on_invent()
         self._on_modify = on_modify      # on_modify(folder)

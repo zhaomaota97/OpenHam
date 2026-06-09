@@ -14,6 +14,8 @@ from core import game_package
 
 _LIB = "my_games"
 _LEGACY = "invented_games"
+_BUILTIN = "games"          # 安装包自带的游戏（井字棋等），首次运行导入到用户库
+_MARKER = ".builtins_v1"
 
 
 def _lib_dir() -> str:
@@ -26,8 +28,31 @@ def _safe(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]+', "_", (name or "").strip()) or "游戏"
 
 
+def ensure_builtins():
+    """首次运行时，把安装包自带的游戏（games/）导入到用户游戏库，只做一次。
+    用户之后删了也不会再被导入（靠 marker 标记）。"""
+    marker = os.path.join(_lib_dir(), _MARKER)
+    if os.path.exists(marker):
+        return
+    src_root = os.path.join(_base_dir(), _BUILTIN)
+    if os.path.isdir(src_root):
+        for fn in sorted(os.listdir(src_root)):
+            folder = os.path.join(src_root, fn)
+            if os.path.isdir(folder) and os.path.isfile(os.path.join(folder, "index.html")):
+                try:
+                    import_folder(folder)
+                except Exception:
+                    pass
+    try:
+        with open(marker, "w", encoding="utf-8") as f:
+            f.write("1")
+    except Exception:
+        pass
+
+
 def list_games() -> list:
     """返回 [{'name', 'folder'}]，按时间倒序（新的在前）。"""
+    ensure_builtins()
     games = []
     for base in (_lib_dir(), os.path.join(_base_dir(), _LEGACY)):
         if not os.path.isdir(base):

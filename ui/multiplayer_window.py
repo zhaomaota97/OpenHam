@@ -95,7 +95,7 @@ class MultiplayerWindow(OpenHamWindowBase):
         self.copy_btn = QPushButton("复制")
         self.copy_btn.clicked.connect(self._copy_meow)
         self.copy_btn.hide()
-        self.lib_btn = QPushButton("🎮 游戏库")
+        self.lib_btn = QPushButton("加载游戏")
         self.lib_btn.clicked.connect(self._open_library)
         status.addWidget(self.status_lbl, 1)
         status.addWidget(self.lib_btn)
@@ -420,13 +420,13 @@ class MultiplayerWindow(OpenHamWindowBase):
             self._system("正在发布到房间…")
             self._publish_folder(folder)
         else:
-            self._system("（已存入游戏库，建房后可在「🎮 游戏库」里发布）")
+            self._system("（已存入游戏库，建房后可在「加载游戏」里发布）")
 
     @staticmethod
     def _load_game_guide() -> str:
         from utils.paths import _base_dir
         try:
-            with open(os.path.join(_base_dir(), "examples", "GAME_GUIDE.md"), "r", encoding="utf-8") as f:
+            with open(os.path.join(_base_dir(), "games", "GAME_GUIDE.md"), "r", encoding="utf-8") as f:
                 return f.read()
         except Exception:
             return ""
@@ -604,7 +604,7 @@ class MultiplayerWindow(OpenHamWindowBase):
             self.nick_input.setText(self._default_nickname())
         if not getattr(self, "_hinted", False):
             self._hinted = True
-            self._system("玩法：① 建房 → 复制口令发朋友  ② 点「🎮 游戏库」选或发明游戏 → 发布到房间，一起玩")
+            self._system("玩法：① 建房 → 复制口令发朋友  ② 点「加载游戏」选或发明游戏 → 发布到房间，一起玩")
         self.show_window_centered()
         self.raise_()
         self.activateWindow()
