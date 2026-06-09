@@ -545,6 +545,16 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         self._tab_widget = QTabWidget()
         self._tab_widget.setTabsClosable(True)
         self._tab_widget.setMovable(True)
+        # 渲染清晰的关闭图标（常态灰 / 悬停红），避免透明标签下默认 × 不可见
+        def _u(p):
+            return p.replace("\\", "/") if p else ""
+        _x = _u(icons._png_path("close", "#8a8a90", 11))
+        _xh = _u(icons._png_path("close", "#d70015", 11))
+        _close_css = (
+            f"QTabBar::close-button {{ image: url('{_x}'); subcontrol-position: right;"
+            f" margin: 0 6px 0 2px; }}"
+            f"QTabBar::close-button:hover {{ image: url('{_xh}'); }}"
+        ) if _x else ""
         self._tab_widget.setStyleSheet("""
             QTabWidget::pane {
                 border: none; border-top: 1px solid #ececef;
@@ -554,13 +564,12 @@ class ScriptManagerOverlay(OpenHamWindowBase):
             QTabBar::tab {
                 background: transparent; color: #6e6e73;
                 border: none; border-radius: 8px;
-                padding: 7px 16px; margin: 0 4px 6px 0;
+                padding: 7px 14px; margin: 13px 4px 10px 8px;
                 font-size: 13px; min-width: 64px;
             }
             QTabBar::tab:selected { background: #f0f0f2; color: #1d1d1f; font-weight: 600; }
             QTabBar::tab:hover:!selected { background: #f5f5f6; }
-            QTabBar::close-button { subcontrol-position: right; margin-left: 4px; }
-        """)
+        """ + _close_css)
         self._tab_widget.tabCloseRequested.connect(self._close_run_tab)
         self._tab_widget.setMinimumWidth(350)
         
