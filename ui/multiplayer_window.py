@@ -81,14 +81,17 @@ class MultiplayerWindow(OpenHamWindowBase):
         action = QHBoxLayout(); action.setSpacing(8)
         self.create_btn = QPushButton("建房")
         self.create_btn.setObjectName("primary")
-        self.create_btn.clicked.connect(self._on_create)
+        self.create_btn.clicked.connect(self._on_create_btn)
         self.meow_input = QLineEdit()
         self.meow_input.setPlaceholderText("粘贴房间口令")
         self.join_btn = QPushButton("进房")
         self.join_btn.clicked.connect(self._on_join)
+        self._action_spacer = QWidget()   # 房内占位拉伸，让「解散」左对齐
+        self._action_spacer.hide()
         action.addWidget(self.create_btn)
         action.addWidget(self.meow_input, 1)
         action.addWidget(self.join_btn)
+        action.addWidget(self._action_spacer, 1)
         v.addLayout(action)
 
         # 状态行：房间喵咪密码 + 复制
@@ -96,13 +99,14 @@ class MultiplayerWindow(OpenHamWindowBase):
         self.status_lbl = QLabel("未进入房间")
         self.status_lbl.setObjectName("status")
         self.status_lbl.setWordWrap(True)
-        self.copy_btn = QPushButton(" 复制")
+        self.copy_btn = QPushButton(" 复制口令")
         self.copy_btn.setIcon(icons.qicon("copy"))
         self.copy_btn.clicked.connect(self._copy_meow)
         self.copy_btn.hide()
         self.lib_btn = QPushButton(" 加载游戏")
         self.lib_btn.setIcon(icons.qicon("game"))
         self.lib_btn.clicked.connect(self._open_library)
+        self.lib_btn.hide()   # 建房/进房后才出现
         status.addWidget(self.status_lbl, 1)
         status.addWidget(self.lib_btn)
         status.addWidget(self.copy_btn)
@@ -171,8 +175,37 @@ class MultiplayerWindow(OpenHamWindowBase):
         self._system("正在连接服务器…")
         self.client.start(app_config.get("relay_url"))
 
+    def _on_create_btn(self):
+        # 不在房间 → 建房；已在房间 → 解散/退出
+        if self.client.room:
+            self._on_disband()
+        else:
+            self._on_create()
+
     def _on_create(self):
         self._ensure_connected_then(lambda: self.client.create_room(self._nickname()))
+
+    def _on_disband(self):
+        from PyQt6.QtWidgets import QMessageBox
+        from PyQt6.QtCore import QTimer
+        is_host = self.client.is_host
+        title = "解散房间" if is_host else "退出房间"
+        msg = "确定解散房间吗？房间内所有人都会离开。" if is_host else "确定退出房间吗？"
+        if QMessageBox.question(self, title, msg) != QMessageBox.StandardButton.Yes:
+            return
+        if is_host:
+            self.client.send_data({"t": "disband"})   # 通知所有人房间已解散
+        self.client.leave()
+        self._set_in_room(False)
+        self._system("已解散房间" if is_host else "已退出房间")
+        QTimer.singleShot(200, self._safe_stop)        # 留点时间让消息发出再断开
+
+    def _safe_stop(self):
+        try:
+            self.client.stop()
+        except Exception:
+            pass
+        self._connected = False
 
     def _on_join(self):
         meow = self.meow_input.text().strip()
@@ -242,7 +275,7 @@ class MultiplayerWindow(OpenHamWindowBase):
         self._set_in_room(True)
         self._remember_names()
         self._refresh_members()
-        self._set_state("等待你发布游戏（点「加载游戏」）")
+        self._set_state("未发布游戏")
         self._system("房间已创建，把房间口令发给朋友即可一起玩")
 
     def _on_joined(self, msg: dict):
@@ -251,7 +284,7 @@ class MultiplayerWindow(OpenHamWindowBase):
         self._set_in_room(True)
         self._remember_names()
         self._refresh_members()
-        self._set_state("等待房主发布游戏…")
+        self._set_state("等待房主发布")
         self._system("已进入房间")
 
     def _on_peer_joined(self, peer: dict):
@@ -271,6 +304,8 @@ class MultiplayerWindow(OpenHamWindowBase):
     def _on_host_changed(self, hid: str):
         self._refresh_members()
         self._render_status()   # 房主变更后角色可能改变，刷新状态行
+        if self.client.room:    # 角色可能从玩家变房主 → 退出/解散文案随之更新
+            self.create_btn.setText("解散" if self.client.is_host else "退出")
         if self.client.is_host:
             self._system("👑 你成为了新房主")
         else:
@@ -286,6 +321,12 @@ class MultiplayerWindow(OpenHamWindowBase):
             self._show_chat(m.get("name", "?"), str(data.get("text", "")))
         elif t == "sys":
             self._system(str(data.get("text", "")))
+        elif t == "disband":
+            from PyQt6.QtCore import QTimer
+            self._system("🔴 房主解散了房间")
+            self.client.leave()
+            self._set_in_room(False)
+            QTimer.singleShot(200, self._safe_stop)
         elif t == "game_meta":
             self._reasm.on_meta(data)
             self._set_state(f"正在玩：{data.get('name')}")
@@ -600,9 +641,13 @@ class MultiplayerWindow(OpenHamWindowBase):
     def _set_in_room(self, in_room: bool):
         self.msg_input.setEnabled(in_room)
         self.send_btn.setEnabled(in_room)
-        self.create_btn.setEnabled(not in_room)
-        self.join_btn.setEnabled(not in_room)
-        self.meow_input.setEnabled(not in_room)
+        # 在房间：建房键变「解散/退出」；进房输入与进房键隐藏；加载游戏键出现
+        self.create_btn.setText("解散" if (in_room and self.client.is_host) else
+                                ("退出" if in_room else "建房"))
+        self.join_btn.setVisible(not in_room)
+        self.meow_input.setVisible(not in_room)
+        self._action_spacer.setVisible(in_room)
+        self.lib_btn.setVisible(in_room)
         if not in_room:
             self.copy_btn.hide()
             self.member_list.clear()
