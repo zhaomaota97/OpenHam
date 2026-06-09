@@ -40,6 +40,8 @@ class MultiplayerWindow(OpenHamWindowBase):
         self._connected = False
         self._pending = None       # 连接成功后要执行的动作
         self._room_meow = ""       # 当前房间的喵咪密码（用于复制）
+        self._room_state = ""      # 房间当前状态（等待发布 / 正在玩 X），展示给所有人
+        self._names = {}           # id -> 昵称缓存（离开时还能报出是谁）
         # 游戏相关
         self._reasm = game_transfer.Reassembler()
         self._game_win = None
@@ -139,7 +141,7 @@ class MultiplayerWindow(OpenHamWindowBase):
         c.joined.connect(self._on_joined)
         c.peer_joined.connect(self._on_peer_joined)
         c.peer_left.connect(self._on_peer_left)
-        c.host_changed.connect(lambda _hid: self._refresh_members())
+        c.host_changed.connect(self._on_host_changed)
         c.message.connect(self._on_message)
         c.error.connect(self._on_error)
 
@@ -232,35 +234,44 @@ class MultiplayerWindow(OpenHamWindowBase):
 
     def _on_created(self, room: str):
         self._room_meow = meow_code.encode(room)
-        self.status_lbl.setText(f"房间已创建 ·  {self._room_meow}")
         self.copy_btn.show()
         self._set_in_room(True)
+        self._remember_names()
         self._refresh_members()
-        self._system("房间已创建，把喵咪密码发给朋友即可一起玩")
+        self._set_state("等待你发布游戏（点「加载游戏」）")
+        self._system("房间已创建，把房间口令发给朋友即可一起玩")
 
     def _on_joined(self, msg: dict):
         self._room_meow = meow_code.encode(msg.get("room", ""))
-        self.status_lbl.setText(f"已进入房间 ·  {self._room_meow}")
         self.copy_btn.show()
         self._set_in_room(True)
+        self._remember_names()
         self._refresh_members()
+        self._set_state("等待房主发布游戏…")
         self._system("已进入房间")
 
     def _on_peer_joined(self, peer: dict):
+        self._remember_names()
         self._refresh_members()
         self._system(f"🟢 {peer.get('name')} 加入了房间")
-        if self._game_win is not None:
-            self._game_win.add_chat(None, f"{peer.get('name')} 加入了房间")
         # 房主：已发布的游戏补发给新加入者
         if self._published and self.client.is_host:
             self._send_game_to(peer.get("id"))
-            self._system(f"📦 正在把游戏补发给 {peer.get('name')}")
+            self._system(f"📦 正在把游戏「{self._published[1]}」补发给 {peer.get('name')}")
 
-    def _on_peer_left(self, _pid: str):
+    def _on_peer_left(self, pid: str):
+        name = self._names.pop(pid, None) or "有人"
         self._refresh_members()
-        self._system("🔴 有人离开了房间")
-        if self._game_win is not None:
-            self._game_win.add_chat(None, "有人离开了房间")
+        self._system(f"🔴 {name} 离开了房间")
+
+    def _on_host_changed(self, hid: str):
+        self._refresh_members()
+        self._render_status()   # 房主变更后角色可能改变，刷新状态行
+        if self.client.is_host:
+            self._system("👑 你成为了新房主")
+        else:
+            name = self._names.get(hid) or self.client.members.get(hid) or "新玩家"
+            self._system(f"👑 {name} 成为了新房主")
 
     def _on_message(self, m: dict):
         data = m.get("data") or {}
@@ -269,8 +280,11 @@ class MultiplayerWindow(OpenHamWindowBase):
         t = data.get("t")
         if t == "chat":
             self._show_chat(m.get("name", "?"), str(data.get("text", "")))
+        elif t == "sys":
+            self._system(str(data.get("text", "")))
         elif t == "game_meta":
             self._reasm.on_meta(data)
+            self._set_state(f"正在玩：{data.get('name')}")
             self._system(f"📥 正在接收游戏「{data.get('name')}」…")
         elif t == "game_chunk":
             done = self._reasm.on_chunk(data)
@@ -306,7 +320,9 @@ class MultiplayerWindow(OpenHamWindowBase):
 
     def _publish_package(self, data: bytes, name: str):
         self._published = (data, name)
-        self._system(f"🎮 已发布游戏「{name}」（{len(data)//1024} KB），正在分发…")
+        self._set_state(f"正在玩：{name}")
+        self._broadcast_sys(f"🎮 房主发布了游戏「{name}」，开始游戏！")
+        self._system(f"（{len(data)//1024} KB，正在分发给房间里的人…）")
         self._send_game_to(None)          # 广播给房内所有人
         self._open_game(data, name)       # 房主自己也打开
 
@@ -399,6 +415,7 @@ class MultiplayerWindow(OpenHamWindowBase):
 
     def _on_invent_done(self, result: dict):
         self.lib_btn.setEnabled(True)
+        self._render_status()   # 还原被「AI 发明中…」占用的状态行
         if not result.get("ok"):
             self._system(f"⚠️ 生成失败：{result.get('error')}")
             return
@@ -586,6 +603,9 @@ class MultiplayerWindow(OpenHamWindowBase):
             self.member_list.clear()
             self._published = None
             self._reasm.reset()
+            self._room_state = ""
+            self._names = {}
+            self.status_lbl.setText("未进入房间")
 
     def _append(self, name: str, text: str, mine: bool = False):
         color = "#c9b173" if mine else "#9fd0c0"
@@ -596,6 +616,35 @@ class MultiplayerWindow(OpenHamWindowBase):
 
     def _system(self, text: str):
         self.chat_log.append(f'<span style="color:#6f6a55;">— {text} —</span>')
+        if self._game_win is not None:
+            self._game_win.add_chat(None, text)
+
+    def _broadcast_sys(self, text: str):
+        """关键操作日志：广播给房间所有人，大家都能看到同一条系统提示。"""
+        if self.client.room:
+            self.client.send_data({"t": "sys", "text": text})
+        self._system(text)
+
+    def _remember_names(self):
+        for cid, name in self.client.members.items():
+            self._names[cid] = name
+
+    def _set_state(self, state: str):
+        """更新房间当前状态（如「等待房主发布游戏」「正在玩：井字棋」）。"""
+        self._room_state = state
+        self._render_status()
+
+    def _render_status(self):
+        """根据房间号 + 角色 + 当前状态，刷新顶部状态行。"""
+        if not self.client.room:
+            self.status_lbl.setText("未进入房间")
+            return
+        role = "👑 房主" if self.client.is_host else "玩家"
+        parts = [role]
+        if self._room_state:
+            parts.append(self._room_state)
+        parts.append(f"口令 {self._room_meow}")
+        self.status_lbl.setText("　·　".join(parts))
 
     # ── 生命周期 ───────────────────────────────────────────────────────
 
