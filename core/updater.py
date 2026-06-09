@@ -8,6 +8,7 @@
 import os
 import io
 import json
+import shutil
 import zipfile
 import urllib.request
 
@@ -22,6 +23,26 @@ _SKIP = ["runtime", ".env", "user_settings.json", "openham.log",
          "config.json", "config/plugins.json",
          "script_manager/scripts.json", "ui/script_manager/history.json",
          "invented_games", "my_games"]
+
+
+# 旧版遗留、新版已删除的路径：增量更新只会覆盖/新增文件，不会删文件，
+# 这里在更新时主动清理它们，避免安装目录残留旧目录。
+_OBSOLETE = ["examples"]
+
+
+def _cleanup_obsolete(base: str):
+    for rel in _OBSOLETE:
+        try:
+            target = _safe_join(base, rel)
+        except ValueError:
+            continue
+        try:
+            if os.path.isdir(target):
+                shutil.rmtree(target, ignore_errors=True)
+            elif os.path.exists(target):
+                os.remove(target)
+        except Exception as e:
+            log.warning("清理旧路径 %s 失败：%s", rel, e)
 
 
 def _should_skip(rel: str) -> bool:
@@ -103,6 +124,7 @@ def apply_update(code_url: str, timeout: int = 120, install_deps: bool = True,
             with z.open(member) as src, open(target, "wb") as out:
                 out.write(src.read())
             count += 1
+    _cleanup_obsolete(base)
     log.info("增量更新完成，覆盖 %d 个文件", count)
     if install_deps:
         _sync_deps()
