@@ -64,11 +64,13 @@ def _bridge_init_js(self_id: str, is_host: bool, name: str = "玩家") -> str:
       OH.on = function(cb){ this._cbs.push(cb); };
       window.__openham_recv = function(s){
         var o = JSON.parse(s);
+        if (o && o.__oh){ if (OH._onmsg) OH._onmsg(o); return; }  // 平台内部消息
         (window.OpenHam._cbs||[]).forEach(function(cb){ try{ cb(o);}catch(e){console.error(e);} });
       };
       new QWebChannel(qt.webChannelTransport, function(channel){
         var bridge = channel.objects.openham_bridge;
         OH.send = function(obj){ bridge.send(JSON.stringify(obj)); };
+        if (OH._onready) OH._onready();
         if (typeof window.OpenHamReady === 'function') window.OpenHamReady();
       });
     })();

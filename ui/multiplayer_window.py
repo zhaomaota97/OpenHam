@@ -24,7 +24,7 @@ from ui import theme
 from core.relay_client import RelayClient
 from core import app_config, meow_code, game_package, game_transfer
 from core.game_package import GamePackageError
-from core.ai_client import call_deepseek_stream
+from core.ai_client import call_deepseek_stream, call_deepseek_sync
 
 
 class MultiplayerWindow(OpenHamWindowBase):
@@ -467,11 +467,110 @@ class MultiplayerWindow(OpenHamWindowBase):
         self.status_lbl.setText(icons.richify(f"✨ AI 发明游戏中… 已生成 {self._invent_chars} 字"))
 
     def _on_invent_done(self, result: dict):
-        self.lib_btn.setEnabled(True)
-        self._render_status()   # 还原被「AI 发明中…」占用的状态行
         if not result.get("ok"):
+            self.lib_btn.setEnabled(True)
+            self._render_status()
             self._system(f"⚠️ 生成失败：{result.get('error')}")
             return
+        # 自检：在隐藏窗口跑一遍，抓 JS 报错；有错且还没修过就自动修一次
+        self.status_lbl.setText(icons.richify("✨ 正在自检游戏…"))
+
+        def after_check(errors):
+            if errors and result.get("_repairs", 0) < 1:
+                self._system("🔧 检测到问题，正在自动修复…")
+                self.status_lbl.setText(icons.richify("✨ 正在自动修复游戏…"))
+                threading.Thread(
+                    target=self._repair_worker,
+                    args=(result.get("html", ""), errors, result.get("req", ""),
+                          result.get("folder"), result.get("_repairs", 0) + 1),
+                    daemon=True).start()
+            else:
+                self._finish_invent(result)
+
+        self._selfcheck(result.get("html", ""), after_check)
+
+    def _selfcheck(self, html: str, callback):
+        """隐藏窗口加载游戏，2.8s 内收集 console 报错 → callback(errors)。
+        任何异常/不支持一律 callback([])（fail-open，不挡发布）。"""
+        try:
+            import tempfile
+            from PyQt6.QtCore import QUrl, QTimer
+            from PyQt6.QtWebEngineWidgets import QWebEngineView
+            from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineScript
+            from ui.game_window import _read_asset, _bridge_init_js
+        except Exception:
+            callback([]); return
+        try:
+            errs = []
+
+            class _CheckPage(QWebEnginePage):
+                def javaScriptConsoleMessage(self, level, msg, line, src):
+                    try:
+                        if int(level) >= 2:
+                            errs.append(f"行{line}: {msg[:160]}")
+                    except Exception:
+                        pass
+
+            low = html.lower()
+            if "<head>" in low:
+                i = low.index("<head>") + 6
+            elif "<body" in low:
+                i = low.index(">", low.index("<body")) + 1
+            else:
+                i = 0
+            h = html[:i] + "\n<script>\n" + _read_asset("phaser.min.js") + "\n</script>\n" + html[i:]
+            d = tempfile.mkdtemp(prefix="openham_check_")
+            p = os.path.join(d, "index.html")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(h)
+            view = QWebEngineView()
+            page = _CheckPage()
+            view.setPage(page)
+            for s in (_read_asset("openham_controls.js"), _bridge_init_js("check", True, "自检")):
+                sc = QWebEngineScript()
+                sc.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+                sc.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+                sc.setSourceCode(s)
+                page.scripts().insert(sc)
+            self._check_view = view   # 保活引用
+
+            def done():
+                try:
+                    view.deleteLater()
+                except Exception:
+                    pass
+                self._check_view = None
+                callback(errs[:6])
+
+            view.load(QUrl.fromLocalFile(p))
+            QTimer.singleShot(2800, done)
+        except Exception:
+            callback([])
+
+    def _repair_worker(self, html: str, errors: list, req: str, folder, repairs: int):
+        """把运行报错回传给 AI 修复；修不了就用原版。修完再走一遍 _on_invent_done。"""
+        try:
+            errtext = "\n".join(errors)
+            sys_prompt = (
+                "你是网页游戏开发者。下面的 OpenHam 联机游戏（Phaser 单文件 index.html）"
+                "运行时报了 JS 错误，请修好这些错误，保持规范不变：全局 window.Phaser、"
+                "OpenHam.input(跨平台输入)、房主裁判联机(syncState/onState/sendInput)、"
+                "「重新开始」按钮、Phaser Scale.FIT 适配手机；不要引用任何外部资源。"
+                "只输出修复后的完整 HTML，从 <!DOCTYPE html> 到 </html>，不要解释、不要代码围栏。"
+            )
+            user_msg = f"运行时报错：\n{errtext}\n\n当前游戏 index.html：\n{html}"
+            fixed = call_deepseek_sync(user_msg, app_config.get_api_key(), sys_prompt, max_tokens=32768)
+            fixed = self._extract_html(fixed)
+            if "<html" not in fixed.lower():
+                fixed = html   # 修复失败 → 用原版
+        except Exception:
+            fixed = html
+        self._invent_done.emit({"ok": True, "html": fixed, "req": req,
+                                "folder": folder, "_repairs": repairs})
+
+    def _finish_invent(self, result: dict):
+        self.lib_btn.setEnabled(True)
+        self._render_status()
         from core import game_library
         folder = result.get("folder")
         if folder:   # 修改模式：覆盖原游戏

@@ -1,0 +1,6 @@
+{
+  "name": "弹球对战",
+  "entry": "index.html",
+  "version": "1.0",
+  "players": { "min": 2, "max": 2 }
+}

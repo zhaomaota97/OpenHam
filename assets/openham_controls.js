@@ -113,6 +113,47 @@
     pressed: function (name) { if (edge[name]) { edge[name] = false; return true; } return false; },
   };
 
+  // ── 联机助手（房主裁判模式的高层封装，省得每个游戏手写）────────────
+  OH.players = [];   // [{id,name}]，含自己；平台自动维护
+  OH._joinCb = null; OH._stateCb = null; OH._inputCb = null;
+
+  function addPlayer(id, name) {
+    if (!id) return false;
+    for (var i = 0; i < OH.players.length; i++) {
+      if (OH.players[i].id === id) { OH.players[i].name = name; return false; }
+    }
+    OH.players.push({ id: id, name: name });
+    return true;
+  }
+
+  OH.onJoin = function (cb) { OH._joinCb = cb; return OH; };   // 房主：新人加入(可在此广播状态给他)
+  OH.onState = function (cb) { OH._stateCb = cb; return OH; }; // 非房主：收到房主的权威状态
+  OH.onInput = function (cb) { OH._inputCb = cb; return OH; }; // 房主：收到某玩家输入 cb(id, input)
+  OH.syncState = function (s) { if (OH.isHost && OH.send) OH.send({ __oh: 'state', s: s }); }; // 房主广播状态
+  OH.sendInput = function (i) { if (OH.send) OH.send({ __oh: 'input', id: OH.me, i: i }); };    // 玩家把输入发给房主
+
+  // 平台内部消息路由（桥收到 __oh 前缀的消息会调这里，不会传给游戏的 OpenHam.on）
+  OH._onmsg = function (o) {
+    if (o.__oh === 'hello') {
+      var isNew = addPlayer(o.id, o.name);
+      if (OH.isHost) {
+        OH.send({ __oh: 'roster', players: OH.players });        // 把最新名单广播给所有人
+        if (isNew && OH._joinCb) OH._joinCb({ id: o.id, name: o.name });
+      }
+    } else if (o.__oh === 'roster') {
+      OH.players = o.players || OH.players;
+    } else if (o.__oh === 'state') {
+      if (OH._stateCb) OH._stateCb(o.s);
+    } else if (o.__oh === 'input') {
+      if (OH.isHost && OH._inputCb) OH._inputCb(o.id, o.i);
+    }
+  };
+  // 桥就绪后由桥调用：把自己加进名单并向全员握手
+  OH._onready = function () {
+    addPlayer(OH.me, OH.name);
+    if (OH.send) OH.send({ __oh: 'hello', id: OH.me, name: OH.name });
+  };
+
   // 每帧把方向汇总到 input.x / input.y（摇杆优先，否则键盘）
   function loop() {
     var k = keyDir();

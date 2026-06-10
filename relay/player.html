@@ -200,8 +200,9 @@ async function runGame(buf){
       OH.send=function(o){ parent.postMessage({__oh:1,payload:o},"*"); };
       OH.on=function(cb){ this._cbs.push(cb); };
       window.addEventListener("message",function(e){ var d=e.data; if(!d||!d.__oh_in) return;
-        (window.OpenHam._cbs||[]).forEach(function(cb){ try{cb(d.payload);}catch(err){console.error(err);} }); });
-      document.addEventListener("DOMContentLoaded",function(){ if (typeof window.OpenHamReady==="function") window.OpenHamReady(); });
+        var o=d.payload; if(o&&o.__oh){ if(OH._onmsg) OH._onmsg(o); return; }
+        (window.OpenHam._cbs||[]).forEach(function(cb){ try{cb(o);}catch(err){console.error(err);} }); });
+      document.addEventListener("DOMContentLoaded",function(){ if(OH._onready) OH._onready(); if (typeof window.OpenHamReady==="function") window.OpenHamReady(); });
     })();
   <\/script>`;
   $("game").srcdoc=libs+bridge+html;

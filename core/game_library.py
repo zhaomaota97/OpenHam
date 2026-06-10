@@ -15,7 +15,8 @@ from core import game_package
 _LIB = "my_games"
 _LEGACY = "invented_games"
 _BUILTIN = "games"          # 安装包自带的游戏（井字棋等），首次运行导入到用户库
-_MARKER = ".builtins_v1"
+_MARKER = ".builtins.json"  # 记录已导入过哪些自带游戏（按源文件夹名）
+_MARKER_V1 = ".builtins_v1" # 旧版标记：那时只有井字棋
 
 
 def _lib_dir() -> str:
@@ -29,25 +30,41 @@ def _safe(name: str) -> str:
 
 
 def ensure_builtins():
-    """首次运行时，把安装包自带的游戏（games/）导入到用户游戏库，只做一次。
-    用户之后删了也不会再被导入（靠 marker 标记）。"""
-    marker = os.path.join(_lib_dir(), _MARKER)
+    """把安装包自带的游戏（games/）按需导入用户库：每个自带游戏只导入一次。
+    新增了自带游戏（如后来加的 Phaser 弹球）时，老用户也会被补导入，
+    但已导入/被用户删掉的不会重复导入（按源文件夹名记录）。"""
+    lib = _lib_dir()
+    marker = os.path.join(lib, _MARKER)
+    imported = []
     if os.path.exists(marker):
-        return
+        try:
+            with open(marker, "r", encoding="utf-8") as f:
+                imported = json.load(f) or []
+        except Exception:
+            imported = []
+    elif os.path.exists(os.path.join(lib, _MARKER_V1)):
+        imported = ["tictactoe"]   # 旧版（v1）那时已导入的只有井字棋
+
     src_root = os.path.join(_base_dir(), _BUILTIN)
+    changed = not os.path.exists(marker)
     if os.path.isdir(src_root):
         for fn in sorted(os.listdir(src_root)):
+            if fn in imported:
+                continue
             folder = os.path.join(src_root, fn)
             if os.path.isdir(folder) and os.path.isfile(os.path.join(folder, "index.html")):
                 try:
                     import_folder(folder)
                 except Exception:
                     pass
-    try:
-        with open(marker, "w", encoding="utf-8") as f:
-            f.write("1")
-    except Exception:
-        pass
+                imported.append(fn)   # 记下（即使失败也别反复尝试）
+                changed = True
+    if changed:
+        try:
+            with open(marker, "w", encoding="utf-8") as f:
+                json.dump(imported, f)
+        except Exception:
+            pass
 
 
 def list_games() -> list:
