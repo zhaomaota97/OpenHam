@@ -10,7 +10,8 @@
 <script>
 // 双人弹球对战（Pong）—— OpenHam 联机示范游戏
 // 房主裁判：房主跑物理并广播状态，非房主发输入+渲染。手机用虚拟摇杆上下控制球拍。
-const W = 800, H = 450, PW = 14, PH = 92, BR = 10, PAD = 26, SPD = 430, WIN = 5;
+// 用 1600×900 高分辨率设计坐标：FIT 会按比例缩小到窗口，画面始终清晰不糊。
+const W = 1600, H = 900, PW = 28, PH = 184, BR = 20, PAD = 52, SPD = 860, WIN = 5;
 let scene, gL, gR, gBall, scoreTxt, msgTxt;
 let state = { lY: H / 2, rY: H / 2, bx: W / 2, by: H / 2, bvx: 0, bvy: 0, sL: 0, sR: 0, started: false };
 let inputs = {};   // id -> dir(-1..1)，房主收集
@@ -31,13 +32,13 @@ function fullReset() {
 
 function create() {
   scene = this;
-  this.add.rectangle(W / 2, H / 2, 4, H, 0x222831);
+  this.add.rectangle(W / 2, H / 2, 8, H, 0x222831);
   gL = this.add.rectangle(PAD, H / 2, PW, PH, 0x6ca9ff);
   gR = this.add.rectangle(W - PAD, H / 2, PW, PH, 0xff8a6c);
   gBall = this.add.circle(W / 2, H / 2, BR, 0xffffff);
-  scoreTxt = this.add.text(W / 2, 26, '0 : 0', { fontSize: '30px', color: '#cfd6e0' }).setOrigin(0.5);
-  msgTxt = this.add.text(W / 2, H / 2, '', { fontSize: '22px', color: '#9aa3b0' }).setOrigin(0.5);
-  this.add.text(12, 12, '↻ 重新开始', { fontSize: '17px', backgroundColor: '#222831', color: '#fff', padding: 7 })
+  scoreTxt = this.add.text(W / 2, 52, '0 : 0', { fontSize: '60px', color: '#cfd6e0' }).setOrigin(0.5);
+  msgTxt = this.add.text(W / 2, H / 2, '', { fontSize: '44px', color: '#9aa3b0' }).setOrigin(0.5);
+  this.add.text(24, 24, '↻ 重新开始', { fontSize: '34px', backgroundColor: '#222831', color: '#fff', padding: 14 })
     .setInteractive({ useHandCursor: true }).setDepth(99)
     .on('pointerdown', () => OpenHam.send({ t: 'reset' }));
 
@@ -97,7 +98,9 @@ function render() {
 
 new Phaser.Game({
   type: Phaser.AUTO, parent: document.body,
-  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, width: W, height: H },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH,
+           width: W, height: H, autoRound: false },
+  render: { antialias: true, antialiasGL: true, roundPixels: false },
   backgroundColor: '#101216', scene: { create, update },
 });
 </script>

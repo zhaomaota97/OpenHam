@@ -401,7 +401,8 @@ class MultiplayerWindow(OpenHamWindowBase):
                     "平台已注入全局 window.Phaser（Phaser 3 引擎）、OpenHam（联机桥）、"
                     "OpenHam.input（跨平台输入：手机虚拟摇杆/电脑键盘）——直接用，别引外部资源。"
                     "保留「重新开始」按钮（任何玩家点击 OpenHam.send({t:'reset'}) 广播全员重置）；"
-                    "绝不卡死；用 Phaser Scale.FIT 适配手机。只输出修改后的完整 HTML，"
+                    "绝不卡死；用 Phaser Scale.FIT + 内部分辨率 1600×900 + render.antialias 适配手机且清晰不糊。"
+                    "只输出修改后的完整 HTML，"
                     "从 <!DOCTYPE html> 到 </html>，不要解释、不要 markdown 代码围栏。"
                 )
                 user_msg = f"修改要求：{req}\n\n当前游戏的完整 index.html：\n{base_html}"
@@ -419,7 +420,8 @@ class MultiplayerWindow(OpenHamWindowBase):
                     "有 hello 握手、超过 players.max 的人观战、新人由房主补发状态。\n"
                     "4. 必须有始终可见的「重新开始」按钮，任何玩家点击都 OpenHam.send({t:'reset'}) 广播，"
                     "所有人一起重开；绝不卡死（分胜负后能重来、人数不够显示等待、有人退出不死锁）。\n"
-                    "5. 用 Phaser Scale.FIT 自适应铺满屏幕，手机横竖屏都能玩。\n"
+                    "5. 用 Phaser Scale.FIT 自适应铺满屏幕，手机横竖屏都能玩；内部分辨率必须用 "
+                    "1600×900（高清设计坐标，FIT 缩放后清晰不糊），并加 render:{antialias:true}。\n"
                     "只输出完整 HTML，从 <!DOCTYPE html> 到 </html>，不要任何解释、不要 markdown 代码围栏。\n\n"
                     + self._load_game_guide()
                 )

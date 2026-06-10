@@ -94,7 +94,10 @@ class _Bridge(QObject):
 class GameWindow(OpenHamWindowBase):
     def __init__(self, on_game_send, on_chat_send=None):
         """on_game_send(obj): 游戏 JS 发来的操作；on_chat_send(text): 游戏页内发言。"""
-        super().__init__(title="游戏", shadow_size=0, min_w=820, min_h=620)
+        # 内容区按 16:9 设计：游戏（Phaser Scale.FIT）能铺满窗口、几乎不留黑边。
+        # min 偏大 + 初始更大，避免画面看着小；窗口可随意拖拽缩放，游戏自动跟着放大。
+        super().__init__(title="游戏", shadow_size=0, min_w=900, min_h=600)
+        self.resize(1120, 700)
         self.title_lbl.setText("游戏")
         self._on_chat_send = on_chat_send
 
