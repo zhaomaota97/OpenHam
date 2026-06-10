@@ -17,6 +17,30 @@ _LEGACY = "invented_games"
 _BUILTIN = "games"          # 安装包自带的游戏（井字棋等），首次运行导入到用户库
 _MARKER = ".builtins.json"  # 记录已导入过哪些自带游戏（按源文件夹名）
 _MARKER_V1 = ".builtins_v1" # 旧版标记：那时只有井字棋
+# 已下架的旧自带游戏（曾导入用户库，现一次性清理掉）。导入副本名形如 "pong_0610_1200"，
+# 按源文件夹名前缀识别即可，不会误删用户自己发明的游戏。
+_RETIRED = ["pong", "neon", "moba", "arena"]
+_RETIRED_TAG = ".retired_v1"
+
+
+def _retire_old_builtins(lib: str):
+    """一次性把下架的自带游戏从用户库删掉（用 .retired_v1 标记，确保只跑一次，
+    之后用户即使再造同名游戏也不会被误删）。"""
+    tag = os.path.join(lib, _RETIRED_TAG)
+    if os.path.exists(tag):
+        return
+    prefixes = tuple(r + "_" for r in _RETIRED)
+    try:
+        for fn in os.listdir(lib):
+            if fn.startswith(prefixes) and os.path.isdir(os.path.join(lib, fn)):
+                shutil.rmtree(os.path.join(lib, fn), ignore_errors=True)
+    except Exception:
+        pass
+    try:
+        with open(tag, "w", encoding="utf-8") as f:
+            f.write("1")
+    except Exception:
+        pass
 
 
 def _lib_dir() -> str:
@@ -34,6 +58,7 @@ def ensure_builtins():
     新增了自带游戏（如后来加的 Phaser 弹球）时，老用户也会被补导入，
     但已导入/被用户删掉的不会重复导入（按源文件夹名记录）。"""
     lib = _lib_dir()
+    _retire_old_builtins(lib)          # 先清理已下架的旧自带游戏（一次性）
     marker = os.path.join(lib, _MARKER)
     imported = []
     if os.path.exists(marker):

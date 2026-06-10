@@ -137,12 +137,10 @@ new Phaser.Game({ type:Phaser.AUTO, parent:document.body,
 </script></body></html>
 ```
 
-> 参考实现（都自带、可直接玩）：
-> - 入门：「弹球对战」(games/pong/index.html) —— 最小可联机骨架。
-> - 进阶炫酷：「霓虹星舰·对决」(games/neon/index.html) —— 运行时生成贴图（柔光点/光晕/
->   飞船/星空）、粒子尾焰+爆炸、视差星空、震屏，全程无任何外链素材，是「精美特效」的范本。
->   想要有 wow 感时，照它的做法：用 `s.make.graphics(...).generateTexture(key,w,h)` 生成贴图，
->   用 `this.add.particles(x,y,key,{blendMode:'ADD',...})` 做发光粒子，`cameras.main.shake()` 震屏。
+> 想要画面有 wow 感（全程不要依赖任何外链素材）：
+> - 用 `s.make.graphics(...).generateTexture(key,w,h)` 在运行时生成贴图（柔光点/光晕/精灵/星空）；
+> - 用 `this.add.particles(x,y,key,{blendMode:'ADD',...})` 做发光粒子（尾焰/爆炸）；
+> - 用 `this.cameras.main.shake()` 做震屏，用 TileSprite 滚动做视差背景。
 
 ## 8. 产出前自检
 

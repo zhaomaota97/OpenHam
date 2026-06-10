@@ -27,7 +27,8 @@ _SKIP = ["runtime", ".env", "user_settings.json", "openham.log",
 
 # 旧版遗留、新版已删除的路径：增量更新只会覆盖/新增文件，不会删文件，
 # 这里在更新时主动清理它们，避免安装目录残留旧目录。
-_OBSOLETE = ["examples"]
+_OBSOLETE = ["examples", "plugins/translate.py",
+             "games/pong", "games/neon", "games/moba", "games/arena"]
 
 
 def _cleanup_obsolete(base: str):
