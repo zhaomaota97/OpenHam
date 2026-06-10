@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>峡谷对决 · 3v3</title>
+<style>html,body{margin:0;height:100%;background:#070a12;overflow:hidden}</style>
+</head>
+<body>
+<script>
+/* 峡谷对决 · 3v3 —— OpenHam「王者荣耀」式团队 MOBA 示范
+   房主裁判：房主跑全部物理/兵线/防御塔/野怪/技能/AI/结算并广播 state，非房主发输入+渲染。
+   玩法：3 路兵线、3v3 团战（空位由 AI 机器人补满，单人也能开打），打野拿 buff、击杀主宰，
+        补刀升级变强，推塔→拆掉对方水晶者获胜。
+   操控：左摇杆/WASD 移动（不动时自动瞄准最近敌人）；普攻自动补兵/攻击；技能1/2/3=各英雄招式；
+        屏幕左上「回城」键回基地回血。电脑：空格=普攻 J=技能1 K=技能2 L=技能3，点「回城」回城。*/
+const W = 1600, H = 900, MARGIN = 22;
+const BLUE = 0x49b6ff, RED = 0xff5c7a;
+const LY = [H*0.2, H*0.5, H*0.8];                 // 上/中/下 三路
+const TICK_HZ = 20, GOLD_TRICKLE = 2.2, RESP_BASE = 6;
+const CR = 22, KILL_BOUNTY = 150, ASSIST = 60;
+const TOWER = { hp: 1150, range: 300, dmg: 85, cd: 0.85, r: 32 };
+const CRYS  = { hp: 1500, r: 46 };
+const MIN = { hp: 92, dmg: 10, cd: 1.0, spd: 96, aggro: 230, atk: 60, r: 13, bounty: 22, range:200 };
+const WAVE_T = 12, WAVE_N = 3, MIN_CAP = 6;       // 每路每方上限
+const JG = { buffHp: 520, lordHp: 2600, resp: 50, lordResp: 75, buffTime: 70, lordTime: 45 };
+// 英雄职业
+const CLASS = {
+  mk: { nm:'射手', mh:540, ad:18, rng:360, acd:0.58, spd:330, melee:false, c:[3.0,7,20],
+        sk:['普攻','神射','跃迁','弹幕'] },
+  mg: { nm:'法师', mh:560, ad:16, rng:330, acd:0.74, spd:318, melee:false, c:[3.6,9,18],
+        sk:['普攻','火球','寒域','陨石'] },
+  ft: { nm:'战士', mh:780, ad:21, rng:128, acd:0.52, spd:352, melee:true, c:[5,7,15],
+        sk:['普攻','突进','旋风','怒吼'] },
+};
+const SLOTS = ['b1','r1','b2','r2','b3','r3'];     // 加入顺序→蓝红交替分队
+const SLOT_INFO = { b1:{s:'b',cls:'mk',lane:0}, b2:{s:'b',cls:'mg',lane:1}, b3:{s:'b',cls:'ft',lane:2},
+                    r1:{s:'r',cls:'mk',lane:0}, r2:{s:'r',cls:'mg',lane:1}, r3:{s:'r',cls:'ft',lane:2} };
+const BOTNAME = { b1:'电脑·蓝弓', b2:'电脑·蓝法', b3:'电脑·蓝刀', r1:'电脑·红弓', r2:'电脑·红法', r3:'电脑·红刀' };
+
+let scene, mIdC = 1, bIdC = 1, sinceSync = 0;
+let state = null;
+let inputs = {};
+// 渲染
+let g, gfx, heroSpr = {}, msgTxt, hudTxt, abilTxt = [], feedTxt = [], boom = {},
+    prevAlive = {}, prevMin = {}, seenFx = {};
+let localRecall = false;
+
+function dist(ax,ay,bx,by){ return Math.hypot(ax-bx, ay-by); }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function rnd(a,b){ return a + Math.random()*(b-a); }
+function hx(c){ return '#' + c.toString(16).padStart(6,'0'); }
+function eside(s){ return s==='b'?'r':'b'; }
+function baseX(s){ return s==='b'?110:W-110; }
+function crysX(s){ return s==='b'?130:W-130; }
+function towerXFor(s){ return s==='b'? W*0.34 : W*0.66; }
+function pointSeg(px,py, ax,ay,bx,by){ const dx=bx-ax,dy=by-ay,L2=dx*dx+dy*dy||1;
+  let t=clamp(((px-ax)*dx+(py-ay)*dy)/L2,0,1); return Math.hypot(px-(ax+dx*t), py-(ay+dy*t)); }
+
+/* ===================== 初始化状态（房主） ===================== */
+function newHero(slot){
+  const inf = SLOT_INFO[slot], cl = CLASS[inf.cls];
+  return { slot, s:inf.s, cls:inf.cls, lane:inf.lane, owner:null,
+    x: inf.s==='b'? 180 : W-180, y: LY[inf.lane], a: inf.s==='b'?0:Math.PI,
+    hp:cl.mh, mh:cl.mh, ad:cl.ad, lv:1, g:0, al:true, rt:0,
+    c1:0,c2:0,c3:0, ac:0, k:0, d:0,
+    shB:0, slowT:0, hasteT:0, atkB:0, cdrB:0, rec:false, cb:0, _lhp:cl.mh };
+}
+function makeState(){
+  const st = { heroes:{}, minions:[], bolts:[], zones:[], jungle:[], wave:2.5, t:0,
+    towers:{}, crys:{}, downB:0, downR:0, lord:{s:null,t:0}, feed:[],
+    started:false, winner:null, fb:false };
+  SLOTS.forEach(slot => st.heroes[slot] = newHero(slot));
+  for(const s of ['b','r']) for(let l=0;l<3;l++)
+    st.towers[s+l] = { x:towerXFor(s), y:LY[l], hp:TOWER.hp, mh:TOWER.hp, s, lane:l, cd:0 };
+  st.crys.b = { x:crysX('b'), y:H/2, hp:CRYS.hp, mh:CRYS.hp, s:'b' };
+  st.crys.r = { x:crysX('r'), y:H/2, hp:CRYS.hp, mh:CRYS.hp, s:'r' };
+  st.jungle = [
+    { i:1, x:W*0.5, y:H*0.31, h:JG.lordHp, mh:JG.lordHp, type:'lord', rt:0 },
+    { i:2, x:W*0.33, y:H*0.66, h:JG.buffHp, mh:JG.buffHp, type:'atk',  rt:0 },
+    { i:3, x:W*0.67, y:H*0.66, h:JG.buffHp, mh:JG.buffHp, type:'cdr',  rt:0 },
+  ];
+  return st;
+}
+function assignSeats(){
+  const ps = OpenHam.players.slice(0, 6);
+  // 清掉旧 owner
+  for(const slot in state.heroes) state.heroes[slot].owner = null;
+  ps.forEach((p,i) => { const slot = SLOTS[i]; if(state.heroes[slot]) state.heroes[slot].owner = p.id; });
+}
+function fullReset(){
+  state = makeState();
+  assignSeats();
+  state.started = OpenHam.players.length >= 1;   // 人不够由机器人补满，单人即可开打
+}
+function heroName(h){ if(h.owner){ const p=OpenHam.players.find(p=>p.id===h.owner); if(p) return p.name; } return BOTNAME[h.slot]; }
+function teamHeroes(side){ return SLOTS.map(s=>state.heroes[s]).filter(h=>h.s===side); }
+function exposed(side){ return side==='b'? state.downB>0 : state.downR>0; }   // 水晶是否可被破坏
+
+/* ===================== 房主：每帧推进 ===================== */
+function levelUp(h){ const want=Math.min(15, 1+Math.floor(h.g/100));
+  while(h.lv<want){ h.lv++; h.mh+=70; h.hp+=70; h.ad+=6; } }
+function feed(t){ state.feed.unshift({ t, life:4.5 }); if(state.feed.length>5) state.feed.pop(); }
+
+function spawnWaves(){
+  // 随时间逐渐变强（超级兵），并加入随机抖动→打破对称、让兵线推进、保证比赛能分出胜负
+  const grow = 1 + Math.min(2.8, state.t/130);
+  for(const s of ['b','r']) for(let l=0;l<3;l++){
+    let alive = state.minions.filter(m=>m.s===s && m.lane===l).length;
+    const lb = (state.lord.s===s ? 1.4 : 1) * grow;
+    const wn = 2 + (Math.random()<0.55?1:0);    // 每波 2~3 只，制造兵力差
+    for(let k=0;k<wn && alive<MIN_CAP; k++, alive++){
+      const jit = rnd(0.9,1.12);
+      state.minions.push({ i:mIdC++, x:baseX(s)+(s==='b'?1:-1)*(60+k*42), y:LY[l]+(k-1)*26,
+        h:MIN.hp*lb*jit, mh:MIN.hp*lb*jit, dmg:MIN.dmg*lb*jit, s, lane:l, cd:0 });
+    }
+  }
+}
+function hurtMinion(m, dmg, srcId){
+  if(m.h<=0) return false; m.h-=dmg;
+  if(m.h<=0){ const h=srcId&&state.heroes[srcId]; if(h) h.g+=MIN.bounty; return true; }
+  return false;
+}
+function damageHero(h, dmg, srcSlot){
+  if(!h.al) return;
+  if(h.shB>0){ const a=Math.min(h.shB,dmg); h.shB-=a; dmg-=a; }
+  h.hp-=dmg; h.rec=false;                          // 受击打断回城
+  if(h.hp<=0){
+    h.al=false; h.d++; h.rt=RESP_BASE + h.lv*0.6;
+    const k = srcSlot && state.heroes[srcSlot];
+    if(k){ k.g+=KILL_BOUNTY; k.k++;
+      if(!state.fb){ state.fb=true; feed('🩸 First Blood！'+heroName(k)+' 拿下一血'); }
+      else feed('⚔ '+heroName(k)+' 击杀了 '+heroName(h));
+      // 助攻：同队其他在场英雄给点钱
+      teamHeroes(k.s).forEach(a=>{ if(a!==k && a.al && dist(a.x,a.y,h.x,h.y)<700) a.g+=ASSIST; });
+    }
+  }
+}
+function applyAoE(x,y,r,dmg,side,srcSlot,hitTower){
+  const en=eside(side);
+  for(const m of state.minions){ if(m.s===en && dist(x,y,m.x,m.y)<r+MIN.r) hurtMinion(m,dmg,srcSlot); }
+  for(const slot of SLOTS){ const h=state.heroes[slot]; if(h.s===en && h.al && dist(x,y,h.x,h.y)<r+CR) damageHero(h,dmg,srcSlot); }
+  for(const j of state.jungle){ if(j.h>0 && dist(x,y,j.x,j.y)<r+34) hurtJungle(j,dmg,srcSlot); }
+  state.bolts.push({ i:bIdC++, k:'blast', x, y, r, s:side, life:0.32 });
+}
+function hurtJungle(j, dmg, srcSlot){
+  if(j.h<=0) return; j.h-=dmg;
+  if(j.h<=0){ j.rt = j.type==='lord'?JG.lordResp:JG.resp;
+    const k=srcSlot&&state.heroes[srcSlot]; if(k){
+      if(j.type==='lord'){ state.lord={s:k.s,t:JG.lordTime}; teamHeroes(k.s).forEach(a=>a.g+=120); feed('👑 '+heroName(k)+' 击杀主宰！'+(k.s==='b'?'蓝':'红')+'方兵线强化'); }
+      else if(j.type==='atk'){ k.atkB=JG.buffTime; feed('🔴 '+heroName(k)+' 拿到红buff'); }
+      else { k.cdrB=JG.buffTime; feed('🔵 '+heroName(k)+' 拿到蓝buff'); }
+    }
+  }
+}
+function hurtTower(tw, dmg, side){          // side=攻击方
+  if(tw.hp<=0) return; tw.hp-=dmg;
+  if(tw.hp<=0){ if(tw.s==='b') state.downB++; else state.downR++;
+    feed('🗼 '+(side==='b'?'蓝':'红')+'方推掉一座防御塔'); }
+}
+function hurtCrys(cr, dmg, side){
+  if(cr.hp<=0 || !exposed(cr.s)) return; cr.hp-=dmg;
+  if(cr.hp<=0) winBy(eside(cr.s));
+}
+function winBy(side){ if(state.winner) return; state.winner=side; state.started=false;
+  feed('🏆 '+(side==='b'?'蓝':'红')+'方摧毁了水晶，获胜！'); }
+
+// 通用：选普攻目标（残血兵优先→塔→水晶→敌方英雄），返回 {kind,obj} 或 null
+function pickAtkTarget(h){
+  const en=eside(h.s), R=CLASS[h.cls].rng;
+  let mt=null, best=1e9;
+  for(const m of state.minions){ if(m.s!==en||m.h<=0) continue; if(dist(h.x,h.y,m.x,m.y)<R && m.h<best){ best=m.h; mt=m; } }
+  if(mt) return { kind:'min', o:mt };
+  // 范围内有无敌方英雄（决定能否打塔/水晶）
+  let eh=null, ed=1e9;
+  for(const slot of SLOTS){ const o=state.heroes[slot]; if(o.s!==en||!o.al) continue; const d=dist(h.x,h.y,o.x,o.y); if(d<R&&d<ed){ed=d;eh=o;} }
+  for(const j of state.jungle){ if(j.h>0 && dist(h.x,h.y,j.x,j.y)<R) return { kind:'jg', o:j }; }
+  const tw = nearestEnemyTower(h);
+  if(tw && dist(h.x,h.y,tw.x,tw.y)<R && !eh) return { kind:'tw', o:tw };
+  const cr = state.crys[en];
+  if(exposed(en) && dist(h.x,h.y,cr.x,cr.y)<R && !eh) return { kind:'cr', o:cr };
+  if(eh) return { kind:'hero', o:eh };
+  return null;
+}
+function nearestEnemyTower(h){ const en=eside(h.s); let tw=null,td=1e9;
+  for(const k in state.towers){ const t=state.towers[k]; if(t.s!==en||t.hp<=0) continue; const d=dist(h.x,h.y,t.x,t.y); if(d<td){td=d;tw=t;} }
+  return tw; }
+function nearestEnemyHero(h, maxd){ const en=eside(h.s); let o=null,od=maxd||1e9;
+  for(const slot of SLOTS){ const e=state.heroes[slot]; if(e.s!==en||!e.al) continue; const d=dist(h.x,h.y,e.x,e.y); if(d<od){od=d;o=e;} }
+  return o?{o,d:od}:null; }
+
+function basicAttack(h){
+  const t = pickAtkTarget(h); if(!t) return;
+  const dmg = h.ad*(h.atkB>0?1.3:1);
+  if(t.kind==='min') hurtMinion(t.o,dmg,h.slot);
+  else if(t.kind==='hero') damageHero(t.o,dmg,h.slot);
+  else if(t.kind==='jg') hurtJungle(t.o,dmg,h.slot);
+  else if(t.kind==='tw') hurtTower(t.o,dmg,h.s);
+  else if(t.kind==='cr') hurtCrys(t.o,dmg,h.s);
+  h.ac = CLASS[h.cls].acd;
+  state.bolts.push({ i:bIdC++, k:'atk', x:h.x, y:h.y, tx:t.o.x, ty:t.o.y, s:h.s, life:0.1 });
+}
+function castSkill(h, n){
+  const c = CLASS[h.cls], dmgScale = h.atkB>0?1.3:1;
+  const cdMul = h.cdrB>0?1.5:1;
+  if(h.cls==='mk'){
+    if(n===1){ h.c1=c.c[0]/cdMul; state.bolts.push({i:bIdC++,k:'q',x:h.x+Math.cos(h.a)*26,y:h.y+Math.sin(h.a)*26,a:h.a,s:h.s,o:h.slot,dmg:(26+h.ad)*dmgScale,life:1.0}); }
+    else if(n===2){ h.c2=c.c[1]/cdMul; h.x=clamp(h.x+Math.cos(h.a)*250,MARGIN+CR,W-MARGIN-CR); h.y=clamp(h.y+Math.sin(h.a)*250,MARGIN+CR,H-MARGIN-CR); }
+    else { h.c3=c.c[2]/cdMul; const len=1700,ex=h.x+Math.cos(h.a)*len,ey=h.y+Math.sin(h.a)*len,dm=(110+h.ad*1.5)*dmgScale,en=eside(h.s);
+      state.bolts.push({i:bIdC++,k:'beam',x:h.x,y:h.y,a:h.a,len,s:h.s,life:0.24});
+      for(const m of state.minions){ if(m.s===en && pointSeg(m.x,m.y,h.x,h.y,ex,ey)<32+MIN.r) hurtMinion(m,dm,h.slot); }
+      for(const slot of SLOTS){ const o=state.heroes[slot]; if(o.s===en&&o.al&&pointSeg(o.x,o.y,h.x,h.y,ex,ey)<32+CR) damageHero(o,dm,h.slot); } }
+  } else if(h.cls==='mg'){
+    if(n===1){ h.c1=c.c[0]/cdMul; state.bolts.push({i:bIdC++,k:'fb',x:h.x+Math.cos(h.a)*26,y:h.y+Math.sin(h.a)*26,a:h.a,s:h.s,o:h.slot,dmg:(30+h.ad*1.1)*dmgScale,life:0.95}); }
+    else if(n===2){ h.c2=c.c[1]/cdMul; state.zones.push({i:bIdC++,x:h.x+Math.cos(h.a)*240,y:h.y+Math.sin(h.a)*240,r:115,s:h.s,o:h.slot,life:3.2,tick:0,dmg:(9+h.ad*0.2)*dmgScale,slow:true}); }
+    else { h.c3=c.c[2]/cdMul; applyAoE(h.x+Math.cos(h.a)*230,h.y+Math.sin(h.a)*230,150,(95+h.ad*1.5)*dmgScale,h.s,h.slot); }
+  } else {
+    if(n===1){ h.c1=c.c[0]/cdMul; const nx=clamp(h.x+Math.cos(h.a)*270,MARGIN+CR,W-MARGIN-CR),ny=clamp(h.y+Math.sin(h.a)*270,MARGIN+CR,H-MARGIN-CR);
+      h.x=nx; h.y=ny; applyAoE(nx,ny,84,(30+h.ad*1.1)*dmgScale,h.s,h.slot); }
+    else if(n===2){ h.c2=c.c[1]/cdMul; applyAoE(h.x,h.y,135,(24+h.ad*0.95)*dmgScale,h.s,h.slot); }
+    else { h.c3=c.c[2]/cdMul; h.shB=140+h.lv*22; h.hasteT=4; }
+  }
+}
+
+/* ---- 指令：人类=输入，机器人=AI ---- */
+function readLocalInput(){
+  const rc=localRecall; localRecall=false;
+  return { x:OpenHam.input.x, y:OpenHam.input.y, a:OpenHam.input.down('普攻'),
+    s1:OpenHam.input.down('技能1'), s2:OpenHam.input.down('技能2'), s3:OpenHam.input.down('技能3'), rc };
+}
+function botCmd(h){
+  const cmd = { x:0,y:0,a:h.a,atk:false,s1:false,s2:false,s3:false,rc:false,aim:true };
+  const cl = CLASS[h.cls], en=eside(h.s);
+  const low = h.hp < h.mh*0.28;
+  const eh = nearestEnemyHero(h, 520);
+  // 撤退/回城
+  if(low){ const bx=baseX(h.s); const dx=bx-h.x, dy=H/2-h.y, d=Math.hypot(dx,dy)||1;
+    cmd.x=dx/d; cmd.y=dy/d;
+    if((!eh||eh.d>600) && d<260) cmd.rc=true;
+    if(eh){ cmd.a=Math.atan2(eh.o.y-h.y,eh.o.x-h.x); cmd.atk=eh.d<cl.rng; }
+    return cmd;
+  }
+  // 只有敌方英雄真的逼近才停下对拼，否则一路推线（避免全员中路对峙、兵线永不前进）
+  if(eh && eh.d<340){
+    cmd.a = Math.atan2(eh.o.y-h.y, eh.o.x-h.x);
+    const want = cl.melee? 60 : cl.rng*0.8;
+    const dx=eh.o.x-h.x, dy=eh.o.y-h.y, d=eh.d||1;
+    if(d>want+30){ cmd.x=dx/d; cmd.y=dy/d; } else if(d<want-30){ cmd.x=-dx/d; cmd.y=-dy/d; }
+    cmd.atk = d<cl.rng;
+    cmd.s1=true; cmd.s2 = cl.melee? (d<200):true; cmd.s3 = (d<cl.rng);
+    return cmd;
+  }
+  // 推线：朝敌方水晶方向，沿本路 y
+  const ty = LY[h.lane], tx = crysX(en);
+  const dx=tx-h.x, dy=(ty-h.y), d=Math.hypot(dx,dy)||1;
+  cmd.x=dx/d; cmd.y=clamp(dy/120,-1,1); cmd.a=Math.atan2(cmd.y||0.001, h.s==='b'?1:-1);
+  // 补最近兵 / 推塔
+  const t = pickAtkTarget(h); if(t){ cmd.atk=true; cmd.a=Math.atan2(t.o.y-h.y,t.o.x-h.x); cmd.s1 = (t.kind==='min'||t.kind==='tw'); }
+  return cmd;
+}
+
+function applyHero(h, cmd, dt){
+  const cl=CLASS[h.cls], cdMul=h.cdrB>0?1.5:1;
+  h.c1=Math.max(0,h.c1-dt*cdMul); h.c2=Math.max(0,h.c2-dt*cdMul); h.c3=Math.max(0,h.c3-dt*cdMul);
+  h.ac=Math.max(0,h.ac-dt); h.slowT=Math.max(0,h.slowT-dt); h.hasteT=Math.max(0,h.hasteT-dt);
+  h.atkB=Math.max(0,h.atkB-dt); h.cdrB=Math.max(0,h.cdrB-dt);
+  levelUp(h);
+  if(!h.al){ h.rt-=dt; if(h.rt<=0){ h.al=true; h.hp=h.mh; h.shB=0; h.x=h.s==='b'?180:W-180; h.y=LY[h.lane]; } return; }
+  h.g += GOLD_TRICKLE*dt;
+  const mag=Math.hypot(cmd.x,cmd.y);
+  // 回城
+  if(cmd.rc && !h.rec && h.cb<=0){ const eh=nearestEnemyHero(h,420); if(!eh){ h.rec=true; h.cb=2.5; } }
+  if(h.rec){ if(mag>0.12){ h.rec=false; h.cb=0; } else { h.cb-=dt; if(h.cb<=0){ h.rec=false; h.x=baseX(h.s); h.y=H/2; h.hp=h.mh; h.shB=Math.max(h.shB,0); } } }
+  // 移动
+  if(!h.rec && mag>0.12){ let sp=cl.spd*(h.slowT>0?0.55:1)*(h.hasteT>0?1.3:1);
+    h.x+=(cmd.x/Math.max(1,mag))*sp*dt*Math.min(mag,1)*0+cmd.x*sp*dt; h.y+=cmd.y*sp*dt;
+    h.x=clamp(h.x,MARGIN+CR,W-MARGIN-CR); h.y=clamp(h.y,MARGIN+CR,H-MARGIN-CR);
+    h.a=Math.atan2(cmd.y,cmd.x);
+  } else {
+    const eh=nearestEnemyHero(h, CLASS[h.cls].rng+40); if(eh) h.a=Math.atan2(eh.o.y-h.y,eh.o.x-h.x);
+    else { const t=pickAtkTarget(h); if(t) h.a=Math.atan2(t.o.y-h.y,t.o.x-h.x); }
+  }
+  if(h.rec) return;
+  if(cmd.s1 && h.c1<=0) castSkill(h,1);
+  if(cmd.s2 && h.c2<=0) castSkill(h,2);
+  if(cmd.s3 && h.c3<=0) castSkill(h,3);
+  if(cmd.atk && h.ac<=0) basicAttack(h);
+}
+
+function hostStep(dt){
+  assignSeats();
+  inputs[OpenHam.me] = readLocalInput();
+  if(!state.started) return;
+  state.t += dt;
+  if(state.lord.t>0) state.lord.t-=dt; if(state.lord.t<=0) state.lord.s=null;
+  state.wave-=dt; if(state.wave<=0){ state.wave=WAVE_T; spawnWaves(); }
+  state.feed.forEach(f=>f.life-=dt); state.feed=state.feed.filter(f=>f.life>0);
+
+  // 英雄
+  for(const slot of SLOTS){ const h=state.heroes[slot];
+    const cmd = h.owner ? (inputs[h.owner]||{x:0,y:0}) : botCmd(h);
+    // 统一字段
+    const c2 = { x:cmd.x||0, y:cmd.y||0, a:cmd.a, atk:!!cmd.atk||!!cmd.a, s1:!!cmd.s1, s2:!!cmd.s2, s3:!!cmd.s3, rc:!!cmd.rc };
+    if(h.owner){ c2.atk=!!cmd.a; }   // 人类：'a' 字段是普攻键
+    applyHero(h, c2, dt);
+  }
+
+  // 小兵
+  for(const m of state.minions){ m.cd=Math.max(0,m.cd-dt); const en=eside(m.s);
+    let tg=null,td=1e9;
+    for(const o of state.minions){ if(o.s!==en||o.h<=0) continue; const d=dist(m.x,m.y,o.x,o.y); if(d<td){td=d;tg=o;} }
+    // 也会攻击靠近的敌方英雄
+    let eh=null,ehd=MIN.range;
+    for(const slot of SLOTS){ const o=state.heroes[slot]; if(o.s!==en||!o.al) continue; const d=dist(m.x,m.y,o.x,o.y); if(d<ehd){ehd=d;eh=o;} }
+    const tw=state.towers[en+m.lane], cr=state.crys[en];
+    if(tg && td<MIN.aggro){ if(td>MIN.atk){ const a=Math.atan2(tg.y-m.y,tg.x-m.x); m.x+=Math.cos(a)*MIN.spd*dt; m.y+=Math.sin(a)*MIN.spd*dt; }
+        else if(m.cd<=0){ m.cd=MIN.cd; hurtMinion(tg,m.dmg,null); } }
+    else if(eh && ehd<MIN.atk+6){ if(m.cd<=0){ m.cd=MIN.cd; damageHero(eh,m.dmg*0.6,null); } }
+    else if(tw && tw.hp>0 && Math.abs(m.x-tw.x)<MIN.atk+6 && Math.abs(m.y-tw.y)<70){ if(m.cd<=0){ m.cd=MIN.cd; hurtTower(tw,m.dmg,m.s); } }
+    else if(tw && tw.hp<=0 && exposed(en) && dist(m.x,m.y,cr.x,cr.y)<MIN.atk+CRYS.r){ if(m.cd<=0){ m.cd=MIN.cd; hurtCrys(cr,m.dmg,m.s); } }
+    else { m.x += (m.s==='b'?1:-1)*MIN.spd*dt; m.y += (LY[m.lane]-m.y)*Math.min(1,dt*1.5); }
+  }
+
+  // 防御塔
+  for(const key in state.towers){ const tw=state.towers[key]; if(tw.hp<=0) continue; tw.cd=Math.max(0,tw.cd-dt); if(tw.cd>0) continue;
+    const en=eside(tw.s); let tgt=null,td=TOWER.range;
+    for(const m of state.minions){ if(m.s!==en||m.h<=0) continue; const d=dist(tw.x,tw.y,m.x,m.y); if(d<td){td=d;tgt={m};} }
+    if(!tgt){ for(const slot of SLOTS){ const o=state.heroes[slot]; if(o.s!==en||!o.al) continue; if(dist(tw.x,tw.y,o.x,o.y)<TOWER.range){ tgt={h:o}; break; } } }
+    if(tgt){ tw.cd=TOWER.cd; const o=tgt.m||tgt.h;
+      if(tgt.m) hurtMinion(tgt.m,TOWER.dmg,null); else damageHero(tgt.h,TOWER.dmg,null);
+      state.bolts.push({i:bIdC++,k:'atk',x:tw.x,y:tw.y,tx:o.x,ty:o.y,s:tw.s,life:0.12}); }
+  }
+
+  // 野怪恢复/重生
+  for(const j of state.jungle){ if(j.h<=0){ j.rt-=dt; if(j.rt<=0) j.h=j.mh; } }
+
+  // 区域技能（寒域等）
+  for(const z of state.zones){ z.life-=dt; z.tick-=dt; const en=eside(z.s);
+    if(z.tick<=0){ z.tick=0.4;
+      for(const m of state.minions){ if(m.s===en && dist(z.x,z.y,m.x,m.y)<z.r+MIN.r) hurtMinion(m,z.dmg,z.o); }
+      for(const slot of SLOTS){ const o=state.heroes[slot]; if(o.s===en&&o.al&&dist(z.x,z.y,o.x,o.y)<z.r+CR){ damageHero(o,z.dmg,z.o); if(z.slow) o.slowT=0.6; } }
+    }
+  }
+  state.zones=state.zones.filter(z=>z.life>0);
+
+  // 子弹
+  const keep=[];
+  for(const b of state.bolts){ b.life-=dt;
+    if(b.k==='q'||b.k==='fb'){ const sp=b.k==='q'?1250:1050; b.x+=Math.cos(b.a)*sp*dt; b.y+=Math.sin(b.a)*sp*dt;
+      if(b.life<=0||b.x<MARGIN||b.x>W-MARGIN||b.y<MARGIN||b.y>H-MARGIN){ if(b.k==='fb'&&b.life<=0) applyAoE(b.x,b.y,90,b.dmg,b.s,b.o); continue; }
+      let hit=false; const en=eside(b.s);
+      for(const m of state.minions){ if(m.s!==en||m.h<=0) continue; if(dist(b.x,b.y,m.x,m.y)<16+MIN.r){ hit=true; break; } }
+      if(!hit) for(const slot of SLOTS){ const o=state.heroes[slot]; if(o.s===en&&o.al&&dist(b.x,b.y,o.x,o.y)<16+CR){ hit=true; break; } }
+      if(!hit){ const tw=state.towers[en+0]; }   // (塔命中在下方统一判)
+      if(!hit){ for(const key in state.towers){ const tw=state.towers[key]; if(tw.s===eside(b.s)&&tw.hp>0&&dist(b.x,b.y,tw.x,tw.y)<16+TOWER.r){ hit=true; break; } } }
+      if(hit){ if(b.k==='fb') applyAoE(b.x,b.y,90,b.dmg,b.s,b.o);
+               else { // q：对命中目标结算
+                 const en2=eside(b.s); let done=false;
+                 for(const m of state.minions){ if(m.s===en2&&m.h>0&&dist(b.x,b.y,m.x,m.y)<16+MIN.r){ hurtMinion(m,b.dmg,b.o); done=true; break; } }
+                 if(!done) for(const slot of SLOTS){ const o=state.heroes[slot]; if(o.s===en2&&o.al&&dist(b.x,b.y,o.x,o.y)<16+CR){ damageHero(o,b.dmg,b.o); done=true; break; } }
+                 if(!done) for(const key in state.towers){ const tw=state.towers[key]; if(tw.s===en2&&tw.hp>0&&dist(b.x,b.y,tw.x,tw.y)<16+TOWER.r){ hurtTower(tw,b.dmg,b.s); break; } }
+               }
+        continue;
+      }
+      keep.push(b);
+    } else { if(b.life>0) keep.push(b); }
+  }
+  state.bolts=keep;
+  state.minions=state.minions.filter(m=>m.h>0);
+}
+
+/* ===================== 渲染 ===================== */
+function makeTextures(s){
+  let q=s.make.graphics({add:false});
+  q.fillStyle(0xffffff,0.22);q.fillCircle(8,8,8);q.fillStyle(0xffffff,0.5);q.fillCircle(8,8,5);q.fillStyle(0xffffff,1);q.fillCircle(8,8,2.6);
+  q.generateTexture('spark',16,16);q.destroy();
+  q=s.make.graphics({add:false}); for(let r=32;r>=2;r-=2){q.fillStyle(0xffffff,0.05);q.fillCircle(32,32,r);} q.generateTexture('glow',64,64);q.destroy();
+  q=s.make.graphics({add:false}); q.fillStyle(0xffffff,1);q.fillTriangle(50,20,8,4,8,36);q.fillStyle(0x000000,0.28);q.fillTriangle(50,20,8,12,8,28); q.generateTexture('ship',56,40);q.destroy();
+  q=s.make.graphics({add:false}); for(let i=0;i<150;i++){q.fillStyle(0xffffff,rnd(0.2,0.65));q.fillCircle(rnd(0,420),rnd(0,420),rnd(0.6,1.5));} q.generateTexture('stars',420,420);q.destroy();
+}
+function create(){
+  scene=this; makeTextures(this);
+  this.add.tileSprite(W/2,H/2,W,H,'stars').setDepth(-20).setAlpha(0.6);
+  const bg=this.add.graphics().setDepth(-12);
+  bg.fillStyle(BLUE,0.05).fillRect(MARGIN,MARGIN,300,H-2*MARGIN);
+  bg.fillStyle(RED,0.05).fillRect(W-MARGIN-300,MARGIN,300,H-2*MARGIN);
+  bg.lineStyle(2,0x223052,0.7).strokeRect(MARGIN,MARGIN,W-2*MARGIN,H-2*MARGIN);
+  bg.lineStyle(60,0x111a2e,0.5); for(const y of LY) bg.lineBetween(MARGIN+40,y,W-MARGIN-40,y);
+  g=this.add.graphics().setDepth(4);
+  gfx=this.add.graphics().setDepth(6);
+  boom.b=this.add.particles(0,0,'spark',{lifespan:{min:280,max:640},speed:{min:120,max:440},scale:{start:1,end:0},alpha:{start:1,end:0},blendMode:'ADD',tint:BLUE,emitting:false}).setDepth(60);
+  boom.r=this.add.particles(0,0,'spark',{lifespan:{min:280,max:640},speed:{min:120,max:440},scale:{start:1,end:0},alpha:{start:1,end:0},blendMode:'ADD',tint:RED,emitting:false}).setDepth(60);
+  hudTxt=this.add.text(W/2,14,'',{fontSize:'26px',fontStyle:'bold',color:'#dfe7ff',align:'center'}).setOrigin(0.5,0).setDepth(100);
+  msgTxt=this.add.text(W/2,H/2-60,'',{fontSize:'42px',fontStyle:'bold',color:'#e6ecff',align:'center'}).setOrigin(0.5).setDepth(100);
+  for(let i=0;i<5;i++) feedTxt.push(this.add.text(W/2,70+i*30,'',{fontSize:'21px',color:'#aebbe0'}).setOrigin(0.5,0).setDepth(100));
+  for(let i=0;i<4;i++) abilTxt.push(this.add.text(0,0,'',{fontSize:'21px',fontStyle:'bold',color:'#dfe7ff',align:'center'}).setOrigin(0.5).setDepth(101));
+
+  this.add.text(28,30,'↻ 重新开始',{fontSize:'24px',backgroundColor:'#1a2440',color:'#cfe0ff',padding:10})
+    .setInteractive({useHandCursor:true}).setDepth(999).on('pointerdown',()=>OpenHam.send({t:'reset'}));
+  this.add.text(28,78,'⌂ 回城',{fontSize:'24px',backgroundColor:'#22305a',color:'#bfe0ff',padding:10})
+    .setInteractive({useHandCursor:true}).setDepth(999).on('pointerdown',()=>{ localRecall=true; });
+  this.add.text(W/2,H-22,'电脑：WASD移动 · 空格=普攻 · J/K/L=技能1/2/3 · 点「回城」回基地',{fontSize:'18px',color:'#566488'}).setOrigin(0.5,1).setDepth(100);
+
+  OpenHam.input.enable({joystick:true,buttons:['普攻','技能1','技能2','技能3']});
+  OpenHam.onInput((id,inp)=>{ inputs[id]=inp; });
+  OpenHam.onState((s)=>{ state=s; });
+  OpenHam.onJoin(()=>{ if(OpenHam.isHost){ if(!state||!state.started) fullReset(); OpenHam.syncState(state); } });
+  OpenHam.on((o)=>{ if(o&&o.t==='reset'&&OpenHam.isHost) fullReset(); });
+  window.OpenHamReady=function(){ if(OpenHam.isHost) fullReset(); };
+}
+
+function mySlot(){ if(!state) return null; for(const slot of SLOTS){ if(state.heroes[slot].owner===OpenHam.me) return slot; } return null; }
+function mySideR(){ const s=mySlot(); return s?state.heroes[s].s:'b'; }
+function barCol(side){ return side===mySideR()?0x57e08a:0xff5b6e; }
+function hpbar(x,y,w,hh,frac,col){ g.fillStyle(0x000,0.55).fillRect(x-w/2-2,y-2,w+4,hh+4); g.fillStyle(0x2a2f3a,1).fillRect(x-w/2,y,w,hh); g.fillStyle(col,1).fillRect(x-w/2,y,w*clamp(frac,0,1),hh); }
+function ensureSpr(slot){ if(heroSpr[slot]) return heroSpr[slot];
+  const glow=scene.add.image(0,0,'glow').setBlendMode(Phaser.BlendModes.ADD).setScale(2.3).setDepth(8);
+  const img=scene.add.image(0,0,'ship').setScale(1.05).setDepth(10);
+  const lab=scene.add.text(0,0,'',{fontSize:'20px',fontStyle:'bold'}).setOrigin(0.5).setDepth(11);
+  return heroSpr[slot]={glow,img,lab}; }
+
+function render(){
+  if(!state){ return; }
+  g.clear(); gfx.clear();
+
+  // 水晶
+  for(const s of ['b','r']){ const cr=state.crys[s], col=s==='b'?BLUE:RED;
+    if(cr.hp>0){ const ex=exposed(s); g.fillStyle(0x0b1020,1).fillCircle(cr.x,cr.y,CRYS.r+8);
+      g.lineStyle(4,ex?col:0x44506e,ex?1:0.6).strokeCircle(cr.x,cr.y,CRYS.r+8);
+      g.fillStyle(col,ex?0.95:0.45).fillCircle(cr.x,cr.y,CRYS.r-4);
+      hpbar(cr.x,cr.y-CRYS.r-30,150,14,cr.hp/cr.mh,barCol(s)); }
+  }
+  // 塔
+  for(const key in state.towers){ const tw=state.towers[key], col=tw.s==='b'?BLUE:RED;
+    if(tw.hp>0){ g.fillStyle(0x0b1020,1).fillCircle(tw.x,tw.y,TOWER.r+5); g.lineStyle(3,col,0.85).strokeCircle(tw.x,tw.y,TOWER.r+5);
+      g.fillStyle(col,0.85).fillCircle(tw.x,tw.y,TOWER.r-6); g.lineStyle(1,col,0.13).strokeCircle(tw.x,tw.y,TOWER.range);
+      hpbar(tw.x,tw.y-TOWER.r-22,110,10,tw.hp/tw.mh,barCol(tw.s)); }
+    else { g.lineStyle(3,0x39414f,0.6).strokeCircle(tw.x,tw.y,TOWER.r+5); }
+  }
+  // 野怪
+  for(const j of state.jungle){ if(j.h<=0) continue; const big=j.type==='lord'; const col=big?0xc792ff:(j.type==='atk'?0xff8a4a:0x4ad6ff);
+    g.fillStyle(col,0.9).fillCircle(j.x,j.y,big?34:22); g.lineStyle(2,0xffffff,0.4).strokeCircle(j.x,j.y,big?34:22);
+    hpbar(j.x,j.y-(big?48:34),big?120:60,big?12:7,j.h/j.mh,0xd9c46b);
+    if(big){ scene; } }
+  if(state.lord.s){ g.fillStyle(state.lord.s==='b'?BLUE:RED,0.08).fillRect(MARGIN,MARGIN,W-2*MARGIN,H-2*MARGIN); }
+
+  // 小兵
+  for(const m of state.minions){ const col=m.s==='b'?BLUE:RED; g.fillStyle(col,1).fillCircle(m.x,m.y,MIN.r); g.fillStyle(0xffffff,0.5).fillCircle(m.x-3,m.y-3,3); hpbar(m.x,m.y-MIN.r-11,28,5,m.h/m.mh,barCol(m.s)); }
+  const nowMin={}; state.minions.forEach(m=>nowMin[m.i]=m);
+  for(const i in prevMin){ if(!nowMin[i]){ const m=prevMin[i]; if(boom[m.s]) boom[m.s].explode(5,m.x,m.y); } } prevMin=nowMin;
+
+  // 区域
+  for(const z of state.zones){ const col=z.s==='b'?BLUE:RED; gfx.fillStyle(col,0.12).fillCircle(z.x,z.y,z.r); gfx.lineStyle(2,col,0.5).strokeCircle(z.x,z.y,z.r); }
+
+  // 子弹/特效
+  for(const b of state.bolts){ const col=b.s==='b'?BLUE:RED;
+    if(b.k==='q'){ gfx.fillStyle(col,0.3).fillCircle(b.x,b.y,14); gfx.fillStyle(0xffffff,1).fillCircle(b.x,b.y,5); }
+    else if(b.k==='fb'){ gfx.fillStyle(0xffae5c,0.5).fillCircle(b.x,b.y,16); gfx.fillStyle(0xffffff,1).fillCircle(b.x,b.y,6); }
+    else if(b.k==='atk'){ gfx.lineStyle(3,col,0.8).lineBetween(b.x,b.y,b.tx,b.ty); }
+    else if(b.k==='blast'){ const f=1-clamp(b.life/0.32,0,1); gfx.lineStyle(6,0xffffff,0.7*(1-f)).strokeCircle(b.x,b.y,b.r*(0.4+0.6*f)); gfx.fillStyle(col,0.18*(1-f)).fillCircle(b.x,b.y,b.r*(0.4+0.6*f)); }
+    else if(b.k==='beam'){ const ex=b.x+Math.cos(b.a)*b.len,ey=b.y+Math.sin(b.a)*b.len;
+      gfx.lineStyle(60,col,0.16).lineBetween(b.x,b.y,ex,ey); gfx.lineStyle(28,col,0.4).lineBetween(b.x,b.y,ex,ey); gfx.lineStyle(8,0xffffff,0.95).lineBetween(b.x,b.y,ex,ey);
+      if(!seenFx[b.i]){ seenFx[b.i]=1; scene.cameras.main.shake(160,0.01); } }
+  }
+
+  // 英雄
+  for(const slot of SLOTS){ const h=state.heroes[slot]; if(!h) continue; const col=h.s==='b'?BLUE:RED, sp=ensureSpr(slot);
+    sp.glow.setPosition(h.x,h.y).setTint(col).setVisible(h.al).setAlpha(h.al?0.55:0);
+    sp.img.setPosition(h.x,h.y).setRotation(h.a).setTint(h.al?col:0x39435e).setAlpha(h.al?1:0.22);
+    sp.lab.setPosition(h.x,h.y-42).setText((h.owner?'':'🤖')+'Lv'+h.lv+' '+heroName(h)).setColor(hx(col)).setAlpha(h.al?0.95:0.4);
+    if(h.al){ hpbar(h.x,h.y+30,82,9,h.hp/h.mh,barCol(h.s)); if(h.shB>0){ g.fillStyle(0xffe27a,0.9).fillRect(h.x-41,h.y+27,82*clamp(h.shB/200,0,1),3); }
+      if(h.rec){ g.lineStyle(3,0x8fe0ff,0.9).strokeCircle(h.x,h.y,30+ (1-h.cb/2.5)*10); } }
+    const pa=prevAlive[slot]; if(pa===true&&!h.al){ if(boom[h.s]) boom[h.s].explode(30,h.x,h.y); scene.cameras.main.shake(200,0.012); } prevAlive[slot]=h.al;
+  }
+
+  // HUD
+  const bk=teamHeroes('b').reduce((a,h)=>a+h.k,0), rk=teamHeroes('r').reduce((a,h)=>a+h.k,0);
+  hudTxt.setText('蓝 '+bk+'  ⚔  '+rk+' 红    主宰:'+(state.lord.s?(state.lord.s==='b'?'蓝':'红')+'方':'未刷'));
+  for(let i=0;i<5;i++) feedTxt[i].setText(state.feed[i]?state.feed[i].t:'');
+
+  // 技能 HUD（自己）
+  const ms=mySlot(), me=ms?state.heroes[ms]:null;
+  const sk = me?CLASS[me.cls].sk:['普攻','技能1','技能2','技能3'];
+  const cds = me?[me.ac,me.c1,me.c2,me.c3]:[0,0,0,0];
+  for(let i=0;i<4;i++){ const bx=W/2-250+i*162, by=H-78, bw=146, bh=54; const ready=!me||cds[i]<=0;
+    g.fillStyle(0x0c1326,0.92).fillRect(bx,by,bw,bh); g.lineStyle(2,ready?0x5cc8ff:0x39435e,0.9).strokeRect(bx,by,bw,bh);
+    if(!ready) g.fillStyle(0x000,0.5).fillRect(bx,by,bw,bh);
+    abilTxt[i].setVisible(!!me).setPosition(bx+bw/2,by+bh/2).setText(ready?sk[i]:sk[i]+' '+cds[i].toFixed(1)).setColor(ready?'#dfe7ff':'#8b97b8'); }
+
+  let m='';
+  if(!state.started && state.winner) m=(state.winner==='b'?'🏆 蓝方':'🏆 红方')+' 摧毁水晶，获胜！\n点「重新开始」再来';
+  else if(!state.started) m='准备…';
+  else if(me && !me.al) m='阵亡，'+Math.ceil(me.rt)+'s 后复活';
+  msgTxt.setText(m);
+}
+
+function update(time,dtms){ const dt=Math.min(0.05,(dtms||16)/1000);
+  if(OpenHam.isHost){ if(!state) fullReset(); hostStep(dt); sinceSync+=dt; if(sinceSync>=1/TICK_HZ){ sinceSync=0; OpenHam.syncState(state); } }
+  else { OpenHam.sendInput(readLocalInput()); }
+  render();
+}
+
+new Phaser.Game({ type:Phaser.AUTO, parent:document.body,
+  scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH,width:W,height:H,autoRound:false},
+  render:{antialias:true,antialiasGL:true,roundPixels:false},
+  backgroundColor:'#070a12', scene:{create,update} });
+</script>
+</body>
+</html>
