@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>霓虹飙车 · 俯视赛车</title>
+<style>html,body{margin:0;height:100%;background:#070a12;overflow:hidden}</style>
+</head>
+<body>
+<script>
+/* 霓虹飙车 · 俯视赛车 —— OpenHam 1~4 人联机示范（不足 4 人由电脑补齐）
+   房主裁判：房主跑全部车辆物理/检查点/名次/碰撞并广播 state，非房主发输入+渲染。
+   操控：左摇杆/WASD 控制行进方向（自动油门，照着摇杆方向转向）；按住「氮气」加速冲刺。
+        电脑：WASD/方向键 转向，空格=氮气。绕赛道跑满 3 圈，第一个冲线者获胜。*/
+const W=1600, H=900, CARR=18, LAPS=3;
+const CRUISE=405, BOOST=625, OFFROAD=180, ACC=430, DECEL=540, TURN=3.7, HALFW=98, CP_R=150;
+const COLORS=[0x49d6ff, 0xff5c7a, 0x6cff8a, 0xffd166];
+const SLOTS=['p0','p1','p2','p3'];
+const BOTNAME=['电脑·蓝','电脑·红','电脑·绿','电脑·金'];
+
+// 赛道中心线（椭圆环），既是路面也是有序检查点；房主/客户端各自算，无需联网传
+const TRACK=(function(){ const a=[],cx=800,cy=450,rx=600,ry=300,N=18;
+  for(let i=0;i<N;i++){ const t=i/N*Math.PI*2; a.push({x:cx+rx*Math.cos(t), y:cy+ry*Math.sin(t)}); } return a; })();
+const TN=TRACK.length;
+const DIR0=(function(){ const dx=TRACK[1].x-TRACK[0].x, dy=TRACK[1].y-TRACK[0].y, d=Math.hypot(dx,dy); return {x:dx/d,y:dy/d}; })();
+
+let scene, sinceSync=0, state=null, inputs={};
+let g, carSpr={}, msgTxt, hudTxt, rankTxt=[], boom={}, trailEmit={}, localReset=false;
+
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function rnd(a,b){ return a+Math.random()*(b-a); }
+function hx(c){ return '#'+c.toString(16).padStart(6,'0'); }
+function dist(ax,ay,bx,by){ return Math.hypot(ax-bx,ay-by); }
+function normAng(d){ while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI; return d; }
+function rotToward(cur,tgt,step){ const d=normAng(tgt-cur); return Math.abs(d)<=step?tgt:cur+Math.sign(d)*step; }
+function segDist(px,py,ax,ay,bx,by){ const dx=bx-ax,dy=by-ay,L2=dx*dx+dy*dy||1;
+  let t=clamp(((px-ax)*dx+(py-ay)*dy)/L2,0,1); return Math.hypot(px-(ax+dx*t),py-(ay+dy*t)); }
+function trackDist(x,y){ let m=1e9; for(let i=0;i<TN;i++){ const a=TRACK[i],b=TRACK[(i+1)%TN]; const d=segDist(x,y,a.x,a.y,b.x,b.y); if(d<m)m=d; } return m; }
+
+/* ===================== 房主：状态 ===================== */
+function newCar(idx){
+  const back = 40 + Math.floor(idx/2)*54, side=(idx%2?1:-1)*30;
+  const px=-DIR0.x, py=-DIR0.y, perpx=-DIR0.y, perpy=DIR0.x;
+  return { idx, x:TRACK[0].x+px*back+perpx*side, y:TRACK[0].y+py*back+perpy*side,
+    ang:Math.atan2(DIR0.y,DIR0.x), spd:0, cp:1, lap:0, fin:0, boost:1,
+    owner:null, col:COLORS[idx], sf:1 };
+}
+function makeState(){ const st={ cars:{}, fx:[], phase:'count', timer:3.6, winner:null, started:false };
+  SLOTS.forEach((s,i)=>st.cars[s]=newCar(i)); return st; }
+function assignSeats(){ const ps=OpenHam.players.slice(0,4);
+  for(const s in state.cars){ state.cars[s].owner=null; state.cars[s].sf=0.9+0.06*state.cars[s].idx; }
+  ps.forEach((p,i)=>{ const c=state.cars[SLOTS[i]]; if(c){ c.owner=p.id; c.sf=1; } }); }
+function fullReset(){ state=makeState(); assignSeats(); state.started=OpenHam.players.length>=1; }
+function carName(c){ if(c.owner){ const p=OpenHam.players.find(p=>p.id===c.owner); if(p) return p.name; } return BOTNAME[c.idx]; }
+function progress(c){ return c.lap*1e7 + c.cp*1e4 - dist(c.x,c.y,TRACK[c.cp].x,TRACK[c.cp].y); }
+function ranked(){ return SLOTS.map(s=>state.cars[s]).sort((a,b)=>{
+  if(a.fin&&b.fin) return a.fin-b.fin; if(a.fin) return -1; if(b.fin) return 1; return progress(b)-progress(a); }); }
+
+function botCmd(c){
+  const aim={ x:TRACK[c.cp].x*0.6+TRACK[(c.cp+1)%TN].x*0.4, y:TRACK[c.cp].y*0.6+TRACK[(c.cp+1)%TN].y*0.4 };
+  const dx=aim.x-c.x, dy=aim.y-c.y, d=Math.hypot(dx,dy)||1;
+  const aligned=Math.abs(normAng(Math.atan2(dy,dx)-c.ang))<0.5;
+  return { x:dx/d, y:dy/d, boost: aligned && c.boost>0.35 };
+}
+function applyCar(c, cmd, dt){
+  const mag=Math.hypot(cmd.x,cmd.y);
+  if(mag>0.2){ const ta=Math.atan2(cmd.y,cmd.x); const spdFrac=clamp(c.spd/CRUISE,0,1);
+    c.ang=rotToward(c.ang, ta, TURN*(1-0.32*spdFrac)*dt); }
+  const onTrack=trackDist(c.x,c.y)<HALFW+CARR;
+  const boosting=cmd.boost && c.boost>0.04;
+  let maxS=(boosting?BOOST:(onTrack?CRUISE:OFFROAD))*c.sf;
+  if(c.spd<maxS) c.spd=Math.min(maxS,c.spd+(boosting?ACC*1.5:ACC)*dt);
+  else c.spd=Math.max(maxS,c.spd-DECEL*dt);
+  c.x+=Math.cos(c.ang)*c.spd*dt; c.y+=Math.sin(c.ang)*c.spd*dt;
+  c.x=clamp(c.x,CARR,W-CARR); c.y=clamp(c.y,CARR,H-CARR);
+  c.boost = boosting ? Math.max(0,c.boost-0.5*dt) : Math.min(1,c.boost+0.22*dt);
+}
+
+function hostStep(dt){
+  assignSeats();
+  inputs[OpenHam.me]={ x:OpenHam.input.x, y:OpenHam.input.y, boost:OpenHam.input.down('氮气') };
+  if(!state.started) return;
+  if(localReset){ localReset=false; }
+  if(state.phase==='count'){ state.timer-=dt; if(state.timer<=0) state.phase='race'; return; }
+  if(state.phase!=='race') return;
+
+  let finishedCount=SLOTS.filter(s=>state.cars[s].fin>0).length;
+  for(const s of SLOTS){ const c=state.cars[s]; if(c.fin>0) continue;
+    const cmd = c.owner ? (inputs[c.owner]||{x:0,y:0,boost:false}) : botCmd(c);
+    applyCar(c, cmd, dt);
+    if(dist(c.x,c.y,TRACK[c.cp].x,TRACK[c.cp].y)<CP_R){ const reached=c.cp; c.cp=(c.cp+1)%TN;
+      if(reached===0){ c.lap++; if(c.lap>=LAPS){ finishedCount++; c.fin=finishedCount; c.spd*=0.4;
+        if(c.fin===1){ state.winner=s; state.phase='done'; } } } }
+  }
+  // 撞车（软碰撞）
+  for(let i=0;i<4;i++) for(let j=i+1;j<4;j++){ const a=state.cars[SLOTS[i]], b=state.cars[SLOTS[j]];
+    const d=dist(a.x,a.y,b.x,b.y); if(d<2*CARR&&d>0){ const ov=(2*CARR-d)/2, nx=(a.x-b.x)/d, ny=(a.y-b.y)/d;
+      a.x+=nx*ov; a.y+=ny*ov; b.x-=nx*ov; b.y-=ny*ov; a.spd*=0.86; b.spd*=0.86;
+      state.fx.push({x:(a.x+b.x)/2,y:(a.y+b.y)/2,life:0.3}); } }
+  state.fx.forEach(f=>f.life-=dt); state.fx=state.fx.filter(f=>f.life>0);
+}
+
+/* ===================== 渲染 ===================== */
+function makeTextures(s){
+  let q=s.make.graphics({add:false});
+  q.fillStyle(0xffffff,0.22);q.fillCircle(8,8,8);q.fillStyle(0xffffff,0.5);q.fillCircle(8,8,5);q.fillStyle(0xffffff,1);q.fillCircle(8,8,2.6);
+  q.generateTexture('spark',16,16);q.destroy();
+  q=s.make.graphics({add:false}); for(let r=24;r>=2;r-=2){q.fillStyle(0xffffff,0.06);q.fillCircle(24,24,r);} q.generateTexture('glow',48,48);q.destroy();
+  q=s.make.graphics({add:false});           // 车：朝右(+x)，车头在右
+  q.fillStyle(0xffffff,1); q.fillRoundedRect(2,3,40,22,7);
+  q.fillStyle(0x0a0e16,0.55); q.fillRoundedRect(16,7,16,14,4);   // 风挡
+  q.fillStyle(0xffffff,1); q.fillRect(40,6,4,5); q.fillRect(40,17,4,5);  // 车头灯
+  q.generateTexture('car',46,28);q.destroy();
+}
+function create(){
+  scene=this; makeTextures(this);
+  const bg=this.add.graphics().setDepth(-20);
+  bg.fillStyle(0x0b1410,1).fillRect(0,0,W,H);                       // 草地
+  bg.lineStyle(1,0x12231a,1); for(let x=0;x<W;x+=64) bg.lineBetween(x,0,x,H); for(let y=0;y<H;y+=64) bg.lineBetween(0,y,W,y);
+  bg.lineStyle(HALFW*2+12,0x0e131d,1).strokePoints(TRACK,true,true); // 路缘
+  bg.lineStyle(HALFW*2,0x262d3b,1).strokePoints(TRACK,true,true);    // 路面
+  bg.lineStyle(3,0x49d6ff,0.35).strokePoints(TRACK,true,true);      // 霓虹中线
+  // 起跑/终点线
+  const px=-DIR0.y, py=DIR0.x;
+  bg.lineStyle(10,0xffffff,0.9).lineBetween(TRACK[0].x-px*HALFW,TRACK[0].y-py*HALFW,TRACK[0].x+px*HALFW,TRACK[0].y+py*HALFW);
+
+  g=this.add.graphics().setDepth(5);
+  for(let i=0;i<4;i++) trailEmit[i]=this.add.particles(0,0,'spark',{lifespan:300,speed:{min:6,max:40},scale:{start:0.55,end:0},alpha:{start:0.7,end:0},blendMode:'ADD',tint:COLORS[i],emitting:false}).setDepth(4);
+  boom.s=this.add.particles(0,0,'spark',{lifespan:{min:200,max:460},speed:{min:80,max:300},scale:{start:0.8,end:0},alpha:{start:1,end:0},blendMode:'ADD',tint:0xffd166,emitting:false}).setDepth(60);
+
+  hudTxt=this.add.text(W/2,16,'',{fontSize:'30px',fontStyle:'bold',color:'#dfe7ff',align:'center'}).setOrigin(0.5,0).setDepth(100);
+  msgTxt=this.add.text(W/2,H/2,'',{fontSize:'120px',fontStyle:'bold',color:'#ffffff',align:'center'}).setOrigin(0.5).setDepth(100);
+  for(let i=0;i<4;i++) rankTxt.push(this.add.text(W-24,90+i*34,'',{fontSize:'24px',fontStyle:'bold'}).setOrigin(1,0).setDepth(100));
+
+  this.add.text(28,28,'↻ 重新开始',{fontSize:'24px',backgroundColor:'#1a2440',color:'#cfe0ff',padding:10})
+    .setInteractive({useHandCursor:true}).setDepth(999).on('pointerdown',()=>OpenHam.send({t:'reset'}));
+  this.add.text(W/2,H-20,'摇杆/WASD 控制方向（自动油门）· 空格/按住「氮气」冲刺 · 跑满 3 圈先冲线者胜',{fontSize:'19px',color:'#566488'}).setOrigin(0.5,1).setDepth(100);
+
+  OpenHam.input.enable({joystick:true,buttons:['氮气']});
+  OpenHam.onInput((id,inp)=>{ inputs[id]=inp; });
+  OpenHam.onState((s)=>{ state=s; });
+  OpenHam.onJoin(()=>{ if(OpenHam.isHost){ if(!state||!state.started) fullReset(); OpenHam.syncState(state); } });
+  OpenHam.on((o)=>{ if(o&&o.t==='reset'&&OpenHam.isHost) fullReset(); });
+  window.OpenHamReady=function(){ if(OpenHam.isHost) fullReset(); };
+}
+
+function mySlot(){ if(!state) return null; for(const s of SLOTS){ if(state.cars[s].owner===OpenHam.me) return s; } return null; }
+function ensureSpr(s){ if(carSpr[s]) return carSpr[s];
+  const glow=scene.add.image(0,0,'glow').setBlendMode(Phaser.BlendModes.ADD).setScale(2.0).setDepth(8);
+  const img=scene.add.image(0,0,'car').setDepth(10);
+  const lab=scene.add.text(0,0,'',{fontSize:'18px',fontStyle:'bold'}).setOrigin(0.5).setDepth(11);
+  return carSpr[s]={glow,img,lab}; }
+
+function render(){
+  if(!state) return;
+  g.clear();
+  // 撞车火花
+  for(const f of state.fx){ boom.s.explode(4,f.x,f.y); }
+  // 车
+  for(const s of SLOTS){ const c=state.cars[s]; if(!c) continue; const sp=ensureSpr(s);
+    sp.glow.setPosition(c.x,c.y).setTint(c.col).setAlpha(0.5);
+    sp.img.setPosition(c.x,c.y).setRotation(c.ang).setTint(c.col);
+    sp.lab.setPosition(c.x,c.y-30).setText((c.owner?'':'🤖')+carName(c)).setColor(hx(c.col));
+    if(state.phase==='race' && c.fin===0 && c.spd>BOOST*0.7) trailEmit[c.idx].emitParticleAt(c.x-Math.cos(c.ang)*20,c.y-Math.sin(c.ang)*20,1);
+  }
+  // HUD
+  const me=mySlot()?state.cars[mySlot()]:null;
+  const rk=ranked(); const myPos=me?rk.indexOf(me)+1:0;
+  hudTxt.setText('圈 '+(me?Math.min(LAPS,me.lap+1):1)+'/'+LAPS + (me?('   第 '+myPos+' 名'):'') + (me?('   氮气 '+Math.round(me.boost*100)+'%'):''));
+  for(let i=0;i<4;i++){ const c=rk[i];
+    rankTxt[i].setText((i+1)+'. '+carName(c)+(c.fin?'  🏁':'  '+c.lap+'圈')).setColor(hx(c.col)).setAlpha(c.fin?1:0.85); }
+  // 中央大字
+  let m='';
+  if(state.phase==='count'){ const n=Math.ceil(state.timer); m = state.timer>0.4? (n>=4?'准备':String(Math.min(3,n))) : 'GO!'; }
+  else if(state.phase==='done'){ msgTxt.setFontSize(64); m='🏁 '+(state.winner?carName(state.cars[state.winner]):'')+' 冲线获胜！\n点「重新开始」再来'; }
+  if(state.phase==='count') msgTxt.setFontSize(120);
+  msgTxt.setText(m);
+}
+
+function update(time,dtms){ const dt=Math.min(0.05,(dtms||16)/1000);
+  if(OpenHam.isHost){ if(!state) fullReset(); hostStep(dt); sinceSync+=dt; if(sinceSync>=1/30){ sinceSync=0; OpenHam.syncState(state); } }
+  else { OpenHam.sendInput({ x:OpenHam.input.x, y:OpenHam.input.y, boost:OpenHam.input.down('氮气') }); }
+  render();
+}
+
+new Phaser.Game({ type:Phaser.AUTO, parent:document.body,
+  scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH,width:W,height:H,autoRound:false},
+  render:{antialias:true,antialiasGL:true,roundPixels:false},
+  backgroundColor:'#070a12', scene:{create,update} });
+</script>
+</body>
+</html>
