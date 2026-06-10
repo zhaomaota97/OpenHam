@@ -20,18 +20,40 @@
   #stage{position:fixed;inset:0;background:#1c1a14;display:none;}
   #game{width:100%;height:100%;border:none;}
   #bar{position:fixed;top:0;left:0;right:0;height:0;}
-  /* 游戏内聊天浮层 */
-  #chatBtn{position:fixed;bottom:14px;left:14px;z-index:20;width:50px;height:50px;border-radius:25px;
-    background:rgba(192,140,30,.92);color:#1c1a14;font-size:22px;border:none;display:none;
-    box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:pointer;}
-  #chatPanel{position:fixed;bottom:74px;left:14px;z-index:20;width:min(86vw,330px);height:min(52vh,380px);
-    background:rgba(28,25,18,.97);border:1px solid rgba(192,140,30,.5);border-radius:12px;
-    display:none;flex-direction:column;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.5);}
-  #chatLog{flex:1;overflow-y:auto;padding:10px;font-size:14px;color:#d8cfb8;line-height:1.5;}
-  #chatLog .sys{color:#6f6a55;}
-  #chatRow{display:flex;border-top:1px solid rgba(192,140,30,.3);}
-  #chatText{flex:1;background:transparent;border:none;color:#ede5d0;padding:13px;font-size:15px;outline:none;}
-  #chatSend{background:transparent;border:none;color:#c09030;font-weight:bold;padding:0 16px;cursor:pointer;}
+  /* 游戏内聊天浮层（高级感：玻璃拟态 + 气泡 + 未读徽标） */
+  #chatBtn{position:fixed;bottom:18px;left:18px;z-index:30;width:56px;height:56px;border-radius:18px;
+    background:linear-gradient(145deg,#f0d27e,#c8922e);color:#1c150a;font-size:24px;border:none;display:none;
+    align-items:center;justify-content:center;cursor:pointer;
+    box-shadow:0 10px 26px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.45);
+    transition:transform .15s cubic-bezier(.2,.8,.2,1),box-shadow .15s;}
+  #chatBtn:hover{transform:translateY(-2px) scale(1.05);box-shadow:0 14px 30px rgba(0,0,0,.5);}
+  #chatBtn:active{transform:scale(.95);}
+  #chatBadge{position:absolute;top:-7px;right:-7px;min-width:21px;height:21px;padding:0 6px;border-radius:11px;
+    background:#ff3b30;color:#fff;font:700 12px/21px -apple-system,sans-serif;text-align:center;display:none;
+    box-shadow:0 2px 7px rgba(255,59,48,.5);border:2px solid #15130d;}
+  #chatPanel{position:fixed;bottom:86px;left:18px;z-index:30;width:min(88vw,346px);height:min(56vh,430px);
+    background:rgba(22,20,15,.66);backdrop-filter:blur(22px) saturate(1.4);-webkit-backdrop-filter:blur(22px) saturate(1.4);
+    border:1px solid rgba(240,210,126,.22);border-radius:22px;display:none;flex-direction:column;overflow:hidden;
+    box-shadow:0 28px 70px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.10);
+    animation:chatPop .22s cubic-bezier(.2,.9,.25,1);}
+  @keyframes chatPop{from{opacity:0;transform:translateY(14px) scale(.96);}to{opacity:1;transform:none;}}
+  #chatHead{padding:15px 18px 12px;font:700 15px/1 -apple-system,sans-serif;color:#f3e6c2;letter-spacing:.04em;
+    border-bottom:1px solid rgba(255,255,255,.06);}
+  #chatLog{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:9px;}
+  #chatLog::-webkit-scrollbar{width:0;}
+  .bub{max-width:78%;padding:9px 13px;border-radius:16px;font-size:14.5px;line-height:1.45;word-break:break-word;
+    box-shadow:0 2px 9px rgba(0,0,0,.28);animation:bubIn .18s ease;}
+  @keyframes bubIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+  .bub .nm{display:block;font-size:11px;opacity:.55;margin-bottom:2px;}
+  .me{align-self:flex-end;background:linear-gradient(145deg,#f0d27e,#cf9a34);color:#1b1408;border-bottom-right-radius:5px;}
+  .other{align-self:flex-start;background:rgba(255,255,255,.10);color:#ece3cf;border-bottom-left-radius:5px;}
+  .sysmsg{align-self:center;color:#9b927d;font-size:12px;opacity:.7;padding:2px 0;}
+  #chatRow{display:flex;gap:8px;padding:11px;border-top:1px solid rgba(255,255,255,.06);}
+  #chatText{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);border-radius:13px;
+    color:#f0e8d6;padding:11px 14px;font-size:15px;outline:none;transition:border-color .15s;}
+  #chatText:focus{border-color:rgba(240,210,126,.5);}
+  #chatSend{background:linear-gradient(145deg,#f0d27e,#c8922e);border:none;color:#1c150a;font-weight:700;
+    padding:0 18px;border-radius:13px;cursor:pointer;font-size:14px;}
 </style>
 </head>
 <body>
@@ -44,8 +66,9 @@
     <div id="status"></div>
   </div>
   <div id="stage"><iframe id="game" sandbox="allow-scripts"></iframe></div>
-  <button id="chatBtn">💬</button>
+  <button id="chatBtn">💬<span id="chatBadge"></span></button>
   <div id="chatPanel">
+    <div id="chatHead">💬 房间聊天</div>
     <div id="chatLog"></div>
     <div id="chatRow"><input id="chatText" placeholder="发言…" autocomplete="off"><button id="chatSend">发送</button></div>
   </div>
@@ -103,8 +126,16 @@ $("code").addEventListener("keydown",e=>{ if(e.key==="Enter") connect(); });
 const qcode=new URLSearchParams(location.search).get("code");
 if (qcode) $("code").value=qcode;
 
+// 手机/浏览器用户自动生成一个随机昵称并预填（用户想改可直接改）
+function randNick(){
+  const a=['飞驰','闪电','无敌','狂野','钢铁','暴走','幸运','疾风','烈焰','冷酷','呆萌','旋风','沉默','贪吃'];
+  const b=['车神','飞侠','老司机','骑士','旋风','菜鸟','赛车手','飞鱼','野兔','流星','闪客','小钢炮','胖达','柠檬'];
+  return a[Math.floor(Math.random()*a.length)]+b[Math.floor(Math.random()*b.length)]+(Math.floor(Math.random()*90)+10);
+}
+if (!$("nick").value) $("nick").value=randNick();
+
 function connect(){
-  const nick=$("nick").value.trim()||"玩家"; myNick=nick;
+  const nick=$("nick").value.trim()||randNick(); myNick=nick;
   let roomCode;
   try { roomCode=decodeMeow($("code").value); }
   catch(e){ setStatus("⚠️ "+e.message); return; }
@@ -139,10 +170,12 @@ function onMsg(m){
 }
 
 // ── 游戏内聊天 ────────────────────────────────────────────────
+let unread=0;
+function setBadge(){ const b=$("chatBadge"); if(unread>0){ b.textContent=unread>99?"99+":unread; b.style.display="block"; } else b.style.display="none"; }
 $("chatBtn").onclick=()=>{
   const p=$("chatPanel"); const show=p.style.display!=="flex";
   p.style.display=show?"flex":"none";
-  if (show){ $("chatText").focus(); $("chatBtn").textContent="💬"; }
+  if (show){ unread=0; setBadge(); $("chatText").focus(); }
 };
 $("chatSend").onclick=sendChat;
 $("chatText").addEventListener("keydown",e=>{ if(e.key==="Enter") sendChat(); });
@@ -155,10 +188,11 @@ function sendChat(){
 function esc(s){ return (s+"").replace(/[<>&]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[c])); }
 function addChat(name,text,mine){
   const l=$("chatLog"); const d=document.createElement("div");
-  if (name===null){ d.className="sys"; d.textContent="— "+text+" —"; }
-  else { d.innerHTML='<b style="color:'+(mine?"#c9b173":"#9fd0c0")+'">'+esc(name)+'</b>：'+esc(text); }
+  if (name===null){ d.className="sysmsg"; d.textContent=text; }
+  else if (mine){ d.className="bub me"; d.textContent=text; }
+  else { d.className="bub other"; d.innerHTML='<span class="nm">'+esc(name)+'</span>'+esc(text); }
   l.appendChild(d); l.scrollTop=l.scrollHeight;
-  if ($("chatPanel").style.display!=="flex") $("chatBtn").textContent="🔴";
+  if (name!==null && !mine && $("chatPanel").style.display!=="flex"){ unread++; setBadge(); }   // 未读徽标
 }
 
 async function onChunk(d){

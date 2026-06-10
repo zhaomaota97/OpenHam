@@ -182,6 +182,26 @@ class OpenHamWindowBase(QWidget):
         self.pin_btn.setIcon(icons.qicon("pinned" if self.is_pinned else "pin",
                                          color=theme.ACCENT if self.is_pinned else theme.TEXT2))
 
+    def flash_taskbar(self, count: int = 6):
+        """收到新消息时像微信一样闪烁任务栏图标提醒；窗口已在前台则不闪。"""
+        try:
+            hwnd = int(self.winId())
+            user32 = ctypes.windll.user32
+            user32.GetForegroundWindow.restype = ctypes.wintypes.HWND
+            fg = user32.GetForegroundWindow()
+            if fg is not None and int(fg) == hwnd and self.isActiveWindow():
+                return
+            class _FLASHWINFO(ctypes.Structure):
+                _fields_ = [("cbSize", ctypes.c_uint), ("hwnd", ctypes.wintypes.HWND),
+                            ("dwFlags", ctypes.c_uint), ("uCount", ctypes.c_uint),
+                            ("dwTimeout", ctypes.c_uint)]
+            FLASHW_TRAY, FLASHW_TIMERNOFG = 0x2, 0xC   # 闪任务栏，直到窗口被切到前台
+            info = _FLASHWINFO(ctypes.sizeof(_FLASHWINFO), ctypes.wintypes.HWND(hwnd),
+                               FLASHW_TRAY | FLASHW_TIMERNOFG, count, 0)
+            user32.FlashWindowEx(ctypes.byref(info))
+        except Exception:
+            pass
+
     def hide_window(self):
         self.hide()
 

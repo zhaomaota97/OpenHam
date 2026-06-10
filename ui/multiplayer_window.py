@@ -238,6 +238,12 @@ class MultiplayerWindow(OpenHamWindowBase):
         self._append(name, text, mine)                 # 大厅记录
         if self._game_win is not None:
             self._game_win.add_chat(name, text, mine)  # 游戏页内
+        if not mine:                                   # 收到别人的消息→像微信一样闪任务栏
+            target = self._game_win if (self._game_win is not None and self._game_win.isVisible()) else self
+            try:
+                target.flash_taskbar()
+            except Exception:
+                pass
 
     def _web_url(self) -> str:
         url = (app_config.get("relay_url") or "").replace("wss://", "https://").replace("ws://", "http://")
@@ -399,7 +405,8 @@ class MultiplayerWindow(OpenHamWindowBase):
                     "你是网页游戏开发者。下面会给你一个 OpenHam 联机游戏的完整 index.html，"
                     "请按用户的修改要求改它，保持仍是【可联机、电脑手机都能玩的单文件 index.html】。"
                     "平台已注入全局 window.Phaser（Phaser 3 引擎）、OpenHam（联机桥）、"
-                    "OpenHam.input（跨平台输入：手机虚拟摇杆/电脑键盘）——直接用，别引外部资源。"
+                    "OpenHam.input（跨平台输入：手机虚拟摇杆/电脑键盘）——直接用。"
+                    "需要图片/音频/字体/额外库时，可以自由引用外部 http(s) 网址。"
                     "保留「重新开始」按钮（任何玩家点击 OpenHam.send({t:'reset'}) 广播全员重置）；"
                     "绝不卡死；用 Phaser Scale.FIT + 内部分辨率 1600×900 + render.antialias 适配手机且清晰不糊。"
                     "只输出修改后的完整 HTML，"
@@ -411,8 +418,8 @@ class MultiplayerWindow(OpenHamWindowBase):
                     "你是一名资深的网页游戏开发者。严格按照下面《OpenHam 联机游戏开发规范》，"
                     "根据用户的需求，生成一个【可联机、电脑和手机都能玩的单文件 index.html 游戏】。\n"
                     "硬性要求（务必满足，否则不合格）：\n"
-                    "1. 用 Phaser 3 写游戏——平台已注入全局 window.Phaser，直接用，绝不要写 "
-                    "<script src=\"phaser...\">，也不要引用任何外部图片/音频/脚本网址。\n"
+                    "1. 用 Phaser 3 写游戏——平台已注入全局 window.Phaser，直接用，无需再写 "
+                    "<script src=\"phaser...\">；图片/音频/字体/其它库等需要外部资源时，可自由引用 http(s) 网址。\n"
                     "2. 跨平台输入用平台注入的 OpenHam.input：动作游戏调 "
                     "OpenHam.input.enable({joystick:true,buttons:[...]}) 即可——手机自动出虚拟摇杆+按钮，"
                     "电脑自动映射键盘，你不要自己写触摸或键盘事件；点击落子类用 Phaser 指针事件。\n"
@@ -557,7 +564,7 @@ class MultiplayerWindow(OpenHamWindowBase):
                 "你是网页游戏开发者。下面的 OpenHam 联机游戏（Phaser 单文件 index.html）"
                 "运行时报了 JS 错误，请修好这些错误，保持规范不变：全局 window.Phaser、"
                 "OpenHam.input(跨平台输入)、房主裁判联机(syncState/onState/sendInput)、"
-                "「重新开始」按钮、Phaser Scale.FIT 适配手机；不要引用任何外部资源。"
+                "「重新开始」按钮、Phaser Scale.FIT 适配手机（允许引用外部图片/音频/库等网络资源）。"
                 "只输出修复后的完整 HTML，从 <!DOCTYPE html> 到 </html>，不要解释、不要代码围栏。"
             )
             user_msg = f"运行时报错：\n{errtext}\n\n当前游戏 index.html：\n{html}"
@@ -575,14 +582,17 @@ class MultiplayerWindow(OpenHamWindowBase):
         self._render_status()
         from core import game_library
         folder = result.get("folder")
-        if folder:   # 修改模式：覆盖原游戏
+        if folder:   # 修改模式 → 另存为新版本，保留原游戏（不覆盖）
+            base = os.path.basename(folder.rstrip("/\\"))
             try:
-                with open(os.path.join(folder, "index.html"), "w", encoding="utf-8") as f:
-                    f.write(result["html"])
-            except Exception as e:
-                self._system(f"⚠️ 保存修改失败：{e}")
-                return
-            self._system("✅ 游戏已按要求修改并更新到游戏库")
+                with open(os.path.join(folder, "manifest.json"), encoding="utf-8") as f:
+                    base = json.load(f).get("name", base)
+            except Exception:
+                pass
+            base = re.sub(r"·改\d*$", "", base)   # 去掉旧的"·改"后缀，避免名字越叠越长
+            name = (base + "·改")[:16]
+            folder = game_library.save_html(name, result["html"])
+            self._system(f"✅ 已按要求生成新版本「{name}」存入游戏库（原版保留）")
         else:        # 新建模式
             name = ("AI·" + result["req"])[:14]
             folder = game_library.save_html(name, result["html"])

@@ -94,7 +94,7 @@
 
   // ── 公开 API ──────────────────────────────────────────
   OH.input = {
-    x: 0, y: 0,
+    x: 0, y: 0, isTouch: isTouch,
     enable: function (opts) {
       opts = opts || {};
       var names = opts.buttons || [];
