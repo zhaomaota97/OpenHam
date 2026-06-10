@@ -262,6 +262,7 @@ class MultiplayerWindow(OpenHamWindowBase):
         )
         QApplication.clipboard().setText(text)
         self._system("已复制（口令+网址+说明），发微信给朋友吧～")
+        self._broadcast_chat(f"房间口令：{self._room_meow}")   # 同时把口令发到大厅，方便房内的人取用
 
     # ── 客户端信号处理 ─────────────────────────────────────────────────
 
