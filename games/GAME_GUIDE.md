@@ -1,162 +1,128 @@
-# OpenHam 游戏包开发规范（给 AI 的提示词）
+# OpenHam 联机游戏开发规范（给 AI 的提示词）
 
-> 把本文件整段发给任意 AI，并在结尾补一句"请按此规范帮我做一个 XXX 游戏"，
-> 即可得到一个能在 OpenHam 房间里联机的游戏包。
-
-你要产出的是一个 **OpenHam 游戏包**：玩家在电脑或手机上进入同一个房间后，
-能一起玩你写的这个游戏。游戏跑在一个**沙箱网页视图（iframe）**里，靠 OpenHam
-注入的全局对象 `OpenHam` 和其他玩家通信。
+你要产出一个**可联机、电脑和手机都能玩**的网页小游戏。平台已经帮你准备好了
+游戏引擎、联机通道、跨平台输入——你只管用，不用自己造轮子。
 
 ---
 
-## 1. 产物结构
+## 1. 产物：单个 `index.html`
 
-一个文件夹，**强烈建议做成单个 `index.html`**（把 CSS/JS 全内联），这样手机端开箱即玩：
+- 一个文件，CSS/JS 全内联。**用 Phaser 3 画游戏**（引擎已全局注入，见下）。
+- 不要自己写 `<script src="phaser...">`——平台已经注入了 `window.Phaser`，直接用。
+- 配套一个 `manifest.json`：`{ "name": "游戏名", "entry": "index.html", "players": { "min": 2, "max": 4 } }`
+  - `players.max` = 最多几人玩；多出来的人由你的代码安排为**观战**。
 
-```
-我的游戏/
-  index.html        # 入口，必须
-  manifest.json     # 元信息
-  （可选）其它 .js/.css/图片/音频
-```
+## 2. 平台已注入的全局（无需引入任何库）
 
-`manifest.json`：
+游戏脚本运行前，下面三样已经就绪：
 
-```json
-{
-  "name": "游戏名",
-  "entry": "index.html",
-  "version": "1.0",
-  "players": { "min": 2, "max": 2 }
-}
-```
+- **`Phaser`** —— Phaser 3 游戏引擎（精灵、物理 Arcade/Matter、场景、补间、音效、粒子、输入）。
+- **`OpenHam`** —— 联机桥（见 §3）。注意 `OpenHam.send` 在 `OpenHamReady()` 后才可用。
+- **`OpenHam.input`** —— 跨平台输入（见 §4）。电脑键盘 / 手机虚拟摇杆，自动适配。
 
-- `players.max` 是这个游戏**最多几个人玩**。多出来的人应被你的代码安排为**观战**。
-- OpenHam 房间本身有人数硬上限（默认 16），但"这个游戏几个人玩"由你在游戏里强制。
-
----
-
-## 2. 联机 API（OpenHam 自动注入，无需引入任何库）
-
-游戏加载时，OpenHam 会在 `window` 上注入：
+## 3. 联机：房主当裁判（host-authoritative）
 
 ```js
-// 桥就绪后回调——在这里初始化你的游戏，别在全局直接用 OpenHam（可能还没就绪）
-window.OpenHamReady = function () {
-  OpenHam.me;        // 字符串：自己的玩家 id（唯一）
-  OpenHam.name;      // 字符串：自己的昵称（可用于记分榜显示）
-  OpenHam.isHost;    // 布尔：自己是不是房主（建房的人 = 第一个进来的）
-
-  // 接收其他玩家发来的消息
-  OpenHam.on(function (msg) {
-    // msg 是对方 OpenHam.send 发出的对象
-    // 额外带：msg._from = 对方昵称, msg._id = 对方玩家 id
-  });
-};
-
-// 把本方操作/状态广播给房间里其他所有人
-OpenHam.send({ k: "move", x: 1, y: 2 });
+OpenHam.me        // 自己的 id（字符串）
+OpenHam.name      // 自己的昵称
+OpenHam.isHost    // 是否房主（房主当裁判，跑唯一权威逻辑）
+OpenHam.send(obj) // 把任意 JSON 发给房间里其他所有人
+OpenHam.on(fn)    // fn(obj) 收到别人发来的 JSON
+window.OpenHamReady = function(){ /* 这里才能 send；做握手、开始游戏 */ }
 ```
 
-就这些。没有别的方法，**不要假设存在其它 API**。
+**标准模式（强烈建议照搬）：**
+- **只有房主跑游戏逻辑/物理**，每隔一帧（或每 N 毫秒）把**权威状态**广播给所有人：
+  `if (OpenHam.isHost) OpenHam.send({t:'state', players:{...}, ball:{...}, ...})`
+- **非房主只渲染收到的状态、并把自己的输入发给房主**：
+  `OpenHam.send({t:'input', x:OpenHam.input.x, y:OpenHam.input.y, jump:OpenHam.input.pressed('跳')})`
+- **房主**在 `OpenHam.on` 里收集每个玩家的 input，喂给自己的物理。
+- **玩家发现（hello 握手）**：每人上线时 `OpenHam.send({t:'hello', id:OpenHam.me, name:OpenHam.name})`；
+  房主收齐后分配座位/角色，超过 `players.max` 的人设为观战（禁用输入、只渲染）。
+- **新人补状态**：房主收到 hello 后，立刻广播一次完整状态，让迟到者跟上。
 
----
+## 4. 跨平台输入（重点：手机也能玩）
 
-## 3. 必须遵守的多人模式：房主当裁判（host-authoritative）
+不要自己写键盘或触摸事件。用平台的统一输入层，**一份代码电脑手机通用**：
 
-为避免各客户端状态打架，约定 **房主（`OpenHam.isHost===true`）是唯一权威**：
+```js
+// 启用：joystick=显示虚拟摇杆(仅手机)，buttons=屏幕按钮(仅手机)，电脑自动映射键盘
+OpenHam.input.enable({ joystick: true, buttons: ["跳", "射"] });
 
-- **房主**：维护全部游戏状态、做规则判定、按节奏把"权威状态"广播给所有人。
-- **其他玩家**：只把自己的"输入"发给房主，渲染则以房主广播的状态为准。
-- **观战者**：只接收并渲染状态，不参与输入。
+// 每帧读取：
+OpenHam.input.x          // 方向 X，-1..1（手机摇杆 / 电脑 ←→ 或 A D）
+OpenHam.input.y          // 方向 Y，-1..1（↑ 为 -1）（手机摇杆 / 电脑 ↑↓ 或 W S）
+OpenHam.input.down("跳")   // 按钮是否按住（手机第1个按钮 / 电脑空格；第2个=J；第3个=K…）
+OpenHam.input.pressed("跳") // 这一帧是否刚按下（适合跳跃/射击，每次按只触发一次）
+```
 
-### 玩家发现 / 角色分配（hello 握手）
+- 手机上会**自动**在屏幕左下角画虚拟摇杆、右下角画你命名的按钮——你**不用管**。
+- 电脑上摇杆方向映射到方向键/WASD，按钮按顺序映射到 空格 / J / K / L。
+- 纯点击/落子类游戏（井字棋、卡牌）不需要 `enable`，直接用 Phaser 的指针事件
+  （`this.input.on('pointerdown', ...)`，手机点击和鼠标点击通用）。
 
-新玩家进来时游戏才加载，房主需要知道"来了个人、给他什么角色"。约定：
+## 5. 手机适配（很重要）
 
-1. 非房主就绪时发 `OpenHam.send({k:"hello"})`。
-2. 房主收到 `hello`，用 `msg._id` 认人：还有空位就把他设为玩家2/3…，满了就让他观战。
-3. 房主在广播的状态里带上各角色对应的 `id`；每个客户端用 `OpenHam.me` 和这些 id 比对，得知自己是"玩家几"还是"观战"。
+- `<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">`
+- Phaser 配置用自适应缩放，铺满屏幕、横竖屏都不变形：
+  ```js
+  const config = {
+    type: Phaser.AUTO, parent: document.body,
+    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH,
+             width: 800, height: 450 },   // 固定内部坐标，CSS 自动缩放
+    physics: { default: 'arcade', arcade: { gravity: { y: 0 } } },
+    backgroundColor: '#1d1d1f',
+    scene: { create, update }
+  };
+  new Phaser.Game(config);
+  ```
+- 美术：优先用 Phaser 的图形 API（`this.add.rectangle/circle/star`、`graphics`）、几何精灵、
+  或内联 base64 贴图；也可用 emoji 当贴图（`this.add.text(x,y,'🚀',{fontSize:'40px'})`）。
+  **不要引用任何外部图片/音频网址**（除平台已注入的 Phaser 外，不依赖任何外链）。
 
-### 强制人数上限
+## 6. 防卡死（硬性要求，不满足很容易卡死）
 
-`players.max` 个之外的人，房主一律分配为观战。客户端据此把输入禁用、只渲染。
+- **必须有「重新开始」按钮**（始终可点）。任何玩家点击都要
+  `OpenHam.send({t:'reset'})` 广播，所有人收到 `reset` 一起重置本局——大家一起重开。
+- 分出胜负/平局后能立刻重来；人数不够时显示「等待其他玩家…」而不是卡住。
+- 有人中途退出不死锁；新人进来能看到当前局面（靠房主补发状态）。
 
----
-
-## 4. 手机兼容（很重要）
-
-游戏会在手机浏览器里跑，请务必：
-
-- **做成单文件 `index.html`**（内联一切）。多文件虽支持，但单文件最稳。
-- 加 `<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">`。
-- 用 **Pointer 事件**（`pointerdown/pointermove`）统一处理鼠标和触摸；canvas 设 `touch-action:none`。
-- 自适应屏幕：canvas 用固定内部坐标 + CSS `max-width/max-height` 缩放，坐标换算用 `getBoundingClientRect()`。
-- 只用标准 Web API，别用需要联网的 CDN/外链资源。
-
-### 美术素材
-
-优先**内联 SVG**（矢量，高清屏锐利、随屏幕缩放、零外部文件，最适合手机）。
-也可用 emoji 当贴图，或把图片转成 `data:` URI 内联。
-尽量别用单独的图片文件——沙箱 iframe 里外链资源不一定能加载，单文件最稳。
-
----
-
-## 5. 最小模板（可直接改）
+## 7. 最小可联机模板（Phaser，照着改）
 
 ```html
-<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
+<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<style>html,body{margin:0;height:100%;background:#1c1a14;color:#ede5d0;
-  font-family:system-ui,"Microsoft YaHei",sans-serif;touch-action:none;}</style></head>
-<body>
-<div id="status">连接中…</div>
-<script>
-window.OpenHamReady = function () {
-  const mine = OpenHam.isHost ? "X" : "O";
-  document.getElementById("status").textContent = "你是 " + mine;
-  OpenHam.on(function (msg) {
-    if (msg.k === "ping") console.log(msg._from, "说 ping");
-  });
-  // 示例：点一下广播一下
-  document.body.onclick = () => OpenHam.send({ k: "ping" });
-};
+<style>html,body{margin:0;height:100%;background:#1d1d1f;overflow:hidden}</style></head>
+<body><script>
+let scene, players = {};
+function create(){
+  scene = this;
+  OpenHam.input.enable({ joystick:true, buttons:["跳"] });
+  this.restartBtn = this.add.text(10,10,'重新开始',{backgroundColor:'#333',color:'#fff',padding:8})
+    .setInteractive().setScrollFactor(0).setDepth(999)
+    .on('pointerdown',()=>OpenHam.send({t:'reset'}));
+  OpenHam.on(onNet);
+  window.OpenHamReady = ()=>{ OpenHam.send({t:'hello', id:OpenHam.me, name:OpenHam.name}); };
+}
+function update(){
+  // 把自己的输入发给房主（或自己就是房主）
+  OpenHam.send({t:'input', id:OpenHam.me, x:OpenHam.input.x, y:OpenHam.input.y, jump:OpenHam.input.pressed('跳')});
+  if (OpenHam.isHost){ /* 房主：用收到的 input 跑物理，再广播 state */ }
+}
+function onNet(o){ /* 处理 hello / input / state / reset */ }
+new Phaser.Game({ type:Phaser.AUTO, parent:document.body,
+  scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH,width:800,height:450},
+  physics:{default:'arcade'}, backgroundColor:'#1d1d1f', scene:{create,update} });
 </script></body></html>
 ```
 
----
-
-## 6. 防卡死：硬性要求（不满足游戏很容易卡死、无法继续）
-
-以下**必须做到**：
-
-1. **必须有「重新开始」按钮**，始终可见、可点。点击后：重置本局状态，并 `OpenHam.send({k:"reset"})` 广播；**所有人（含房主）收到 `reset` 都重置本局**——大家一起重开。
-2. **任何玩家都能点「重新开始」**（别只让房主能点）。否则房主中途退出后就再没人能重开了。
-3. **结束后能重来**：分出胜负/平局后别停在结束画面回不去——靠重新开始即可再来一局。
-4. **等人不卡死**：人数不够时显示「等待其他玩家…」，不要卡住或报错；够了再开始。
-5. **有人中途退出不死锁**：回合制别永远停在某人的回合（提供"重新开始"让大家重来）。
-6. **新加入者能看到当前局面**：房主收到新人的 `hello` 后，广播一次完整状态，避免新人看到空白/错乱画面。
-7. **始终有清晰状态提示**：轮到谁、在等待、已结束——让玩家随时明白现在该干嘛。
-8. **输入要校验**：非法操作（不该你动、点了不该点的、观战者乱点）一律忽略，绝不让游戏卡住或报错。
-
----
-
-## 7. 检查清单（产出前自检）
+## 8. 产出前自检
 
 - [ ] 有 `manifest.json`，填了 `name` 和 `players.max`。
-- [ ] 入口是 `index.html`，最好单文件内联。
-- [ ] 在 `window.OpenHamReady` 里初始化，没有在全局裸用 `OpenHam`。
-- [ ] 房主当裁判；其他人发输入、渲染用房主状态。
-- [ ] 有 hello 握手；超过 `players.max` 的人进入观战。
-- [ ] **有始终可见的「重新开始」按钮，任何人可点，点击广播 `reset` 让所有人一起重开。**
-- [ ] **结束后能重来、等人不卡、有人退出不死锁、新加入者能看到当前局面。**
-- [ ] 手机：viewport + pointer 事件 + 自适应缩放。
-- [ ] 不引用任何外部网络资源。
+- [ ] 单文件 `index.html`，用 `window.Phaser`，没有任何外部 `<script src>`/图片/音频外链。
+- [ ] 移动控制用 `OpenHam.input`（动作游戏 enable 摇杆+按钮）；点击类用 Phaser 指针事件。
+- [ ] 联机用房主裁判：房主广播 state、非房主发 input + 渲染；有 hello 握手 + 超员观战。
+- [ ] 有「重新开始」按钮，广播 `reset` 全员重置；分胜负后能重来，不卡死。
+- [ ] Phaser `Scale.FIT` 自适应，手机横竖屏都能玩。
 
----
-
-## 8. 参考实现
-
-- `games/tictactoe/` —— 回合制（井字棋），最简单的双人同步：房主当裁判、状态广播、点击落子。
-
-照着这个例子改，是最快的方式。
+只输出完整 HTML（从 `<!DOCTYPE html>` 到 `</html>`），不要解释、不要 markdown 代码围栏。

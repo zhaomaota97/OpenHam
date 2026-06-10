@@ -190,19 +190,21 @@ async function runGame(buf){
     html=html.split('"'+fn+'"').join('"'+url+'"').split("'"+fn+"'").join("'"+url+"'");
   }
 
-  // 注入 OpenHam 桥（与桌面端同形）。iframe 与父页用 postMessage 通信（跨域安全）
+  // 引擎与统一输入层（与桌面端同形，从 ECS 加载）。放在最前，保证游戏脚本前就绪。
+  const LIB="http://47.102.218.59/openham/lib";
+  const libs=`<script src="${LIB}/phaser.min.js"><\/script><script src="${LIB}/openham_controls.js"><\/script>`;
+  // 注入 OpenHam 桥（属性合并，和 openham_controls 的 OpenHam.input 共存）。iframe 与父页用 postMessage 通信
   const bridge=`<script>
-    window.OpenHam={me:${JSON.stringify(selfId)},name:${JSON.stringify(myNick)},isHost:false,_cbs:[],
-      send:function(o){ parent.postMessage({__oh:1,payload:o},"*"); },
-      on:function(cb){ this._cbs.push(cb); }};
-    window.addEventListener("message",function(e){
-      var d=e.data; if(!d||!d.__oh_in) return;
-      window.OpenHam._cbs.forEach(function(cb){ try{cb(d.payload);}catch(err){console.error(err);} });
-    });
-    document.addEventListener("DOMContentLoaded",function(){
-      if (typeof window.OpenHamReady==="function") window.OpenHamReady(); });
+    (function(){ var OH=window.OpenHam=window.OpenHam||{};
+      OH.me=${JSON.stringify(selfId)}; OH.name=${JSON.stringify(myNick)}; OH.isHost=false; OH._cbs=OH._cbs||[];
+      OH.send=function(o){ parent.postMessage({__oh:1,payload:o},"*"); };
+      OH.on=function(cb){ this._cbs.push(cb); };
+      window.addEventListener("message",function(e){ var d=e.data; if(!d||!d.__oh_in) return;
+        (window.OpenHam._cbs||[]).forEach(function(cb){ try{cb(d.payload);}catch(err){console.error(err);} }); });
+      document.addEventListener("DOMContentLoaded",function(){ if (typeof window.OpenHamReady==="function") window.OpenHamReady(); });
+    })();
   <\/script>`;
-  $("game").srcdoc=bridge+html;
+  $("game").srcdoc=libs+bridge+html;
   $("lobby").style.display="none";
   $("stage").style.display="block";
 }

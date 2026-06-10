@@ -8,6 +8,7 @@
 
 安全：游戏只在 Chromium 沙箱里渲染 html/js，不触碰本地可执行文件。
 """
+import os
 import json
 
 from PyQt6.QtCore import Qt, QObject, QUrl, QFile, QIODevice, pyqtSlot
@@ -24,6 +25,24 @@ from core.logging_setup import get_logger
 
 log = get_logger("game")
 
+_ASSET_CACHE = {}
+
+
+def _read_asset(name: str) -> str:
+    """读取 assets/ 下的脚本（Phaser、统一输入层等），结果缓存。"""
+    if name in _ASSET_CACHE:
+        return _ASSET_CACHE[name]
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(base, "assets", name)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            src = f.read()
+    except Exception as e:
+        log.warning("读取游戏资源 %s 失败：%s", name, e)
+        src = ""
+    _ASSET_CACHE[name] = src
+    return src
+
 
 def _qwebchannel_js() -> str:
     """读取 Qt 内置的 qwebchannel.js 源码以便注入。"""
@@ -37,22 +56,19 @@ def _qwebchannel_js() -> str:
 
 
 def _bridge_init_js(self_id: str, is_host: bool, name: str = "玩家") -> str:
+    # 用属性合并而非整体赋值，确保和 openham_controls.js 注入的 OpenHam.input 共存
     return _qwebchannel_js() + """
     (function(){
+      var OH = window.OpenHam = window.OpenHam || {};
+      OH.me = %s; OH.name = %s; OH.isHost = %s; OH._cbs = OH._cbs || [];
+      OH.on = function(cb){ this._cbs.push(cb); };
+      window.__openham_recv = function(s){
+        var o = JSON.parse(s);
+        (window.OpenHam._cbs||[]).forEach(function(cb){ try{ cb(o);}catch(e){console.error(e);} });
+      };
       new QWebChannel(qt.webChannelTransport, function(channel){
         var bridge = channel.objects.openham_bridge;
-        window.OpenHam = {
-          me: %s,
-          name: %s,
-          isHost: %s,
-          _cbs: [],
-          send: function(obj){ bridge.send(JSON.stringify(obj)); },
-          on: function(cb){ this._cbs.push(cb); }
-        };
-        window.__openham_recv = function(s){
-          var o = JSON.parse(s);
-          window.OpenHam._cbs.forEach(function(cb){ try{ cb(o);}catch(e){console.error(e);} });
-        };
+        OH.send = function(obj){ bridge.send(JSON.stringify(obj)); };
         if (typeof window.OpenHamReady === 'function') window.OpenHamReady();
       });
     })();
@@ -161,17 +177,53 @@ class GameWindow(OpenHamWindowBase):
     def load_game(self, entry_path: str, self_id: str, is_host: bool,
                   name: str = "游戏", player_name: str = "玩家"):
         self.title_lbl.setText(f"游戏 · {name}")
-        # 注入桥脚本（DocumentCreation 时机，确保游戏脚本运行前 OpenHam 就绪）
+        # DocumentCreation 时机依次注入：Phaser 引擎 → 统一输入层 → OpenHam 桥
+        # 保证游戏脚本运行前，window.Phaser / OpenHam.input / OpenHam 都已就绪。
         self.page.scripts().clear()
-        script = QWebEngineScript()
-        script.setName("openham_bridge")
-        script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
-        script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
-        script.setRunsOnSubFrames(False)
-        script.setSourceCode(_bridge_init_js(self_id, is_host, player_name))
-        self.page.scripts().insert(script)
+        # 统一输入层 + OpenHam 桥：注入脚本(DocumentCreation)即可
+        for sname, src in (
+            ("openham_controls", _read_asset("openham_controls.js")),
+            ("openham_bridge", _bridge_init_js(self_id, is_host, player_name)),
+        ):
+            if not src:
+                continue
+            s = QWebEngineScript()
+            s.setName(sname)
+            s.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+            s.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+            s.setRunsOnSubFrames(False)
+            s.setSourceCode(src)
+            self.page.scripts().insert(s)
 
+        # Phaser 是 UMD，必须以正常 <script> 运行(top-level this=window)才能挂全局；
+        # 注入脚本里 this 非 window 会失败，所以把它内联进游戏 HTML 的 <head>。
+        entry_path = self._inject_phaser_inline(entry_path)
         self.view.load(QUrl.fromLocalFile(entry_path))
+
+    def _inject_phaser_inline(self, entry_path: str) -> str:
+        phaser = _read_asset("phaser.min.js")
+        if not phaser:
+            return entry_path
+        try:
+            with open(entry_path, "r", encoding="utf-8") as f:
+                html = f.read()
+            if "openham_phaser_injected" in html:
+                return entry_path   # 已注入过
+            tag = "<script id='openham_phaser_injected'>\n" + phaser + "\n</script>\n"
+            low = html.lower()
+            if "<head>" in low:
+                i = low.index("<head>") + len("<head>")
+                html = html[:i] + "\n" + tag + html[i:]
+            elif "<body" in low:
+                i = low.index(">", low.index("<body")) + 1
+                html = html[:i] + "\n" + tag + html[i:]
+            else:
+                html = tag + html
+            with open(entry_path, "w", encoding="utf-8") as f:
+                f.write(html)
+        except Exception as e:
+            log.warning("内联 Phaser 到游戏 HTML 失败：%s", e)
+        return entry_path
 
     def deliver(self, obj: dict):
         """把他人的操作推给游戏 JS（触发 OpenHam.on 回调）。"""

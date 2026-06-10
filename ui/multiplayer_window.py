@@ -397,22 +397,29 @@ class MultiplayerWindow(OpenHamWindowBase):
             if base_html:   # 修改模式：在现有游戏上改
                 sys_prompt = (
                     "你是网页游戏开发者。下面会给你一个 OpenHam 联机游戏的完整 index.html，"
-                    "请按用户的修改要求改它，保持仍是【可联机的单文件 index.html】并遵守规范：必须有"
-                    "「重新开始」按钮（任何玩家可点、点击 OpenHam.send({k:'reset'}) 广播，所有人收到 reset 重置）；"
-                    "绝不卡死；适配手机。只输出修改后的完整 HTML，从 <!DOCTYPE html> 到 </html>，"
-                    "不要解释、不要 markdown 代码围栏。"
+                    "请按用户的修改要求改它，保持仍是【可联机、电脑手机都能玩的单文件 index.html】。"
+                    "平台已注入全局 window.Phaser（Phaser 3 引擎）、OpenHam（联机桥）、"
+                    "OpenHam.input（跨平台输入：手机虚拟摇杆/电脑键盘）——直接用，别引外部资源。"
+                    "保留「重新开始」按钮（任何玩家点击 OpenHam.send({t:'reset'}) 广播全员重置）；"
+                    "绝不卡死；用 Phaser Scale.FIT 适配手机。只输出修改后的完整 HTML，"
+                    "从 <!DOCTYPE html> 到 </html>，不要解释、不要 markdown 代码围栏。"
                 )
                 user_msg = f"修改要求：{req}\n\n当前游戏的完整 index.html：\n{base_html}"
             else:           # 新建模式
                 sys_prompt = (
-                    "你是一名资深的网页小游戏开发者。严格按照下面《OpenHam 游戏包开发规范》，"
-                    "根据用户的需求，生成一个【可联机的单文件 index.html 游戏】。\n"
+                    "你是一名资深的网页游戏开发者。严格按照下面《OpenHam 联机游戏开发规范》，"
+                    "根据用户的需求，生成一个【可联机、电脑和手机都能玩的单文件 index.html 游戏】。\n"
                     "硬性要求（务必满足，否则不合格）：\n"
-                    "1. 必须有始终可见的「重新开始」按钮，任何玩家都能点；点击后重置本局并 "
-                    "OpenHam.send({k:'reset'}) 广播，所有人收到 reset 都重置本局——大家一起重开。\n"
-                    "2. 绝不能卡死：分出胜负/平局后能重来；人数不够时显示「等待其他玩家…」不要卡住；"
-                    "有人中途退出不死锁；新加入者要能看到当前局面（房主收到 hello 后广播一次完整状态）。\n"
-                    "3. 所有 CSS/JS 内联；适配手机（viewport + pointer 事件 + 自适应）；用内联 SVG 或 emoji 当美术。\n"
+                    "1. 用 Phaser 3 写游戏——平台已注入全局 window.Phaser，直接用，绝不要写 "
+                    "<script src=\"phaser...\">，也不要引用任何外部图片/音频/脚本网址。\n"
+                    "2. 跨平台输入用平台注入的 OpenHam.input：动作游戏调 "
+                    "OpenHam.input.enable({joystick:true,buttons:[...]}) 即可——手机自动出虚拟摇杆+按钮，"
+                    "电脑自动映射键盘，你不要自己写触摸或键盘事件；点击落子类用 Phaser 指针事件。\n"
+                    "3. 联机用房主裁判：房主跑逻辑并广播权威 state，非房主发 input + 渲染；"
+                    "有 hello 握手、超过 players.max 的人观战、新人由房主补发状态。\n"
+                    "4. 必须有始终可见的「重新开始」按钮，任何玩家点击都 OpenHam.send({t:'reset'}) 广播，"
+                    "所有人一起重开；绝不卡死（分胜负后能重来、人数不够显示等待、有人退出不死锁）。\n"
+                    "5. 用 Phaser Scale.FIT 自适应铺满屏幕，手机横竖屏都能玩。\n"
                     "只输出完整 HTML，从 <!DOCTYPE html> 到 </html>，不要任何解释、不要 markdown 代码围栏。\n\n"
                     + self._load_game_guide()
                 )
