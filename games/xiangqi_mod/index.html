@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>中国象棋 · 马二段跳(魔改)</title>
+<style>html,body{margin:0;height:100%;background:#1c140c;overflow:hidden}</style>
+</head>
+<body>
+<script>
+/* 中国象棋 · 魔改版「马二段跳」—— OpenHam 联机示范
+   魔改规则：除了普通走法，马还能"二段跳"——先按马走法踩任意一个【有子的格】(踩到敌子即击杀)，
+   再按马走法跳一次落子；踩和跳各自都要符合原本的马走法(日字+蹩马腿)。其余规则与标准象棋一致。*/
+const COLS=9, ROWS=10, CELL=82;
+const OX=(1600-(COLS-1)*CELL)/2, OY=(900-(ROWS-1)*CELL)/2;
+const PR=35;
+const CHAR={ r:{G:'帅',A:'仕',E:'相',H:'马',R:'车',C:'炮',S:'兵'},
+             b:{G:'将',A:'士',E:'象',H:'马',R:'车',C:'砲',S:'卒'} };
+
+let scene, state=null, ovG, pieceObjs=[], statusTxt, winTxt, sel=null, step=null, _rn=-1;
+
+/* ===================== 规则引擎（纯逻辑，可被 Node 测试） ===================== */
+function initBoard(){
+  const bd=[]; for(let y=0;y<ROWS;y++){ bd.push(new Array(COLS).fill(null)); }
+  const back=['R','H','E','A','G','A','E','H','R'];
+  for(let x=0;x<COLS;x++){ bd[0][x]={t:back[x],c:'b'}; bd[9][x]={t:back[x],c:'r'}; }
+  bd[2][1]={t:'C',c:'b'}; bd[2][7]={t:'C',c:'b'}; bd[7][1]={t:'C',c:'r'}; bd[7][7]={t:'C',c:'r'};
+  for(let x=0;x<COLS;x+=2){ bd[3][x]={t:'S',c:'b'}; bd[6][x]={t:'S',c:'r'}; }
+  return bd;
+}
+function inB(x,y){ return x>=0&&x<COLS&&y>=0&&y<ROWS; }
+function cloneBoard(bd){ return bd.map(r=>r.map(p=>p?{t:p.t,c:p.c}:null)); }
+function eqVia(a,b){ if(!a&&!b) return true; if(!a||!b) return false; return a.x===b.x&&a.y===b.y; }
+// 马的 8 个日字落点(含蹩马腿格 lx,ly)；返回腿不被挡的落点(不判目标占用)
+const HSTEP=[[1,2,0,1],[-1,2,0,1],[1,-2,0,-1],[-1,-2,0,-1],[2,1,1,0],[2,-1,1,0],[-2,1,-1,0],[-2,-1,-1,0]];
+function hraw(bd, hx, hy){ const o=[]; for(const [dx,dy,lx,ly] of HSTEP){ const tx=hx+dx,ty=hy+dy;
+  if(!inB(tx,ty)) continue; if(bd[hy+ly][hx+lx]) continue; o.push({x:tx,y:ty}); } return o; }
+
+function pseudoMoves(bd, x, y){
+  const p=bd[y][x]; if(!p) return []; const c=p.c, res=[];
+  const own=(tx,ty)=> bd[ty][tx] && bd[ty][tx].c===c;
+  const add=(tx,ty)=>{ if(inB(tx,ty)&&!own(tx,ty)) res.push({x:tx,y:ty}); };
+  const pal=(c==='b')?{x0:3,x1:5,y0:0,y1:2}:{x0:3,x1:5,y0:7,y1:9};
+  if(p.t==='G'){
+    [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx,dy])=>{ const tx=x+dx,ty=y+dy;
+      if(tx>=pal.x0&&tx<=pal.x1&&ty>=pal.y0&&ty<=pal.y1) add(tx,ty); });
+  } else if(p.t==='A'){
+    [[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dx,dy])=>{ const tx=x+dx,ty=y+dy;
+      if(tx>=pal.x0&&tx<=pal.x1&&ty>=pal.y0&&ty<=pal.y1) add(tx,ty); });
+  } else if(p.t==='E'){
+    [[2,2],[2,-2],[-2,2],[-2,-2]].forEach(([dx,dy])=>{ const tx=x+dx,ty=y+dy,ex=x+dx/2,ey=y+dy/2;
+      if(!inB(tx,ty)) return;
+      if(c==='b'&&ty>4) return; if(c==='r'&&ty<5) return;
+      if(bd[ey][ex]) return; add(tx,ty); });
+  } else if(p.t==='H'){
+    // 普通马走法
+    const first=hraw(bd,x,y);
+    for(const t of first){ const o=bd[t.y][t.x]; if(!o||o.c!==c) res.push({x:t.x,y:t.y}); }
+    // 魔改二段跳：先踩任意有子的格 M(第一步)，再从 M 按马走法跳到 F(第二步)
+    const savedO=bd[y][x]; bd[y][x]=null;          // 第二跳时马已离开原位(用于蹩马腿判断)
+    for(const M of first){ if(!bd[M.y][M.x]) continue;       // M 必须有子可踩
+      for(const F of hraw(bd, M.x, M.y)){ const o=bd[F.y][F.x];
+        if(o && o.c===c) continue;                          // 落点不能是己方子
+        res.push({x:F.x, y:F.y, via:{x:M.x, y:M.y}}); } }
+    bd[y][x]=savedO;
+  } else if(p.t==='R'){
+    [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx,dy])=>{ let tx=x+dx,ty=y+dy;
+      while(inB(tx,ty)){ if(!bd[ty][tx]) res.push({x:tx,y:ty});
+        else { if(bd[ty][tx].c!==c) res.push({x:tx,y:ty}); break; } tx+=dx;ty+=dy; } });
+  } else if(p.t==='C'){
+    [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx,dy])=>{ let tx=x+dx,ty=y+dy, jumped=false;
+      while(inB(tx,ty)){ const cell=bd[ty][tx];
+        if(!jumped){ if(!cell) res.push({x:tx,y:ty}); else jumped=true; }
+        else { if(cell){ if(cell.c!==c) res.push({x:tx,y:ty}); break; } }
+        tx+=dx;ty+=dy; } });
+  } else if(p.t==='S'){
+    const fwd=(c==='b')?1:-1; add(x,y+fwd);
+    const crossed=(c==='b')? y>4 : y<5;
+    if(crossed){ add(x+1,y); add(x-1,y); }
+  }
+  return res;
+}
+// 应用一步（含二段跳：踩到的敌方中间子被击杀，己方中间子保留）
+function applyMv(bd, fx, fy, m){
+  const nb=cloneBoard(bd); const pc=nb[fy][fx]; nb[fy][fx]=null;
+  if(m.via){ const mid=nb[m.via.y][m.via.x]; if(mid && mid.c!==pc.c) nb[m.via.y][m.via.x]=null; }
+  nb[m.y][m.x]=pc; return nb;
+}
+function findG(bd,c){ for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){ const p=bd[y][x]; if(p&&p.t==='G'&&p.c===c) return {x,y}; } return null; }
+function generalsFacing(bd){ const a=findG(bd,'r'),b=findG(bd,'b'); if(!a||!b||a.x!==b.x) return false;
+  for(let y=Math.min(a.y,b.y)+1;y<Math.max(a.y,b.y);y++) if(bd[y][a.x]) return false; return true; }
+function inCheck(bd,c){ const g=findG(bd,c); if(!g) return true;
+  if(generalsFacing(bd)) return true;
+  const en=(c==='r')?'b':'r';
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){ const p=bd[y][x];
+    if(p&&p.c===en){ for(const m of pseudoMoves(bd,x,y)){
+      if(m.x===g.x&&m.y===g.y) return true;                       // 落点吃将
+      if(m.via && m.via.x===g.x && m.via.y===g.y) return true;    // 二段跳踩死将
+    } } }
+  return false;
+}
+function legalMovesFrom(bd,c,x,y){ const res=[]; const p=bd[y][x]; if(!p||p.c!==c) return res;
+  for(const m of pseudoMoves(bd,x,y)){ const nb=applyMv(bd,x,y,m);
+    if(!inCheck(nb,c)) res.push({fx:x,fy:y,tx:m.x,ty:m.y,via:m.via||null}); } return res; }
+function legalMoves(bd,c){ const res=[];
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){ const p=bd[y][x]; if(p&&p.c===c) res.push.apply(res, legalMovesFrom(bd,c,x,y)); }
+  return res; }
+
+/* ===================== 房主：状态与走子 ===================== */
+function resetGame(){ state={ board:initBoard(), turn:'r', winner:null, last:null, moveNum:0, started:true };
+  sel=null; step=null; if(OpenHam.isHost) OpenHam.syncState(state); }
+function seatColor(id){ const i=OpenHam.players.findIndex(p=>p.id===id); return i===0?'r':(i===1?'b':null); }
+function handleMove(senderId, mv){
+  if(!OpenHam.isHost || !state || state.winner) return;
+  if(!mv||!mv.from||!mv.to) return;
+  const hot=OpenHam.players.length<2, sc=seatColor(senderId);
+  if(!hot && sc!==state.turn) return;
+  const pcf=state.board[mv.from.y] && state.board[mv.from.y][mv.from.x];
+  if(!pcf || pcf.c!==state.turn) return;
+  const L=legalMovesFrom(state.board,state.turn,mv.from.x,mv.from.y)
+    .find(m=>m.tx===mv.to.x && m.ty===mv.to.y && eqVia(m.via, mv.via||null));
+  if(!L) return;
+  state.board=applyMv(state.board, mv.from.x, mv.from.y, {x:mv.to.x,y:mv.to.y,via:mv.via||null});
+  state.last={fx:mv.from.x,fy:mv.from.y,tx:mv.to.x,ty:mv.to.y,via:mv.via||null};
+  state.turn=(state.turn==='r')?'b':'r'; state.moveNum++;
+  if(legalMoves(state.board,state.turn).length===0) state.winner=(state.turn==='r')?'b':'r';
+  OpenHam.syncState(state);
+}
+function sendMove(mv){ if(OpenHam.isHost) handleMove(OpenHam.me, mv); else OpenHam.sendInput(mv); }
+
+/* ===================== 渲染 / 输入 ===================== */
+function myColor(){ if(!state) return null; const i=OpenHam.players.findIndex(p=>p.id===OpenHam.me); return i===0?'r':(i===1?'b':null); }
+function flipped(){ return myColor()==='b'; }
+function toScreen(x,y){ const fx=flipped()?COLS-1-x:x, fy=flipped()?ROWS-1-y:y; return {sx:OX+fx*CELL, sy:OY+fy*CELL}; }
+function toBoard(gx,gy){ let bx=Math.round((gx-OX)/CELL), by=Math.round((gy-OY)/CELL);
+  if(flipped()){ bx=COLS-1-bx; by=ROWS-1-by; }
+  const s=toScreen(bx,by); if(Math.hypot(gx-s.sx,gy-s.sy)>CELL*0.46) return null;
+  return inB(bx,by)?{x:bx,y:by}:null; }
+
+function create(){
+  scene=this;
+  const bg=this.add.graphics().setDepth(-10);
+  const x0=OX, y0=OY, x1=OX+(COLS-1)*CELL, y1=OY+(ROWS-1)*CELL;
+  bg.fillStyle(0xe9c98a,1).fillRoundedRect(x0-40,y0-40,(COLS-1)*CELL+80,(ROWS-1)*CELL+80,14);
+  bg.lineStyle(2,0x5b3a1a,1);
+  for(let y=0;y<ROWS;y++) bg.lineBetween(x0,OY+y*CELL,x1,OY+y*CELL);
+  bg.lineBetween(x0,y0,x0,y1); bg.lineBetween(x1,y0,x1,y1);
+  for(let x=1;x<COLS-1;x++){ bg.lineBetween(OX+x*CELL,y0,OX+x*CELL,OY+4*CELL);
+    bg.lineBetween(OX+x*CELL,OY+5*CELL,OX+x*CELL,y1); }
+  bg.lineBetween(OX+3*CELL,OY+0*CELL,OX+5*CELL,OY+2*CELL); bg.lineBetween(OX+5*CELL,OY+0*CELL,OX+3*CELL,OY+2*CELL);
+  bg.lineBetween(OX+3*CELL,OY+7*CELL,OX+5*CELL,OY+9*CELL); bg.lineBetween(OX+5*CELL,OY+7*CELL,OX+3*CELL,OY+9*CELL);
+  this.add.text((x0+x1)/2, OY+4.5*CELL, '楚 河          漢 界', {fontSize:'34px',color:'#7a4a1a',fontStyle:'bold'}).setOrigin(0.5).setDepth(-9);
+
+  ovG=this.add.graphics().setDepth(5);
+  statusTxt=this.add.text(800,24,'',{fontSize:'28px',fontStyle:'bold',color:'#f3e6c8'}).setOrigin(0.5,0).setDepth(20);
+  winTxt=this.add.text(800,450,'',{fontSize:'56px',fontStyle:'bold',color:'#fff',align:'center',stroke:'#3a1a0a',strokeThickness:8}).setOrigin(0.5).setDepth(30);
+  this.add.text(40,40,'↻ 重新开始',{fontSize:'24px',backgroundColor:'#5b3a1a',color:'#ffe9c8',padding:10})
+    .setInteractive({useHandCursor:true}).setDepth(30)
+    .on('pointerdown',()=>{ if(OpenHam.isHost) resetGame(); else OpenHam.send({t:'reset'}); });
+  this.add.text(800,866,'魔改·马二段跳：选马后，绿点=普通走；橙圈的子=可踩，点它再点绿点完成二段跳(踩敌子即击杀)',
+    {fontSize:'17px',color:'#caa46a',align:'center'}).setOrigin(0.5,1).setDepth(20);
+
+  this.input.on('pointerdown', p=>{ onTap(p.x, p.y); });
+  OpenHam.onInput((id,mv)=>{ handleMove(id, mv); });
+  OpenHam.onState((s)=>{ state=s; });
+  OpenHam.onJoin(()=>{ if(OpenHam.isHost && state) OpenHam.syncState(state); });
+  OpenHam.on((o)=>{ if(o&&o.t==='reset'&&OpenHam.isHost) resetGame(); });
+  window.OpenHamReady=function(){ if(OpenHam.isHost) resetGame(); };
+}
+
+function canActNow(){ if(!state||state.winner) return false; return OpenHam.players.length<2 ? true : (myColor()===state.turn); }
+function onTap(gx,gy){
+  if(!canActNow()) return;
+  const b=toBoard(gx,gy); if(!b) return;
+  const pc=state.board[b.y][b.x];
+  if(!sel){ if(pc && pc.c===state.turn) sel={x:b.x,y:b.y}; return; }
+  const moves=legalMovesFrom(state.board,state.turn,sel.x,sel.y);
+  // 二段跳：已选踩点 step，等待落点
+  if(step){
+    const L=moves.find(m=>m.via && m.via.x===step.x && m.via.y===step.y && m.tx===b.x && m.ty===b.y);
+    if(L){ sendMove({from:sel,to:{x:b.x,y:b.y},via:step}); sel=null; step=null; return; }
+  }
+  if(sel.x===b.x && sel.y===b.y){ sel=null; step=null; return; }            // 点自己→取消
+  if(pc && pc.c===state.turn){ sel={x:b.x,y:b.y}; step=null; return; }       // 改选己方子
+  const norm=moves.find(m=>!m.via && m.tx===b.x && m.ty===b.y);
+  if(norm){ sendMove({from:sel,to:{x:b.x,y:b.y}}); sel=null; step=null; return; }   // 普通走/吃
+  if(moves.some(m=>m.via && m.via.x===b.x && m.via.y===b.y)){ step={x:b.x,y:b.y}; return; }  // 选定踩点
+  sel=null; step=null;                                                        // 点空白→取消
+}
+
+function rebuildPieces(){
+  pieceObjs.forEach(o=>o.destroy()); pieceObjs=[];
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){ const p=state.board[y][x]; if(!p) continue;
+    const s=toScreen(x,y), red=p.c==='r';
+    const ct=scene.add.container(s.sx,s.sy).setDepth(10);
+    const disc=scene.add.circle(0,0,PR,0xf6e2b8).setStrokeStyle(3, red?0xc02020:0x101010);
+    const tx=scene.add.text(0,0,CHAR[p.c][p.t],{fontSize:'40px',fontStyle:'bold',color:red?'#c02020':'#101010'}).setOrigin(0.5);
+    ct.add([disc,tx]); pieceObjs.push(ct);
+  }
+}
+function markDest(m){ const t=toScreen(m.tx,m.ty); const cap=state.board[m.ty][m.tx];
+  if(cap){ ovG.lineStyle(4,0x18b070,0.9).strokeCircle(t.sx,t.sy,PR+4); }
+  else { ovG.fillStyle(0x18b070,0.6).fillCircle(t.sx,t.sy,10); } }
+function render(){
+  if(!state) return;
+  if(state.moveNum!==_rn){ rebuildPieces(); _rn=state.moveNum; }
+  ovG.clear();
+  if(state.last){ for(const pt of [[state.last.fx,state.last.fy],[state.last.tx,state.last.ty]]){
+    const s=toScreen(pt[0],pt[1]); ovG.lineStyle(3,0x2a7fff,0.9).strokeRect(s.sx-PR,s.sy-PR,PR*2,PR*2); }
+    if(state.last.via){ const v=toScreen(state.last.via.x,state.last.via.y); ovG.lineStyle(3,0xff9500,0.9).strokeRect(v.sx-PR,v.sy-PR,PR*2,PR*2); } }
+  if(sel){ const s=toScreen(sel.x,sel.y); ovG.lineStyle(4,0x18b070,1).strokeCircle(s.sx,s.sy,PR+4);
+    const moves=legalMovesFrom(state.board,state.turn,sel.x,sel.y);
+    if(step){ const sv=toScreen(step.x,step.y); ovG.lineStyle(4,0xff9500,1).strokeCircle(sv.sx,sv.sy,PR+4);
+      moves.filter(m=>m.via&&m.via.x===step.x&&m.via.y===step.y).forEach(markDest); }
+    else { moves.filter(m=>!m.via).forEach(markDest);
+      const vias={}; moves.forEach(m=>{ if(m.via) vias[m.via.x+','+m.via.y]=m.via; });
+      Object.keys(vias).forEach(k=>{ const v=vias[k], t=toScreen(v.x,v.y); ovG.lineStyle(4,0xff9500,0.9).strokeCircle(t.sx,t.sy,PR+4); }); } }
+  let s='';
+  if(OpenHam.players.length<2) s='同屏对弈 · 轮到 '+(state.turn==='r'?'红方(帅)':'黑方(将)');
+  else { const mc=myColor(); s=(state.turn==='r'?'红方':'黑方')+' 走棋'+(mc?(state.turn===mc?'（轮到你）':'（等待对手）'):'（观战）'); }
+  if(state.winner) s='';
+  else if(inCheck(state.board,state.turn)) s+='  ·  将军！';
+  statusTxt.setText(s);
+  winTxt.setText(state.winner ? ((state.winner==='r'?'🏆 红方':'🏆 黑方')+' 胜！\n点「重新开始」再来') : '');
+}
+function update(){ if(OpenHam.isHost && !state) resetGame(); render(); }
+
+new Phaser.Game({ type:Phaser.AUTO, parent:document.body,
+  scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH,width:1600,height:900,autoRound:false},
+  render:{antialias:true}, backgroundColor:'#1c140c', scene:{create,update} });
+</script>
+</body>
+</html>

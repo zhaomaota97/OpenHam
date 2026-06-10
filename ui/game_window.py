@@ -92,14 +92,21 @@ class _Bridge(QObject):
 
 
 class GameWindow(OpenHamWindowBase):
-    def __init__(self, on_game_send, on_chat_send=None):
-        """on_game_send(obj): 游戏 JS 发来的操作；on_chat_send(text): 游戏页内发言。"""
+    def __init__(self, on_game_send, on_chat_send=None, on_close=None):
+        """on_game_send(obj): 游戏 JS 发来的操作；on_chat_send(text): 游戏页内发言；
+        on_close(): 用户点关闭按钮关掉游戏窗口时回调（房主据此回退到未加载状态）。"""
         # 内容区按 16:9 设计：游戏（Phaser Scale.FIT）能铺满窗口、几乎不留黑边。
         # min 偏大 + 初始更大，避免画面看着小；窗口可随意拖拽缩放，游戏自动跟着放大。
         super().__init__(title="游戏", shadow_size=0, min_w=900, min_h=600)
         self.resize(1120, 700)
         self.title_lbl.setText("游戏")
         self._on_chat_send = on_chat_send
+        self._on_close = on_close
+        try:
+            self.close_btn.clicked.disconnect()    # 改接带回调的关闭，区分"用户关窗"与程序性隐藏
+        except Exception:
+            pass
+        self.close_btn.clicked.connect(self._on_close_clicked)
 
         self.view = QWebEngineView()
         self.page = self.view.page()
@@ -234,6 +241,15 @@ class GameWindow(OpenHamWindowBase):
         """把他人的操作推给游戏 JS（触发 OpenHam.on 回调）。"""
         payload = json.dumps(json.dumps(obj))  # 双层转义后作为 JS 字符串参数
         self.page.runJavaScript(f"window.__openham_recv && window.__openham_recv({payload});")
+
+    def _on_close_clicked(self):
+        """用户点了关闭按钮：先隐藏窗口，再回调（房主会据此回退房间到未加载状态）。"""
+        self.hide_window()
+        if self._on_close:
+            try:
+                self._on_close()
+            except Exception:
+                pass
 
     def hide_window(self):
         try:

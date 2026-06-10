@@ -343,6 +343,11 @@ class MultiplayerWindow(OpenHamWindowBase):
             done = self._reasm.on_chunk(data)
             if done is not None:
                 self._receive_game(done, self._reasm.name)
+        elif t == "game_end":
+            if self._game_win is not None:
+                self._game_win.hide_window()             # 程序性隐藏，不会回调
+            self._set_state("等待房主发布")
+            self._system("🛑 房主关闭了游戏，已退出")
         elif t == "game_msg":
             if self._game_win is not None:
                 payload = data.get("payload")
@@ -653,13 +658,24 @@ class MultiplayerWindow(OpenHamWindowBase):
             return
         if self._game_win is None:
             from ui.game_window import GameWindow  # 延迟加载，避免未玩游戏时也载入 WebEngine
-            self._game_win = GameWindow(self._on_game_send, self._broadcast_chat)
+            self._game_win = GameWindow(self._on_game_send, self._broadcast_chat,
+                                        self._on_game_window_closed)
         self._game_win.load_game(
             info["entry_path"], self.client.self_id or "", self.client.is_host,
             info["name"], self._nickname()
         )
         self._game_win.show_window_centered()
         self._game_win.raise_()
+
+    def _on_game_window_closed(self):
+        """用户关掉游戏窗口：房主据此回退房间到「未加载游戏」，并让房内所有人退出游戏。"""
+        if not self.client.room:
+            return
+        if self.client.is_host:
+            self._published = None                       # 不再补发给新人
+            self.client.send_data({"t": "game_end"})     # 通知房内所有人退出游戏
+            self._set_state("未发布游戏")
+            self._system("🛑 已关闭游戏，房间回到未加载状态（可重新发布游戏）")
 
     def _on_game_send(self, payload):
         """游戏 JS 发来的操作 → 经 relay 广播给房间其他人。"""
