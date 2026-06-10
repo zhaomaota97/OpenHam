@@ -74,7 +74,7 @@
       <input id="nick" placeholder="你的昵称" autocomplete="off">
       <button id="dice" title="换一个昵称">🎲</button>
     </div>
-    <input id="code" placeholder="粘贴房间口令（喵～…～喵）" autocomplete="off">
+    <input id="code" placeholder="粘贴口令 / 整段邀请文字（自动识别）" autocomplete="off">
     <button id="join">进入游戏</button>
     <div id="status"></div>
   </div>
@@ -138,6 +138,27 @@ $("code").addEventListener("keydown",e=>{ if(e.key==="Enter") connect(); });
 // 支持链接带口令：?code=喵～…～喵
 const qcode=new URLSearchParams(location.search).get("code");
 if (qcode) $("code").value=qcode;
+
+// ── 自动识别口令：从整段邀请文字里提取，并尽量静默嗅探剪贴板 ──
+function extractCode(t){ const m=(t||"").match(/喵～[喵咪呜嗷]+～喵/); return m?m[0]:null; }
+// 1) 粘贴任意位置：若含口令则只提取口令填入（http 也可用，无需权限）
+document.addEventListener("paste", e=>{
+  let t=""; try{ t=(e.clipboardData||window.clipboardData).getData("text"); }catch(_){}
+  const c=extractCode(t);
+  if (c){ e.preventDefault(); $("code").value=c; setStatus("已自动识别房间口令 ✅"); }
+});
+// 2) 静默嗅探剪贴板：仅在浏览器允许时(https/localhost)生效，失败则忽略
+async function sniffClipboard(){
+  if ($("code").value.trim()) return;
+  try{ if (navigator.clipboard && navigator.clipboard.readText){
+    const c=extractCode(await navigator.clipboard.readText());
+    if (c){ $("code").value=c; setStatus("已自动识别房间口令 ✅"); }
+  } }catch(_){}
+}
+sniffClipboard();
+window.addEventListener("focus", sniffClipboard);                              // 从桌面复制后切回浏览器
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) sniffClipboard(); });
+$("code").addEventListener("focus", sniffClipboard);
 
 // 手机/浏览器用户自动生成一个随机昵称并预填（用户想改可直接改）
 function randNick(){
