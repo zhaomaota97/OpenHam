@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>霓虹星舰·对决</title>
+<style>html,body{margin:0;height:100%;background:#05060c;overflow:hidden}</style>
+</head>
+<body>
+<script>
+/* 霓虹星舰·对决 —— OpenHam 联机示范游戏（炫光对战，纯运行时生成素材，无任何外链）
+   房主裁判：房主跑全部物理/碰撞并广播权威 state，非房主发输入 + 照 state 渲染。
+   操控：手机虚拟摇杆移动+「开火」按钮；电脑方向键/WASD 移动、空格开火。朝移动方向射击。*/
+const W = 1600, H = 900, MAXP = 4;
+const COLORS = [0x49d6ff, 0xff5c7a, 0x6cff8a, 0xffd166];   // 4 个座位颜色（青/红/绿/金）
+const ACCEL = 1500, MAXV = 560, BSPD = 980, BLIFE = 1.05, FIRECD = 0.2;
+const SHIPR = 22, HITR = 30, HP0 = 3, RESPAWN = 1.6, GOAL = 12, MARGIN = 30;
+
+let scene;
+let state = { ships: {}, bullets: [], started: false, winner: null };  // 权威状态（房主维护、广播）
+let inputs = {};        // 房主收集：id -> {x,y,fire}
+const cd = {};          // 房主本地：id -> 开火冷却
+let bid = 1;            // 房主本地：子弹自增 id
+// 渲染层（所有人本地）
+let stars1, stars2, arenaG, bulletG, msgTxt, hudTxts = [], sprites = {}, hudWrap;
+let engineEmit = [], boomEmit = [];
+const prevAlive = {};
+
+function hx(c){ return '#' + c.toString(16).padStart(6, '0'); }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function rnd(a,b){ return a + Math.random()*(b-a); }
+function lerpAng(cur, tgt, t){ let d = tgt-cur; while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI; return cur + d*Math.min(1,t); }
+
+/* ---------- 运行时生成贴图（柔光点 / 光晕 / 飞船 / 星空），不依赖任何图片 ---------- */
+function makeTextures(s){
+  // spark：柔和发光点
+  let g = s.make.graphics({ add:false });
+  g.fillStyle(0xffffff, 0.22); g.fillCircle(8,8,8);
+  g.fillStyle(0xffffff, 0.5);  g.fillCircle(8,8,5);
+  g.fillStyle(0xffffff, 1);    g.fillCircle(8,8,2.6);
+  g.generateTexture('spark', 16, 16); g.destroy();
+  // glow：大柔光晕（叠加染色当作飞船光环）
+  g = s.make.graphics({ add:false });
+  for(let r=32; r>=2; r-=2){ g.fillStyle(0xffffff, 0.045); g.fillCircle(32,32,r); }
+  g.generateTexture('glow', 64, 64); g.destroy();
+  // ship：朝右(+x=角度0)的三角飞船
+  g = s.make.graphics({ add:false });
+  g.fillStyle(0xffffff, 1);
+  g.fillTriangle(50,20, 8,4, 8,36);
+  g.fillStyle(0x000000, 0.28); g.fillTriangle(50,20, 8,12, 8,28);  // 中缝增加体积感
+  g.generateTexture('ship', 56, 40); g.destroy();
+  // 两层星空（不同密度/亮度，用于视差滚动）
+  for(const [key,n,maxR,al] of [['starsFar',150,1.4,0.5],['starsNear',60,2.4,0.95]]){
+    g = s.make.graphics({ add:false });
+    for(let i=0;i<n;i++){ g.fillStyle(0xffffff, rnd(0.25,al)); g.fillCircle(rnd(0,420), rnd(0,420), rnd(0.6,maxR)); }
+    g.generateTexture(key, 420, 420); g.destroy();
+  }
+}
+
+function create(){
+  scene = this;
+  makeTextures(this);
+
+  // 背景：双层视差星空
+  stars1 = this.add.tileSprite(W/2, H/2, W, H, 'starsFar').setDepth(-20).setAlpha(0.8);
+  stars2 = this.add.tileSprite(W/2, H/2, W, H, 'starsNear').setDepth(-18).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.9);
+
+  // 竞技场边框 + 淡网格
+  arenaG = this.add.graphics().setDepth(-10);
+  arenaG.lineStyle(3, 0x2a3b66, 0.9).strokeRoundedRect(MARGIN-8, MARGIN-8, W-2*(MARGIN-8), H-2*(MARGIN-8), 22);
+  arenaG.lineStyle(1, 0x16203a, 0.7);
+  for(let x=MARGIN; x<W-MARGIN; x+=80){ arenaG.lineBetween(x, MARGIN, x, H-MARGIN); }
+  for(let y=MARGIN; y<H-MARGIN; y+=80){ arenaG.lineBetween(MARGIN, y, W-MARGIN, y); }
+
+  bulletG = this.add.graphics().setDepth(9);
+
+  // 每个座位颜色一套引擎尾焰 / 爆炸粒子发射器
+  for(let i=0;i<MAXP;i++){
+    engineEmit[i] = this.add.particles(0,0,'spark',{
+      lifespan:330, speed:{min:10,max:60}, scale:{start:0.6,end:0}, alpha:{start:0.85,end:0},
+      blendMode:'ADD', tint:COLORS[i], emitting:false }).setDepth(7);
+    boomEmit[i] = this.add.particles(0,0,'spark',{
+      lifespan:{min:300,max:720}, speed:{min:150,max:520}, scale:{start:1.05,end:0}, alpha:{start:1,end:0},
+      blendMode:'ADD', tint:COLORS[i], emitting:false }).setDepth(60);
+  }
+
+  // HUD 分数（最多 4 个）
+  hudWrap = this.add.container(0,0).setDepth(100);
+  for(let i=0;i<MAXP;i++){
+    const t = this.add.text(0,0,'',{ fontSize:'34px', fontStyle:'bold', color:hx(COLORS[i]) }).setOrigin(0.5,0);
+    hudTxts.push(t); hudWrap.add(t);
+  }
+  msgTxt = this.add.text(W/2, H/2, '', { fontSize:'46px', fontStyle:'bold', color:'#dfe7ff', align:'center' }).setOrigin(0.5).setDepth(100);
+
+  // 重新开始（始终可点，任何人点击全员重置）
+  this.add.text(28, H-66, '↻ 重新开始', { fontSize:'30px', backgroundColor:'#1a2440', color:'#cfe0ff', padding:13 })
+    .setInteractive({ useHandCursor:true }).setDepth(999)
+    .on('pointerdown', () => OpenHam.send({ t:'reset' }));
+  this.add.text(W-28, H-50, 'WASD/方向键 移动 · 空格 开火', { fontSize:'22px', color:'#5b6a93' }).setOrigin(1,0.5).setDepth(100);
+
+  // 跨平台输入：手机自动出摇杆 + 「开火」按钮；电脑映射方向键/空格
+  OpenHam.input.enable({ joystick:true, buttons:['开火'] });
+  OpenHam.onInput((id, inp) => { inputs[id] = inp; });
+  OpenHam.onState((s) => { state = s; });
+  OpenHam.onJoin(() => { if (OpenHam.isHost){ if(!state.started && OpenHam.players.length>=2) fullReset(); OpenHam.syncState(state); } });
+  OpenHam.on((o) => { if (o && o.t==='reset' && OpenHam.isHost) fullReset(); });
+  window.OpenHamReady = function(){ if (OpenHam.isHost) fullReset(); };
+}
+
+/* ---------------- 房主：状态与物理 ---------------- */
+function spawnShip(ci, keepScore){
+  return { x:rnd(MARGIN+80,W-MARGIN-80), y:rnd(MARGIN+80,H-MARGIN-80), vx:0, vy:0,
+           ang:rnd(-Math.PI,Math.PI), hp:HP0, alive:true, rt:0, score:keepScore||0, ci:ci };
+}
+function syncSeats(){
+  const active = OpenHam.players.slice(0, MAXP).map(p=>p.id);
+  active.forEach((id, i) => {
+    if(!state.ships[id]) state.ships[id] = spawnShip(i, 0);
+    else state.ships[id].ci = i;                 // 有人退出后座位/颜色顺延
+  });
+  for(const id in state.ships){ if(active.indexOf(id)<0) delete state.ships[id]; }
+}
+function fullReset(){
+  syncSeats();
+  for(const id in state.ships){ const c = state.ships[id].ci; state.ships[id] = spawnShip(c, 0); }
+  state.bullets = []; state.winner = null;
+  state.started = OpenHam.players.length >= 2;
+}
+function hostStep(dt){
+  syncSeats();
+  inputs[OpenHam.me] = { x:OpenHam.input.x, y:OpenHam.input.y, fire:OpenHam.input.down('开火') };
+  if(!state.started) return;
+
+  for(const id in state.ships){
+    const sh = state.ships[id];
+    if(!sh.alive){ sh.rt -= dt; if(sh.rt<=0){ const c=sh.ci, sc=sh.score; state.ships[id] = spawnShip(c, sc); } continue; }
+    const in_ = inputs[id] || { x:0, y:0, fire:false };
+    const mag = Math.hypot(in_.x, in_.y);
+    sh.vx += in_.x*ACCEL*dt; sh.vy += in_.y*ACCEL*dt;
+    const drag = Math.min(1, 2.4*dt); sh.vx -= sh.vx*drag; sh.vy -= sh.vy*drag;
+    const sp = Math.hypot(sh.vx, sh.vy); if(sp>MAXV){ sh.vx=sh.vx/sp*MAXV; sh.vy=sh.vy/sp*MAXV; }
+    sh.x += sh.vx*dt; sh.y += sh.vy*dt;
+    if(sh.x<MARGIN+SHIPR){ sh.x=MARGIN+SHIPR; sh.vx=Math.abs(sh.vx)*0.5; }
+    if(sh.x>W-MARGIN-SHIPR){ sh.x=W-MARGIN-SHIPR; sh.vx=-Math.abs(sh.vx)*0.5; }
+    if(sh.y<MARGIN+SHIPR){ sh.y=MARGIN+SHIPR; sh.vy=Math.abs(sh.vy)*0.5; }
+    if(sh.y>H-MARGIN-SHIPR){ sh.y=H-MARGIN-SHIPR; sh.vy=-Math.abs(sh.vy)*0.5; }
+    if(mag>0.25) sh.ang = lerpAng(sh.ang, Math.atan2(in_.y, in_.x), 14*dt);
+    cd[id] = (cd[id]||0) - dt;
+    if(in_.fire && cd[id]<=0){
+      cd[id] = FIRECD;
+      state.bullets.push({ id:bid++, x:sh.x+Math.cos(sh.ang)*28, y:sh.y+Math.sin(sh.ang)*28,
+        vx:Math.cos(sh.ang)*BSPD + sh.vx*0.3, vy:Math.sin(sh.ang)*BSPD + sh.vy*0.3,
+        o:id, oc:sh.ci, life:BLIFE });
+    }
+  }
+
+  const keep = [];
+  for(const b of state.bullets){
+    b.x += b.vx*dt; b.y += b.vy*dt; b.life -= dt;
+    if(b.life<=0 || b.x<MARGIN-10 || b.x>W-MARGIN+10 || b.y<MARGIN-10 || b.y>H-MARGIN+10) continue;
+    let hit = false;
+    for(const id in state.ships){
+      const sh = state.ships[id];
+      if(!sh.alive || id===b.o) continue;
+      if(Math.hypot(sh.x-b.x, sh.y-b.y) < HITR){
+        hit = true; sh.hp -= 1;
+        if(sh.hp<=0){
+          sh.alive = false; sh.rt = RESPAWN;
+          const atk = state.ships[b.o];
+          if(atk){ atk.score += 1; if(atk.score>=GOAL){ state.started=false; state.winner=b.o; } }
+        }
+        break;
+      }
+    }
+    if(!hit) keep.push(b);
+  }
+  state.bullets = keep;
+}
+
+/* ---------------- 所有人：渲染 ---------------- */
+function ensureSprite(id){
+  if(sprites[id]) return sprites[id];
+  const glow = scene.add.image(0,0,'glow').setBlendMode(Phaser.BlendModes.ADD).setScale(2.6).setDepth(8);
+  const img  = scene.add.image(0,0,'ship').setDepth(10).setScale(0.92);
+  const label= scene.add.text(0,0,'',{ fontSize:'22px', fontStyle:'bold' }).setOrigin(0.5).setDepth(11);
+  return (sprites[id] = { glow, img, label });
+}
+function nameOf(id){ const p = OpenHam.players.find(p=>p.id===id); return p ? p.name : '玩家'; }
+
+function render(){
+  stars1.tilePositionX += 0.06; stars2.tilePositionX += 0.16; stars2.tilePositionY += 0.04;
+
+  // 飞船
+  for(const id in state.ships){
+    const sh = state.ships[id], col = COLORS[sh.ci % MAXP], sp = ensureSprite(id);
+    sp.glow.setPosition(sh.x, sh.y).setTint(col).setVisible(sh.alive).setAlpha(sh.alive?0.6:0);
+    sp.img.setPosition(sh.x, sh.y).setRotation(sh.ang).setTint(sh.alive?col:0x33405e).setVisible(true).setAlpha(sh.alive?1:0.25);
+    sp.label.setPosition(sh.x, sh.y+38).setText(nameOf(id)).setColor(hx(col)).setAlpha(sh.alive?0.95:0.4);
+    // 引擎尾焰
+    if(sh.alive && Math.hypot(sh.vx, sh.vy) > 60)
+      engineEmit[sh.ci % MAXP].emitParticleAt(sh.x-Math.cos(sh.ang)*22, sh.y-Math.sin(sh.ang)*22, 1);
+    // 死亡瞬间：爆炸 + 震屏
+    const pa = prevAlive[id];
+    if(pa===true && !sh.alive){ boomEmit[sh.ci % MAXP].explode(34, sh.x, sh.y); scene.cameras.main.shake(240, 0.014); }
+    prevAlive[id] = sh.alive;
+  }
+  // 清理已离开玩家的精灵
+  for(const id in sprites){
+    if(!state.ships[id]){ const s=sprites[id]; s.glow.destroy(); s.img.destroy(); s.label.destroy(); delete sprites[id]; delete prevAlive[id]; }
+  }
+
+  // 子弹（亮核 + 光晕）
+  bulletG.clear();
+  for(const b of state.bullets){
+    const col = COLORS[b.oc % MAXP];
+    bulletG.fillStyle(col, 0.28); bulletG.fillCircle(b.x, b.y, 11);
+    bulletG.fillStyle(0xffffff, 1); bulletG.fillCircle(b.x, b.y, 3.4);
+  }
+
+  // HUD 分数
+  const ships = Object.keys(state.ships).map(id=>({id, sh:state.ships[id]})).sort((a,b)=>a.sh.ci-b.sh.ci);
+  const n = ships.length, gap = 300, x0 = W/2 - (n-1)*gap/2;
+  for(let i=0;i<MAXP;i++){
+    if(i<n){ const e=ships[i]; hudTxts[i].setColor(hx(COLORS[e.sh.ci%MAXP]))
+      .setText(nameOf(e.id) + '  ' + e.sh.score).setPosition(x0 + i*gap, 26).setVisible(true); }
+    else hudTxts[i].setVisible(false);
+  }
+
+  // 中央提示
+  let m = '';
+  if(OpenHam.players.length < 2) m = '等待对手加入…\n把口令发给朋友一起开打';
+  else if(!state.started){
+    if(state.winner!=null) m = '🏆 ' + nameOf(state.winner) + ' 获胜！\n点「重新开始」再来一局';
+    else m = '准备…';
+  }
+  msgTxt.setText(m);
+}
+
+function update(time, dtms){
+  const dt = Math.min(0.05, (dtms||16)/1000);
+  if(OpenHam.isHost){ hostStep(dt); OpenHam.syncState(state); }
+  else { OpenHam.sendInput({ x:OpenHam.input.x, y:OpenHam.input.y, fire:OpenHam.input.down('开火') }); }
+  render();
+}
+
+new Phaser.Game({
+  type: Phaser.AUTO, parent: document.body,
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH, width: W, height: H, autoRound: false },
+  render: { antialias: true, antialiasGL: true, roundPixels: false },
+  backgroundColor: '#05060c', scene: { create, update },
+});
+</script>
+</body>
+</html>
