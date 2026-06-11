@@ -138,6 +138,32 @@ class OpenHamWindowBase(QWidget):
         self.pin_btn.clicked.connect(self.toggle_pin)
         tb.addWidget(self.pin_btn)
 
+        _tool_qss = (f"QPushButton {{ background: transparent; border: none;"
+                     f" border-radius: 7px; }}"
+                     f"QPushButton:hover {{ background: {theme.HOVER}; }}")
+
+        # 最小化按钮
+        self.min_btn = QPushButton()
+        self.min_btn.setIcon(icons.qicon("minimize", color=theme.TEXT2))
+        self.min_btn.setFixedSize(28, 28)
+        self.min_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.min_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.min_btn.setToolTip("最小化")
+        self.min_btn.setStyleSheet(_tool_qss)
+        self.min_btn.clicked.connect(self.showMinimized)
+        tb.addWidget(self.min_btn)
+
+        # 最大化 / 还原按钮
+        self.max_btn = QPushButton()
+        self.max_btn.setIcon(icons.qicon("maximize", color=theme.TEXT2))
+        self.max_btn.setFixedSize(28, 28)
+        self.max_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.max_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.max_btn.setToolTip("最大化 / 还原")
+        self.max_btn.setStyleSheet(_tool_qss)
+        self.max_btn.clicked.connect(self.toggle_max)
+        tb.addWidget(self.max_btn)
+
         # 关闭按钮
         self.close_btn = QPushButton()
         self.close_btn.setIcon(icons.qicon("close", color=theme.TEXT2))
@@ -181,6 +207,15 @@ class OpenHamWindowBase(QWidget):
         _set_topmost_native(int(self.winId()), self.is_pinned)
         self.pin_btn.setIcon(icons.qicon("pinned" if self.is_pinned else "pin",
                                          color=theme.ACCENT if self.is_pinned else theme.TEXT2))
+
+    def toggle_max(self):
+        """最大化 / 还原（无边框窗口同样适用）。"""
+        if self.isMaximized():
+            self.showNormal()
+            self.max_btn.setIcon(icons.qicon("maximize", color=theme.TEXT2))
+        else:
+            self.showMaximized()
+            self.max_btn.setIcon(icons.qicon("restore", color=theme.TEXT2))
 
     def flash_taskbar(self, count: int = 6):
         """收到新消息时像微信一样闪烁任务栏图标提醒；窗口已在前台则不闪。"""

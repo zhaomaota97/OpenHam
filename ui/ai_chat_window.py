@@ -36,14 +36,17 @@ from core.ai_client import call_chat_stream, _CHAT_SYS
 # ── Bot 能力：快捷回复按钮（choices）─────────────────────────────────
 CAP_CHOICES = "choices"
 _CHOICES_RULE = (
-    "【快捷回复能力】当确有帮助时（不必每轮），你可以在回答末尾追加一个「快捷追问选项」块，"
-    "方便用户一键继续。语法为独立的围栏代码块：\n"
-    "```openham:choices\n选项一\n选项二\n```\n"
-    "规则：每行一个选项，共 2–4 个，每个不超过 15 字，应是用户接下来可能想问的问题或指令；"
-    "不需要时就不要输出该块；该块之外照常正常作答。"
+    "【快捷回复能力·重要】每次回答的最后，都要再追加一个「快捷追问选项」块，"
+    "给出 2–4 个用户接下来最可能想问的问题或指令，方便其一键继续"
+    "（仅当确实不适合时才省略，例如纯告别）。格式必须是独立的围栏代码块，"
+    "语言标签写 openham:choices，每行一个选项、每个不超过 15 字：\n"
+    "```openham:choices\n选项一\n选项二\n选项三\n```\n"
+    "该块放在回答最末尾；块之外照常正常作答；不要解释这个块本身。"
 )
-_CHOICES_RE = re.compile(r"```openham:choices[ \t]*\r?\n(.*?)```", re.DOTALL)
-_CHOICES_TRAILING_RE = re.compile(r"```openham:choices[ \t]*\r?\n.*$", re.DOTALL)
+_CHOICES_RE = re.compile(r"```[ \t]*openham:choices[ \t]*\r?\n(.*?)```",
+                         re.DOTALL | re.IGNORECASE)
+_CHOICES_TRAILING_RE = re.compile(r"```[ \t]*openham:choices[ \t]*\r?\n.*$",
+                                  re.DOTALL | re.IGNORECASE)
 
 
 def _parse_choices(text: str):
@@ -211,6 +214,24 @@ class _BotDialog(QDialog):
         from PyQt6.QtWidgets import QCheckBox
         self.cap_choices = QCheckBox("快捷回复按钮（允许该 Bot 给出可点击的追问选项）")
         self.cap_choices.setChecked(CAP_CHOICES in (capabilities or []))
+        self.cap_choices.setCursor(Qt.CursorShape.PointingHandCursor)
+        chk = ""
+        try:
+            from PyQt6.QtCore import QUrl
+            p = icons._png_path("check", "#ffffff", 13)
+            if p:
+                chk = f" image: url({QUrl.fromLocalFile(p).toString()});"
+        except Exception:
+            chk = ""
+        self.cap_choices.setStyleSheet(
+            f"QCheckBox {{ color: {theme.TEXT}; font-size: 14px; spacing: 8px;"
+            f" background: transparent; }}"
+            f"QCheckBox::indicator {{ width: 18px; height: 18px;"
+            f" border: 1px solid {theme.BORDER_IN}; border-radius: 5px;"
+            f" background: {theme.CARD}; }}"
+            f"QCheckBox::indicator:hover {{ border-color: {theme.ACCENT}; }}"
+            f"QCheckBox::indicator:checked {{ background: {theme.ACCENT};"
+            f" border-color: {theme.ACCENT};{chk} }}")
         lay.addWidget(self.cap_choices)
 
         btns = QDialogButtonBox(
@@ -521,36 +542,12 @@ class AIChatWindow(OpenHamWindowBase):
         self._sig.done.connect(self._on_done)
         self._sig.error.connect(self._on_error)
 
-        self._add_maximize_button()
         self._build_ui()
         self._add_sidebar_toggle()
         self.title_bar.installEventFilter(self)   # 双击标题栏最大化/还原
         self._refresh_bots()
         self._refresh_session_list()
         self._load_current()
-
-    # ── 标题栏：最大化按钮 ────────────────────────────────────────────
-    def _add_maximize_button(self):
-        self.max_btn = QPushButton()
-        self.max_btn.setIcon(icons.qicon("maximize", color=theme.TEXT2))
-        self.max_btn.setFixedSize(28, 28)
-        self.max_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.max_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.max_btn.setToolTip("最大化 / 还原")
-        self.max_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: none; border-radius: 7px; }}"
-            f"QPushButton:hover {{ background: {theme.HOVER}; }}")
-        self.max_btn.clicked.connect(self._toggle_max)
-        tb = self.title_bar.layout()
-        tb.insertWidget(tb.indexOf(self.pin_btn), self.max_btn)
-
-    def _toggle_max(self):
-        if self.isMaximized():
-            self.showNormal()
-            self.max_btn.setIcon(icons.qicon("maximize", color=theme.TEXT2))
-        else:
-            self.showMaximized()
-            self.max_btn.setIcon(icons.qicon("restore", color=theme.TEXT2))
 
     # ── 标题栏：折叠/展开会话面板 ─────────────────────────────────────
     def _add_sidebar_toggle(self):
@@ -1270,7 +1267,7 @@ class AIChatWindow(OpenHamWindowBase):
                 return True
         # 双击标题栏：最大化 / 还原
         if obj is self.title_bar and event.type() == QEvent.Type.MouseButtonDblClick:
-            self._toggle_max()
+            self.toggle_max()
             return True
         return super().eventFilter(obj, event)
 
