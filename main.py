@@ -203,6 +203,16 @@ def main():
     tray_menu.addSeparator()
     action_quit = tray_menu.addAction("退出")
     
+    # 主界面最近一次「一次性 AI 问答」{q, a}，供 -- 快捷指令携带上一轮上下文；
+    # 任何非 -- 操作都会把它清空（见 on_submitted），只有一次性 AI 完成时再填充。
+    _last_oneshot = None
+
+    def _pop_last_oneshot():
+        nonlocal _last_oneshot
+        v = _last_oneshot
+        _last_oneshot = None     # 取走即清空，避免下一次 -- 误带旧上下文
+        return v
+
     # 向插件注册底层能力
     plugin_api.register_handler("get_tray_menu", lambda: tray_menu)
     plugin_api.register_handler("get_tray_icon", lambda: tray)
@@ -210,6 +220,7 @@ def main():
     plugin_api.register_handler("get_tray_hotkey_str", lambda: hotkey_str)
     plugin_api.register_handler("get_config", lambda key, default=None: config.get(key, default))
     plugin_api.register_handler("show_toast", _show_toast)
+    plugin_api.register_handler("pop_last_oneshot", _pop_last_oneshot)
 
     # 插件注册全局热键：低级钩子在钩子线程触发，这里用 Qt 信号派发回 UI 线程执行
     class _PluginHotkeySignal(QObject):
@@ -351,8 +362,12 @@ def main():
     _ai_gen = 0
 
     def on_submitted(text: str):
-        nonlocal _ai_gen
+        nonlocal _ai_gen, _last_oneshot
         log.debug("收到文本: %r", text)
+
+        # 非 -- 操作都重置「上一轮一次性问答」；-- 指令保留它以便携带上下文
+        if not text.strip().startswith("--"):
+            _last_oneshot = None
 
         # 内置：管理面
         if text.strip() in ("脚本", "脚本配置"):
@@ -399,14 +414,20 @@ def main():
             log.info("启动 AI 线程 gen=%d", my_gen)
             window.show_thinking()
             def _call():
+                nonlocal _last_oneshot
+                answer = ""
                 try:
                     for piece in call_deepseek_stream(text):
                         if _ai_gen != my_gen:
                             log.debug("AI 线程 gen=%d 已被新提交取消", my_gen)
                             return
+                        answer += piece
                         ai_signal.chunk.emit(piece)
                     if _ai_gen == my_gen:
                         log.info("AI 线程 gen=%d 流式完成", my_gen)
+                        # 记录这轮一次性问答，供随后的 -- 指令携带为上下文
+                        if answer.strip() and not answer.lstrip().startswith("❌"):
+                            _last_oneshot = {"q": text, "a": answer}
                         ai_signal.stream_done.emit()
                 except Exception as e:
                     log.exception("AI 线程 gen=%d 异常: %s", my_gen, e)

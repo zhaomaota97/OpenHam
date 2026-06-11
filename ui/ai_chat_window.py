@@ -959,22 +959,41 @@ class AIChatWindow(OpenHamWindowBase):
         self.activateWindow()
         self.input.setFocus()
 
-    def send_text(self, text: str):
-        """供 `--` 快捷命令调用：始终走默认 Hamster bot，开/复用一个会话并自动发送。"""
+    def send_text(self, text: str, context: dict = None):
+        """供 `--` 快捷命令调用：始终走默认 Hamster bot，自动发送。
+
+        context={"q","a"} 时，新开一个会话并预置上一轮一次性问答作为上下文（携带历史）；
+        否则复用空会话或新开一个空会话（不带历史）。
+        """
         text = (text or "").strip()
         self.open()
         if not text:
             return
+        self._gen += 1            # 取消可能在跑的上一条快捷流，避免回答落到新会话
+        self._set_streaming(False)
         hb = self.bots[0]                       # 快捷对话固定 Hamster
         self.cur_bot_id = hb["id"]
         self.store["current_bot"] = hb["id"]
-        empty = next((s for s in hb["sessions"] if not s["messages"]), None)
-        if empty:
-            self.cur_id = empty["id"]
-        else:
-            s = _norm_session({"title": "新对话", "created": time.time(), "messages": []})
+        if context and context.get("q") and context.get("a"):
+            q = str(context["q"]).strip()
+            s = _norm_session({
+                "title": (q[:18] + "…") if len(q) > 18 else (q or "新对话"),
+                "created": time.time(),
+                "messages": [
+                    {"role": "user", "content": q},
+                    {"role": "assistant", "content": str(context["a"]).strip()},
+                ],
+            })
             hb["sessions"].insert(0, s)
             self.cur_id = s["id"]
+        else:
+            empty = next((x for x in hb["sessions"] if not x["messages"]), None)
+            if empty:
+                self.cur_id = empty["id"]
+            else:
+                s = _norm_session({"title": "新对话", "created": time.time(), "messages": []})
+                hb["sessions"].insert(0, s)
+                self.cur_id = s["id"]
         self._refresh_bots()
         self._refresh_session_list()
         self._load_current()

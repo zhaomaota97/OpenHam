@@ -9,11 +9,13 @@
 from core.plugin_manager import openham_plugin
 
 _window = None   # 单例窗口
+_api = None      # 插件 API（用于取主界面上一轮一次性问答）
 
 
 def setup_ai_chat(api):
     """插件加载时预创建对话窗口（运行在 GUI 主线程）。"""
-    global _window
+    global _window, _api
+    _api = api
     try:
         from ui.ai_chat_window import AIChatWindow
         _window = AIChatWindow()
@@ -46,9 +48,18 @@ def execute_ai_chat(text: str):
     except Exception as e:
         return {"type": "error", "content": f"❌ 无法打开聊天：{e}"}
 
+    # 取主界面「上一轮一次性问答」：若紧接着上一步是一次性对话则携带为上下文，
+    # 否则为 None（只发起新会话，不带历史）。取走即清空。
+    ctx = None
+    if _api is not None:
+        try:
+            ctx = _api.call("pop_last_oneshot")
+        except Exception:
+            ctx = None
+
     query = text.strip()[2:].strip()   # 去掉前导 --
     if query:
-        win.send_text(query)
+        win.send_text(query, context=ctx)
         preview = query if len(query) <= 16 else query[:16] + "…"
         return {"type": "result", "content": f"✅ 已发送：{preview}"}
     win.open()
