@@ -14,8 +14,34 @@ ECS="root@47.102.218.59"
 DL="/opt/openham-dl"
 
 VERSION_FILE="$SRC/VERSION"
-VERSION="$(tr -d ' \t\r\n' < "$VERSION_FILE")"
-echo "[1/4] 生成精简副本（版本 v$VERSION，排除依赖/敏感/dev 文件）…"
+LOCAL_VER="$(tr -d ' \t\r\n' < "$VERSION_FILE")"
+# 以服务器已发布版本为权威下限：发布版本必 > 线上版本，杜绝本地 VERSION 文件漂移
+# （WSL /mnt/c 偶发不一致）导致的版本号撞车。本地比服务器新则用本地，否则服务器 +1。
+SRV_VER="$(curl -s -m 10 http://47.102.218.59/openham/version.json 2>/dev/null \
+  | python3 -c 'import sys,json
+try: print(json.load(sys.stdin).get("version",""))
+except: print("")' 2>/dev/null || true)"
+VERSION="$(python3 - "$LOCAL_VER" "$SRV_VER" <<'PY'
+import sys
+def key(v):
+    p = v.split('.')
+    try:
+        return tuple(int(x) for x in p[:3]) if len(p) == 3 else None
+    except Exception:
+        return None
+loc, srv = sys.argv[1], sys.argv[2]
+lk, sk = key(loc), key(srv)
+if lk and sk:
+    print(loc if lk > sk else f"{sk[0]}.{sk[1]}.{sk[2] + 1}")
+elif lk:
+    print(loc)
+elif sk:
+    print(f"{sk[0]}.{sk[1]}.{sk[2] + 1}")
+else:
+    print("1.0.0")
+PY
+)"
+echo "[1/4] 生成精简副本（发布 v$VERSION｜本地 $LOCAL_VER · 线上 ${SRV_VER:-?}，排除依赖/敏感/dev 文件）…"
 rm -rf "$LITE"; mkdir -p "$LITE"
 rsync -a \
   --exclude='.git' --exclude='.env' --exclude='user_settings.json' \
