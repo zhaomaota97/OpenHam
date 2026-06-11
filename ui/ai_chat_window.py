@@ -711,6 +711,14 @@ class AIChatWindow(OpenHamWindowBase):
         self._build_ui()
         self._add_sidebar_toggle()
         self.title_bar.installEventFilter(self)   # 双击标题栏最大化/还原
+        # 基类底部 grip 行会在三栏下方留一道白条、还挤裁掉左栏「新建Bot」按钮；
+        # 移除它让内容铺满，缩放手柄改成卡片右下角浮层。
+        try:
+            self.card_layout.takeAt(self.card_layout.count() - 1)
+            self.size_grip.setParent(self.card)
+            self.size_grip.raise_()
+        except Exception:
+            pass
         self._refresh_bots()
         self._refresh_session_list()
         self._load_current()
@@ -751,7 +759,8 @@ class AIChatWindow(OpenHamWindowBase):
         rail.setFixedWidth(72)
         rail.setStyleSheet(
             f"#botRail {{ background: {theme.SUBTLE};"
-            f" border-right: 1px solid {theme.BORDER}; }}")
+            f" border-right: 1px solid {theme.BORDER};"
+            f" border-bottom-left-radius: {theme.R_CARD}px; }}")
         v = QVBoxLayout(rail)
         v.setContentsMargins(0, 12, 0, 12)
         v.setSpacing(8)
@@ -857,7 +866,9 @@ class AIChatWindow(OpenHamWindowBase):
     def _build_chat(self) -> QWidget:
         right = QWidget()
         right.setObjectName("chatArea")
-        right.setStyleSheet(f"#chatArea {{ background: {theme.BG}; }}")
+        right.setStyleSheet(
+            f"#chatArea {{ background: {theme.BG};"
+            f" border-bottom-right-radius: {theme.R_CARD}px; }}")
         rv = QVBoxLayout(right)
         rv.setContentsMargins(0, 0, 0, 0)
         rv.setSpacing(0)
@@ -1468,6 +1479,12 @@ class AIChatWindow(OpenHamWindowBase):
         w = self._content_width()
         for m in self._msgs:
             m.set_width(w)
+        # 缩放手柄浮层定位到卡片右下角
+        g = getattr(self, "size_grip", None)
+        if g is not None and g.parent() is self.card:
+            g.move(self.card.width() - g.width() - 4,
+                   self.card.height() - g.height() - 4)
+            g.raise_()
 
     # ── 外部入口 ──────────────────────────────────────────────────────
     def open(self):
