@@ -58,16 +58,16 @@ def _load_store() -> dict:
     """返回 {"bots": [...], "current_bot": id}。兼容旧的「顶层 sessions」格式。"""
     p = _data_path()
     if not os.path.exists(p):
-        return {"bots": [_make_bot("默认助手", "")], "current_bot": None}
+        return {"bots": [_make_bot("Hamster", "")], "current_bot": None}
     try:
         with open(p, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
-        return {"bots": [_make_bot("默认助手", "")], "current_bot": None}
+        return {"bots": [_make_bot("Hamster", "")], "current_bot": None}
 
-    if "bots" not in data:   # 旧格式迁移：把原来的会话塞进一个默认 bot
+    if "bots" not in data:   # 旧格式迁移：把原来的会话塞进默认 bot（Hamster）
         old = data.get("sessions", [])
-        return {"bots": [_make_bot("默认助手", "", old)], "current_bot": None}
+        return {"bots": [_make_bot("Hamster", "", old)], "current_bot": None}
 
     bots = data.get("bots", [])
     for b in bots:
@@ -77,7 +77,9 @@ def _load_store() -> dict:
         b.setdefault("created", time.time())
         b["sessions"] = [_norm_session(s) for s in b.get("sessions", [])]
     if not bots:
-        bots = [_make_bot("默认助手", "")]
+        bots = [_make_bot("Hamster", "")]
+    elif bots[0]["name"] == "默认助手":   # 旧默认助手改名为 Hamster
+        bots[0]["name"] = "Hamster"
     return {"bots": bots, "current_bot": data.get("current_bot")}
 
 
@@ -359,16 +361,17 @@ class AIChatWindow(OpenHamWindowBase):
         v.setSpacing(8)
         v.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
-        logo = QLabel()
-        pm = _brand_pixmap(30)
-        if pm is not None:
-            logo.setPixmap(pm)
-        logo.setFixedSize(30, 30)
-        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        v.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
-        v.addSpacing(4)
+        # 默认 bot（Hamster）= 顶部 logo 头像，固定在最上方
+        self.default_holder = QVBoxLayout()
+        self.default_holder.setContentsMargins(0, 0, 0, 0)
+        self.default_holder.setSpacing(0)
+        dh = QWidget()
+        dh.setStyleSheet("background: transparent;")
+        dh.setLayout(self.default_holder)
+        v.addWidget(dh, 0, Qt.AlignmentFlag.AlignHCenter)
+        v.addSpacing(2)
 
-        # bots 容器（可滚动）
+        # 用户自建 bots 容器（可滚动）
         self.bot_col = QVBoxLayout()
         self.bot_col.setContentsMargins(0, 0, 0, 0)
         self.bot_col.setSpacing(8)
@@ -414,11 +417,6 @@ class AIChatWindow(OpenHamWindowBase):
             f"color: {theme.TEXT}; font-size: 15px; font-weight: 700;"
             " background: transparent;")
         v.addWidget(self.bot_title)
-
-        self.bot_sub = QLabel("")
-        self.bot_sub.setStyleSheet(
-            f"color: {theme.TEXT3}; font-size: 11px; background: transparent;")
-        v.addWidget(self.bot_sub)
 
         self.search = QLineEdit()
         self.search.setPlaceholderText("搜索会话")
@@ -535,46 +533,62 @@ class AIChatWindow(OpenHamWindowBase):
                 return b
         return self.bots[0]
 
-    def _refresh_bots(self):
-        while self.bot_col.count():
-            it = self.bot_col.takeAt(0)
+    def _clear_layout(self, layout):
+        while layout.count():
+            it = layout.takeAt(0)
             w = it.widget()
             if w:
                 w.setParent(None)
                 w.deleteLater()
-        for b in self.bots:
-            active = b["id"] == self.cur_bot_id
-            # 一行：左侧选中指示条（仅当前 bot 显示）+ 圆角方形头像按钮
-            roww = QWidget()
-            roww.setStyleSheet("background: transparent;")
-            rl = QHBoxLayout(roww)
-            rl.setContentsMargins(0, 0, 0, 0)
-            rl.setSpacing(0)
-            pill = QFrame()
-            pill.setFixedSize(3, 26)
-            pill.setStyleSheet(
-                f"background: {theme.INDIGO if active else 'transparent'};"
-                " border-radius: 1px;")
-            rl.addWidget(pill, 0, Qt.AlignmentFlag.AlignVCenter)
-            rl.addSpacing(5)
-            btn = QPushButton()
-            btn.setIcon(QIcon(_letter_avatar(b["name"], 40)))
-            btn.setIconSize(QSize(40, 40))
-            btn.setFixedSize(46, 46)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setToolTip(b["name"])
-            btn.setStyleSheet(
-                f"QPushButton {{ background: transparent;"
-                f" border: 2px solid {theme.INDIGO if active else 'transparent'};"
-                f" border-radius: 15px; padding: 0; }}"
-                f"QPushButton:hover {{ border-color: {theme.BORDER_IN if not active else theme.INDIGO}; }}")
-            btn.clicked.connect(lambda _=False, bid=b["id"]: self._select_bot(bid))
-            btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            btn.customContextMenuRequested.connect(
-                lambda pos, bid=b["id"], w=btn: self._bot_menu(bid, w, pos))
-            rl.addWidget(btn)
-            rl.addSpacing(3)
-            self.bot_col.addWidget(roww, 0, Qt.AlignmentFlag.AlignHCenter)
+
+    def _bot_avatar(self, bot, px):
+        """默认 bot（Hamster，bots[0]）用 logo 头像；其余用字母头像。"""
+        if self.bots and bot["id"] == self.bots[0]["id"]:
+            return _brand_pixmap(px)
+        return _letter_avatar(bot["name"], px)
+
+    def _make_bot_row(self, bot) -> QWidget:
+        active = bot["id"] == self.cur_bot_id
+        roww = QWidget()
+        roww.setStyleSheet("background: transparent;")
+        rl = QHBoxLayout(roww)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(0)
+        pill = QFrame()
+        pill.setFixedSize(3, 26)
+        pill.setStyleSheet(
+            f"background: {theme.INDIGO if active else 'transparent'}; border-radius: 1px;")
+        rl.addWidget(pill, 0, Qt.AlignmentFlag.AlignVCenter)
+        rl.addSpacing(5)
+        btn = QPushButton()
+        btn.setIcon(QIcon(self._bot_avatar(bot, 40)))
+        btn.setIconSize(QSize(40, 40))
+        btn.setFixedSize(46, 46)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setToolTip(bot["name"])
+        btn.setStyleSheet(
+            f"QPushButton {{ background: transparent;"
+            f" border: 2px solid {theme.INDIGO if active else 'transparent'};"
+            f" border-radius: 15px; padding: 0; }}"
+            f"QPushButton:hover {{ border-color: {theme.INDIGO if active else theme.BORDER_IN}; }}")
+        bid = bot["id"]
+        btn.clicked.connect(lambda _=False, b=bid: self._select_bot(b))
+        btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        btn.customContextMenuRequested.connect(
+            lambda pos, b=bid, w=btn: self._bot_menu(b, w, pos))
+        rl.addWidget(btn)
+        rl.addSpacing(3)
+        return roww
+
+    def _refresh_bots(self):
+        # 默认 bot（Hamster）固定最上
+        self._clear_layout(self.default_holder)
+        self.default_holder.addWidget(self._make_bot_row(self.bots[0]),
+                                      0, Qt.AlignmentFlag.AlignHCenter)
+        # 其余用户 bot
+        self._clear_layout(self.bot_col)
+        for b in self.bots[1:]:
+            self.bot_col.addWidget(self._make_bot_row(b), 0, Qt.AlignmentFlag.AlignHCenter)
         self.bot_col.addStretch(1)
 
     def _select_bot(self, bot_id: str):
@@ -616,7 +630,8 @@ class AIChatWindow(OpenHamWindowBase):
         menu = QMenu(self)
         act_edit = menu.addAction(icons.qicon("edit"), "编辑 Bot")
         act_del = menu.addAction(icons.qicon("delete"), "删除 Bot")
-        if len(self.bots) <= 1:
+        is_def = bool(self.bots) and bot_id == self.bots[0]["id"]
+        if is_def or len(self.bots) <= 1:   # 默认 Hamster 不可删
             act_del.setEnabled(False)
         chosen = menu.exec(anchor.mapToGlobal(pos))
         if chosen == act_edit:
@@ -641,7 +656,7 @@ class AIChatWindow(OpenHamWindowBase):
             self._load_current()   # 助手头像/名称随之刷新
 
     def _delete_bot(self, bot_id: str):
-        if len(self.bots) <= 1:
+        if len(self.bots) <= 1 or bot_id == self.bots[0]["id"]:   # 默认 Hamster 不可删
             return
         self.bots = [b for b in self.bots if b["id"] != bot_id]
         self.store["bots"] = self.bots
@@ -686,13 +701,7 @@ class AIChatWindow(OpenHamWindowBase):
         self._refresh_session_list()
 
     def _refresh_session_list(self):
-        bot = self._cur_bot()
-        self.bot_title.setText(bot["name"])
-        sysp = (bot.get("system") or "").strip().replace("\n", " ")
-        if sysp:
-            self.bot_sub.setText("人设：" + (sysp[:16] + "…" if len(sysp) > 16 else sysp))
-        else:
-            self.bot_sub.setText("通用助手（未设人设）")
+        self.bot_title.setText(self._cur_bot()["name"])
         self.session_list.clear()
         groups = {g: [] for g in _GROUP_ORDER}
         for s in self._sessions():
@@ -710,7 +719,7 @@ class AIChatWindow(OpenHamWindowBase):
             header.setForeground(QColor(theme.TEXT3))
             self.session_list.addItem(header)
             for s in groups[g]:
-                it = QListWidgetItem(icons.qicon("chat"), s["title"] or "新对话")
+                it = QListWidgetItem(s["title"] or "新对话")
                 it.setData(Qt.ItemDataRole.UserRole, s["id"])
                 self.session_list.addItem(it)
                 if s["id"] == self.cur_id:
@@ -757,7 +766,7 @@ class AIChatWindow(OpenHamWindowBase):
     def _add_message(self, role: str, text: str) -> _MessageRow:
         bot = self._cur_bot()
         msg = _MessageRow(role, bot_name=bot["name"],
-                          bot_avatar=_letter_avatar(bot["name"], 22))
+                          bot_avatar=self._bot_avatar(bot, 22))
         self.msg_layout.insertWidget(self.msg_layout.count() - 1, msg)
         self._rows.append(msg)
         self._msgs.append(msg)
@@ -787,7 +796,7 @@ class AIChatWindow(OpenHamWindowBase):
         bl.setContentsMargins(0, 60, 0, 0)
         bl.setSpacing(12)
         logo = QLabel()
-        logo.setPixmap(_letter_avatar(bot["name"], 56))
+        logo.setPixmap(self._bot_avatar(bot, 56))
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         bl.addWidget(logo)
         hint = QLabel(f"我是「{bot['name']}」，有什么可以帮你的？")
