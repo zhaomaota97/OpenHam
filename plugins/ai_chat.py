@@ -22,6 +22,15 @@ def setup_ai_chat(api):
     except Exception as e:
         print(f"[ai_chat] 窗口预创建失败: {e}")
         _window = None
+    # 注册「打开聊天」能力：main.py 据此在托盘菜单加「聊天」项（仅插件启用时）
+    api.register_handler("open_chat", _tray_open_chat)
+
+
+def _tray_open_chat():
+    try:
+        _ensure_window().open()
+    except Exception as e:
+        print(f"[ai_chat] 打开聊天失败: {e}")
 
 
 def _ensure_window():

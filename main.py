@@ -243,6 +243,21 @@ def main():
     # 全部核心依赖注册完毕，触发插件 setup 生命周期钩子
     load_plugins()
 
+    # AI 聊天插件启用时（注册了 open_chat），在托盘菜单「联机」下、「设置」上加「聊天」项。
+    # 放在 load_plugins() 之后，确保「联机」「设置」都已就位，顺序确定。
+    if "open_chat" in plugin_api._handlers:
+        chat_act = QAction("聊天", tray_menu)
+        chat_act.triggered.connect(lambda: plugin_api.call("open_chat"))
+        _acts = tray_menu.actions()
+        _lianji = next((a for a in _acts if a.text() == "联机"), None)
+        if _lianji is not None:                       # 插在「联机」之后
+            _i = _acts.index(_lianji)
+            _after = _acts[_i + 1] if _i + 1 < len(_acts) else None
+            tray_menu.insertAction(_after, chat_act) if _after else tray_menu.addAction(chat_act)
+        else:                                          # 无联机则插在「设置」之前
+            _settings = next((a for a in _acts if a.text().startswith("设置")), None)
+            tray_menu.insertAction(_settings, chat_act) if _settings else tray_menu.addAction(chat_act)
+
     action_show.triggered.connect(window.show_window)
     action_script_config.triggered.connect(script_overlay.open)
     action_plugin_config.triggered.connect(plugin_manager_overlay.show_window)
