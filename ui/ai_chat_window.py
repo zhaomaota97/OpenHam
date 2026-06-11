@@ -10,6 +10,7 @@
 入口：主程序输入框里以 `--` 开头即唤起本窗口（见 plugins/ai_chat.py），无需其它触发词。
 """
 import os
+import re
 import time
 import uuid
 import json
@@ -29,7 +30,33 @@ from PyQt6.QtWidgets import (
 from ui.window_base import OpenHamWindowBase
 from ui import icons, theme
 from core import app_config
-from core.ai_client import call_chat_stream
+from core.ai_client import call_chat_stream, _CHAT_SYS
+
+
+# ── Bot 能力：快捷回复按钮（choices）─────────────────────────────────
+CAP_CHOICES = "choices"
+_CHOICES_RULE = (
+    "【快捷回复能力】当确有帮助时（不必每轮），你可以在回答末尾追加一个「快捷追问选项」块，"
+    "方便用户一键继续。语法为独立的围栏代码块：\n"
+    "```openham:choices\n选项一\n选项二\n```\n"
+    "规则：每行一个选项，共 2–4 个，每个不超过 15 字，应是用户接下来可能想问的问题或指令；"
+    "不需要时就不要输出该块；该块之外照常正常作答。"
+)
+_CHOICES_RE = re.compile(r"```openham:choices[ \t]*\r?\n(.*?)```", re.DOTALL)
+_CHOICES_TRAILING_RE = re.compile(r"```openham:choices[ \t]*\r?\n.*$", re.DOTALL)
+
+
+def _parse_choices(text: str):
+    """从消息文本中提取 choices 选项，并返回去掉该块后的 Markdown。"""
+    choices = []
+    for mt in _CHOICES_RE.finditer(text or ""):
+        for line in mt.group(1).splitlines():
+            line = line.strip().lstrip("-*").strip()
+            if line:
+                choices.append(line)
+    stripped = _CHOICES_RE.sub("", text or "")
+    stripped = _CHOICES_TRAILING_RE.sub("", stripped)   # 流式未闭合时也先隐藏
+    return stripped.strip(), choices[:4]
 
 
 def _base_dir() -> str:
@@ -50,9 +77,10 @@ def _norm_session(s: dict) -> dict:
     return s
 
 
-def _make_bot(name: str, system: str, sessions=None) -> dict:
+def _make_bot(name: str, system: str, capabilities=None, sessions=None) -> dict:
     return {"id": uuid.uuid4().hex, "name": name or "助手",
-            "system": system or "", "created": time.time(),
+            "system": system or "", "capabilities": list(capabilities or []),
+            "created": time.time(),
             "sessions": [_norm_session(s) for s in (sessions or [])]}
 
 
@@ -76,6 +104,7 @@ def _load_store() -> dict:
         b.setdefault("id", uuid.uuid4().hex)
         b.setdefault("name", "助手")
         b.setdefault("system", "")
+        b.setdefault("capabilities", [])
         b.setdefault("created", time.time())
         b["sessions"] = [_norm_session(s) for s in b.get("sessions", [])]
     if not bots:
@@ -155,7 +184,7 @@ def _model_label() -> str:
 class _BotDialog(QDialog):
     """新建 / 编辑 bot：名称 + system prompt。"""
 
-    def __init__(self, parent=None, name="", system=""):
+    def __init__(self, parent=None, name="", system="", capabilities=None):
         super().__init__(parent)
         self.setWindowTitle("新建 Bot" if not name else "编辑 Bot")
         self.setMinimumWidth(440)
@@ -177,6 +206,13 @@ class _BotDialog(QDialog):
         self.sys_in.setFixedHeight(140)
         lay.addWidget(self.sys_in)
 
+        lay.addSpacing(4)
+        lay.addWidget(self._lbl("能力"))
+        from PyQt6.QtWidgets import QCheckBox
+        self.cap_choices = QCheckBox("快捷回复按钮（允许该 Bot 给出可点击的追问选项）")
+        self.cap_choices.setChecked(CAP_CHOICES in (capabilities or []))
+        lay.addWidget(self.cap_choices)
+
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         btns.button(QDialogButtonBox.StandardButton.Ok).setText("保存")
@@ -191,7 +227,9 @@ class _BotDialog(QDialog):
         return l
 
     def values(self):
-        return self.name_in.text().strip(), self.sys_in.toPlainText().strip()
+        caps = [CAP_CHOICES] if self.cap_choices.isChecked() else []
+        return (self.name_in.text().strip(),
+                self.sys_in.toPlainText().strip(), caps)
 
 
 class _MessageRow(QWidget):
@@ -269,6 +307,14 @@ class _MessageRow(QWidget):
                 "pre, code { background:#f3f3f5; font-family:Consolas,monospace; }"
                 "a { color:#6e56cf; }")
             col.addWidget(self.browser)
+            # 快捷回复按钮容器（choices 能力），默认隐藏
+            self.choices_host = QWidget()
+            self.choices_host.setStyleSheet("background: transparent;")
+            self.choices_layout = QHBoxLayout(self.choices_host)
+            self.choices_layout.setContentsMargins(0, 2, 0, 0)
+            self.choices_layout.setSpacing(8)
+            self.choices_host.setVisible(False)
+            col.addWidget(self.choices_host)
             self.actions = self._build_actions()
             col.addWidget(self.actions)
             self.bubble = None
@@ -350,15 +396,40 @@ class _MessageRow(QWidget):
             self._set_buttons(False)
         super().leaveEvent(event)
 
-    def set_text(self, text: str):
+    def set_text(self, text: str, final: bool = False):
         self._raw = text
         if self.role == "user":
             self.bubble.setText(text)
         else:
-            self.browser.setMarkdown(text)
+            md, choices = _parse_choices(text)     # 去掉 choices 块再渲染 Markdown
+            self.browser.setMarkdown(md)
             self._improve_typography()
             self._style_tables()
             self._fit_height()
+            if final:                              # 仅在回答完成时渲染快捷按钮
+                self._render_choices(choices)
+
+    def _render_choices(self, choices):
+        while self.choices_layout.count():
+            it = self.choices_layout.takeAt(0)
+            w = it.widget()
+            if w:
+                w.deleteLater()
+        if not choices or self.host is None:
+            self.choices_host.setVisible(False)
+            return
+        for c in choices:
+            b = QPushButton(c)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(
+                f"QPushButton {{ background: {theme.INDIGO_SOFT}; color: {theme.INDIGO};"
+                f" border: 1px solid #d8d6fb; border-radius: 15px;"
+                f" padding: 6px 14px; font-size: 14px; }}"
+                f"QPushButton:hover {{ background: #ece8fb; }}")
+            b.clicked.connect(lambda _=False, t=c: self.host._send_quick(t))
+            self.choices_layout.addWidget(b)
+        self.choices_layout.addStretch(1)
+        self.choices_host.setVisible(True)
 
     def _improve_typography(self):
         """放宽行距与段间距，让 Markdown 不再挤成一团。"""
@@ -764,10 +835,10 @@ class AIChatWindow(OpenHamWindowBase):
         dlg = _BotDialog(self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        name, system = dlg.values()
+        name, system, caps = dlg.values()
         if not name:
             name = "新 Bot"
-        bot = _make_bot(name, system)
+        bot = _make_bot(name, system, capabilities=caps)
         self.bots.append(bot)
         self.cur_bot_id = bot["id"]
         self.store["current_bot"] = bot["id"]
@@ -794,12 +865,14 @@ class AIChatWindow(OpenHamWindowBase):
         bot = next((b for b in self.bots if b["id"] == bot_id), None)
         if not bot:
             return
-        dlg = _BotDialog(self, bot["name"], bot["system"])
+        dlg = _BotDialog(self, bot["name"], bot["system"],
+                         bot.get("capabilities"))
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        name, system = dlg.values()
+        name, system, caps = dlg.values()
         bot["name"] = name or bot["name"]
         bot["system"] = system
+        bot["capabilities"] = caps
         _save_store(self.store)
         self._refresh_bots()
         if bot_id == self.cur_bot_id:
@@ -914,7 +987,7 @@ class AIChatWindow(OpenHamWindowBase):
         self._rows = []
         self._msgs = []
 
-    def _add_message(self, role: str, text: str) -> _MessageRow:
+    def _add_message(self, role: str, text: str, final: bool = False) -> _MessageRow:
         bot = self._cur_bot()
         msg = _MessageRow(role, bot_name=bot["name"],
                           bot_avatar=self._bot_avatar(bot, 22), host=self)
@@ -922,7 +995,7 @@ class AIChatWindow(OpenHamWindowBase):
         self._rows.append(msg)
         self._msgs.append(msg)
         msg.set_width(self._content_width())
-        msg.set_text(text)
+        msg.set_text(text, final=final)
         return msg
 
     def _content_width(self) -> int:
@@ -936,7 +1009,7 @@ class AIChatWindow(OpenHamWindowBase):
             self._show_empty_hint()
         if cur is not None:
             for m in cur["messages"]:
-                self._add_message(m["role"], m["content"])
+                self._add_message(m["role"], m["content"], final=True)
         self._update_action_visibility()
         self._scroll_to_bottom()
 
@@ -993,6 +1066,13 @@ class AIChatWindow(OpenHamWindowBase):
         _save_store(self.store)
         self._run_completion()
 
+    def _send_quick(self, text: str):
+        """点击快捷回复按钮：把该选项作为用户消息发出。"""
+        if self._streaming:
+            return
+        self.input.setPlainText(text)
+        self._send()
+
     def _run_completion(self):
         """基于当前会话已有消息，流式生成一条新的助手回答（供发送/重新生成/编辑后复用）。"""
         cur = self._cur()
@@ -1004,7 +1084,10 @@ class AIChatWindow(OpenHamWindowBase):
         self._scroll_to_bottom()
 
         history = []
-        sys_prompt = (self._cur_bot().get("system") or "").strip()
+        bot = self._cur_bot()
+        sys_prompt = (bot.get("system") or "").strip()
+        if CAP_CHOICES in bot.get("capabilities", []):   # 绑定能力则并入规则
+            sys_prompt = (sys_prompt or _CHAT_SYS).strip() + "\n\n" + _CHOICES_RULE
         if sys_prompt:
             history.append({"role": "system", "content": sys_prompt})
         history += [{"role": m["role"], "content": m["content"]}
@@ -1102,7 +1185,7 @@ class AIChatWindow(OpenHamWindowBase):
         if gen != self._gen:
             return
         if self._assistant_row is not None:
-            self._assistant_row.set_text(self._assistant_text)
+            self._assistant_row.set_text(self._assistant_text, final=True)
         cur = self._cur()
         if cur is not None:
             cur["messages"].append({"role": "assistant", "content": self._assistant_text})
