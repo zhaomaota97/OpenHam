@@ -18,7 +18,7 @@ import datetime
 import tempfile
 import threading
 
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer, QSize, QPointF
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer, QSize, QPointF, QPoint
 from PyQt6.QtGui import (QColor, QPixmap, QPainter, QFont, QIcon, QBrush, QPen,
                          QPolygonF, QTextCursor, QTextBlockFormat, QTextTable,
                          QTextTableFormat, QTextFrameFormat, QTextLength)
@@ -1091,10 +1091,11 @@ class AIChatWindow(OpenHamWindowBase):
         self.input.clear()
 
         cur["messages"].append({"role": "user", "content": text})
-        self._add_message("user", text)
+        urow = self._add_message("user", text)
         self._maybe_title(cur, text)
         _save_store(self.store)
         self._run_completion()
+        self._scroll_row_to_top(urow)   # 新发的消息滚到顶部，完整可见
 
     def _send_quick(self, text: str):
         """点击快捷回复按钮：把该选项作为用户消息发出。"""
@@ -1289,6 +1290,21 @@ class AIChatWindow(OpenHamWindowBase):
     def _scroll_to_bottom(self):
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
             self.scroll.verticalScrollBar().maximum()))
+
+    def _scroll_row_to_top(self, row):
+        """确保新发的消息完整可见：能滚到底就滚到底（沿用自动跟随）；
+        消息太长、滚到底会截掉顶部时，则把它顶部对齐视口顶部。布局稳定后再算。"""
+        def go():
+            try:
+                y = row.mapTo(self.msg_host, QPoint(0, 0)).y()
+            except Exception:
+                return
+            bar = self.scroll.verticalScrollBar()
+            if y >= bar.maximum():        # 滚到底时该消息顶部仍可见
+                bar.setValue(bar.maximum())
+            else:                         # 否则顶部对齐，保证完整可见
+                bar.setValue(max(0, y - 12))
+        QTimer.singleShot(0, lambda: QTimer.singleShot(0, go))
 
     def eventFilter(self, obj, event):
         from PyQt6.QtCore import QEvent
