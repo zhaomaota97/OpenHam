@@ -11,6 +11,13 @@ _DEFAULT_SYS = (
     "回答内容严格不超过120个汉字，直接给出答案，不要任何废话。"
 )
 
+# 多轮对话（AI 对话插件）默认系统提示：常规聊天助手，鼓励 Markdown 排版
+_CHAT_SYS = (
+    "你是 OpenHam 内置的 AI 助手，友好、专业、有耐心。"
+    "请用简洁清晰的中文回答；可使用 Markdown 排版"
+    "（标题、列表、表格、`行内代码` 以及```代码块```）让回答更易读。"
+)
+
 
 def _client(api_key: str | None):
     """按当前用户配置构造 OpenAI 兼容客户端。"""
@@ -58,6 +65,45 @@ def call_deepseek_stream(text: str, api_key: str | None = None, sys_prompt: str 
         log.info("流式请求完成")
     except Exception as e:
         log.exception("流式请求异常: %s", e)
+        yield f"❌ AI 请求失败：{e}"
+
+
+def call_chat_stream(messages, api_key: str | None = None, max_tokens: int = 4096):
+    """多轮对话流式调用（携带上下文）。
+
+    messages 为 [{"role": "user"/"assistant", "content": str}, ...]，
+    通常不含 system；本函数会在最前自动补一条 system 提示。逐个 yield 文本片段，
+    失败时 yield 错误提示（与 call_deepseek_stream 行为一致，调用方无需 try）。"""
+    log.info("聊天流式请求，历史轮数=%d", len(messages))
+    try:
+        client, key = _client(api_key)
+        if not key:
+            yield "❌ 未配置 API Key：请在「设置 → AI 模型」中填入你的 DeepSeek Key"
+            return
+
+        msgs = list(messages)
+        if not msgs or msgs[0].get("role") != "system":
+            sys_content = app_config.get("ai_system_prompt") or _CHAT_SYS
+            msgs = [{"role": "system", "content": sys_content}] + msgs
+
+        stream = client.chat.completions.create(
+            model=app_config.get("ai_model"),
+            messages=msgs,
+            max_tokens=max_tokens,
+            stream=True,
+            extra_body=_thinking_extra(),
+        )
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+            if chunk.choices[0].finish_reason == "length":
+                yield "\n\n> ⚠️ 输出已达到单次最大长度被截断，可继续追问让我接着写。"
+        log.info("聊天流式请求完成")
+    except Exception as e:
+        log.exception("聊天流式请求异常: %s", e)
         yield f"❌ AI 请求失败：{e}"
 
 

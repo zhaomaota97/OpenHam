@@ -128,12 +128,14 @@
       "联机"
     ]
   },
-  "plugins.translate.execute_translate": {
+  "plugins.ai_chat.execute_ai_chat": {
     "enabled": true,
     "triggers": [
-      "翻译",
-      "fy",
-      "translate"
+      "对话",
+      "ai对话",
+      "chat",
+      "聊天",
+      "ai"
     ]
   }
 }
