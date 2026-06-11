@@ -34,8 +34,10 @@ from core import app_config
 from core.ai_client import call_chat_stream, _CHAT_SYS
 
 
-# ── Bot 能力：快捷回复按钮（choices）─────────────────────────────────
+# ── Bot 能力：交互控件（choices 快捷回复 / ask 澄清提问）──────────────
 CAP_CHOICES = "choices"
+CAP_ASK = "ask"
+
 _CHOICES_RULE = (
     "【快捷回复能力·重要】每次回答的最后，都要再追加一个「快捷追问选项」块，"
     "给出 2–4 个用户接下来最可能想问的问题或指令，方便其一键继续"
@@ -44,23 +46,62 @@ _CHOICES_RULE = (
     "```openham:choices\n选项一\n选项二\n选项三\n```\n"
     "该块放在回答最末尾；块之外照常正常作答；不要解释这个块本身。"
 )
-_CHOICES_RE = re.compile(r"```[ \t]*openham:choices[ \t]*\r?\n(.*?)```",
-                         re.DOTALL | re.IGNORECASE)
-_CHOICES_TRAILING_RE = re.compile(r"```[ \t]*openham:choices[ \t]*\r?\n.*$",
-                                  re.DOTALL | re.IGNORECASE)
+_ASK_RULE = (
+    "【澄清提问能力】当用户需求不够明确、有多种合理理解、或你需要关键信息才能动手时，"
+    "不要凭空假设、也不要长篇文字追问，而要用一个 openham:ask 块提一个带可点选项的澄清问题，"
+    "拿到用户选择后再继续。语法：\n"
+    "```openham:ask\nquestion: 你的问题?\n- 选项一\n- 选项二\n- 选项三\n```\n"
+    "若该问题允许多选，在标签后加 multi：第一行写 ```openham:ask multi。\n"
+    "选项 2–5 个、简短；一次只问最关键的一个问题；意图已经清楚时不要提问，直接作答。"
+)
+
+# 统一匹配 choices / ask 两类围栏块（保留出现顺序），以及流式未闭合的尾块
+_BLOCK_RE = re.compile(
+    r"```[ \t]*openham:(choices|ask)([^\n]*)\r?\n(.*?)```",
+    re.DOTALL | re.IGNORECASE)
+_BLOCK_TRAILING_RE = re.compile(
+    r"```[ \t]*openham:(?:choices|ask)[^\n]*\r?\n.*$",
+    re.DOTALL | re.IGNORECASE)
 
 
-def _parse_choices(text: str):
-    """从消息文本中提取 choices 选项，并返回去掉该块后的 Markdown。"""
-    choices = []
-    for mt in _CHOICES_RE.finditer(text or ""):
-        for line in mt.group(1).splitlines():
-            line = line.strip().lstrip("-*").strip()
-            if line:
-                choices.append(line)
-    stripped = _CHOICES_RE.sub("", text or "")
-    stripped = _CHOICES_TRAILING_RE.sub("", stripped)   # 流式未闭合时也先隐藏
-    return stripped.strip(), choices[:4]
+def _parse_ask_body(body: str):
+    q, opts = "", []
+    for line in body.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        low = s.lower()
+        if low.startswith("question:") or low.startswith("q:"):
+            q = s.split(":", 1)[1].strip()
+        elif s[:1] in "-*•":
+            o = s.lstrip("-*• ").strip()
+            if o:
+                opts.append(o)
+        elif not q:
+            q = s
+    return q, opts[:6]
+
+
+def _parse_blocks(text: str):
+    """提取消息里的 choices / ask 控件块，返回 (去块后的 Markdown, 控件列表)。"""
+    blocks = []
+    for mt in _BLOCK_RE.finditer(text or ""):
+        kind = mt.group(1).lower()
+        mods = (mt.group(2) or "").lower()
+        body = mt.group(3)
+        if kind == "choices":
+            items = [l.strip().lstrip("-*• ").strip() for l in body.splitlines()]
+            items = [x for x in items if x][:4]
+            if items:
+                blocks.append({"type": "choices", "items": items})
+        else:
+            q, opts = _parse_ask_body(body)
+            if opts:
+                blocks.append({"type": "ask", "multi": ("multi" in mods),
+                               "question": q, "options": opts})
+    stripped = _BLOCK_RE.sub("", text or "")
+    stripped = _BLOCK_TRAILING_RE.sub("", stripped)   # 流式未闭合时也先隐藏
+    return stripped.strip(), blocks
 
 
 def _base_dir() -> str:
@@ -228,6 +269,14 @@ def _check_png(checked: bool) -> str:
         return ""
 
 
+def _checkbox_style() -> str:
+    return (f"QCheckBox {{ color: {theme.TEXT}; font-size: 14px; spacing: 8px;"
+            f" background: transparent; }}"
+            f"QCheckBox::indicator {{ width: 19px; height: 19px;"
+            f" image: url({_check_png(False)}); }}"
+            f"QCheckBox::indicator:checked {{ image: url({_check_png(True)}); }}")
+
+
 class _BotDialog(QDialog):
     """新建 / 编辑 bot：名称 + system prompt。"""
 
@@ -256,16 +305,14 @@ class _BotDialog(QDialog):
         lay.addSpacing(4)
         lay.addWidget(self._lbl("能力"))
         from PyQt6.QtWidgets import QCheckBox
-        self.cap_choices = QCheckBox("快捷回复按钮（允许该 Bot 给出可点击的追问选项）")
-        self.cap_choices.setChecked(CAP_CHOICES in (capabilities or []))
-        self.cap_choices.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.cap_choices.setStyleSheet(
-            f"QCheckBox {{ color: {theme.TEXT}; font-size: 14px; spacing: 8px;"
-            f" background: transparent; }}"
-            f"QCheckBox::indicator {{ width: 19px; height: 19px;"
-            f" image: url({_check_png(False)}); }}"
-            f"QCheckBox::indicator:checked {{ image: url({_check_png(True)}); }}")
-        lay.addWidget(self.cap_choices)
+        caps = capabilities or []
+        self.cap_choices = QCheckBox("快捷回复按钮（AI 给出可点击的追问选项）")
+        self.cap_ask = QCheckBox("澄清提问（AI 主动用单选/多选问清你的需求）")
+        for cb, key in ((self.cap_choices, CAP_CHOICES), (self.cap_ask, CAP_ASK)):
+            cb.setChecked(key in caps)
+            cb.setCursor(Qt.CursorShape.PointingHandCursor)
+            cb.setStyleSheet(_checkbox_style())
+            lay.addWidget(cb)
 
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -281,7 +328,11 @@ class _BotDialog(QDialog):
         return l
 
     def values(self):
-        caps = [CAP_CHOICES] if self.cap_choices.isChecked() else []
+        caps = []
+        if self.cap_choices.isChecked():
+            caps.append(CAP_CHOICES)
+        if self.cap_ask.isChecked():
+            caps.append(CAP_ASK)
         return (self.name_in.text().strip(),
                 self.sys_in.toPlainText().strip(), caps)
 
@@ -361,14 +412,14 @@ class _MessageRow(QWidget):
                 "pre, code { background:#f3f3f5; font-family:Consolas,monospace; }"
                 "a { color:#6e56cf; }")
             col.addWidget(self.browser)
-            # 快捷回复按钮容器（choices 能力），默认隐藏
-            self.choices_host = QWidget()
-            self.choices_host.setStyleSheet("background: transparent;")
-            self.choices_layout = QHBoxLayout(self.choices_host)
-            self.choices_layout.setContentsMargins(0, 2, 0, 0)
-            self.choices_layout.setSpacing(8)
-            self.choices_host.setVisible(False)
-            col.addWidget(self.choices_host)
+            # 交互控件容器（choices 快捷回复 / ask 澄清提问），默认隐藏
+            self.blocks_host = QWidget()
+            self.blocks_host.setStyleSheet("background: transparent;")
+            self.blocks_layout = QVBoxLayout(self.blocks_host)
+            self.blocks_layout.setContentsMargins(0, 2, 0, 0)
+            self.blocks_layout.setSpacing(8)
+            self.blocks_host.setVisible(False)
+            col.addWidget(self.blocks_host)
             self.actions = self._build_actions()
             col.addWidget(self.actions)
             self.bubble = None
@@ -455,24 +506,37 @@ class _MessageRow(QWidget):
         if self.role == "user":
             self.bubble.setText(text)
         else:
-            md, choices = _parse_choices(text)     # 去掉 choices 块再渲染 Markdown
+            md, blocks = _parse_blocks(text)       # 去掉控件块再渲染 Markdown
             self.browser.setMarkdown(md)
             self._improve_typography()
             self._style_tables()
             self._fit_height()
-            if final:                              # 仅在回答完成时渲染快捷按钮
-                self._render_choices(choices)
+            if final:                              # 仅在回答完成时渲染交互控件
+                self._render_blocks(blocks)
 
-    def _render_choices(self, choices):
-        while self.choices_layout.count():
-            it = self.choices_layout.takeAt(0)
+    def _render_blocks(self, blocks):
+        while self.blocks_layout.count():
+            it = self.blocks_layout.takeAt(0)
             w = it.widget()
             if w:
                 w.deleteLater()
-        if not choices or self.host is None:
-            self.choices_host.setVisible(False)
+        if not blocks or self.host is None:
+            self.blocks_host.setVisible(False)
             return
-        for c in choices:
+        for b in blocks:
+            if b["type"] == "choices":
+                self.blocks_layout.addWidget(self._make_choices_widget(b["items"]))
+            else:
+                self.blocks_layout.addWidget(self._make_ask_widget(b))
+        self.blocks_host.setVisible(True)
+
+    def _make_choices_widget(self, items) -> QWidget:
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(8)
+        for c in items:
             b = QPushButton(c)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(
@@ -481,9 +545,78 @@ class _MessageRow(QWidget):
                 f" padding: 6px 14px; font-size: 14px; }}"
                 f"QPushButton:hover {{ background: #ece8fb; }}")
             b.clicked.connect(lambda _=False, t=c: self.host._send_quick(t))
-            self.choices_layout.addWidget(b)
-        self.choices_layout.addStretch(1)
-        self.choices_host.setVisible(True)
+            h.addWidget(b)
+        h.addStretch(1)
+        return w
+
+    def _make_ask_widget(self, block) -> QWidget:
+        card = QFrame()
+        card.setObjectName("askCard")
+        card.setStyleSheet(
+            f"#askCard {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER};"
+            f" border-radius: 12px; }}")
+        v = QVBoxLayout(card)
+        v.setContentsMargins(14, 12, 14, 12)
+        v.setSpacing(8)
+        q = QLabel(block.get("question") or "请选择：")
+        q.setWordWrap(True)
+        q.setStyleSheet(f"color: {theme.TEXT}; font-size: 14px; font-weight: 600;"
+                        " background: transparent; border: none;")
+        v.addWidget(q)
+        opts = block.get("options", [])
+
+        if block.get("multi"):
+            from PyQt6.QtWidgets import QCheckBox
+            checks = []
+            for o in opts:
+                cb = QCheckBox(o)
+                cb.setCursor(Qt.CursorShape.PointingHandCursor)
+                cb.setStyleSheet(_checkbox_style())
+                v.addWidget(cb)
+                checks.append(cb)
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 2, 0, 0)
+            submit = QPushButton("提交")
+            submit.setCursor(Qt.CursorShape.PointingHandCursor)
+            submit.setStyleSheet(
+                f"QPushButton {{ background: {theme.ACCENT}; color: #fff; border: none;"
+                f" border-radius: 9px; padding: 7px 18px; font-size: 14px; }}"
+                f"QPushButton:hover {{ background: {theme.ACCENT_HOV}; }}")
+
+            def _submit():
+                picked = [c.text() for c in checks if c.isChecked()]
+                if picked and self.host:
+                    self.host._send_quick("、".join(picked))
+            submit.clicked.connect(_submit)
+            row.addWidget(submit)
+            other = self._ask_other_btn()
+            row.addWidget(other)
+            row.addStretch(1)
+            v.addLayout(row)
+        else:
+            for o in opts:
+                b = QPushButton(o)
+                b.setCursor(Qt.CursorShape.PointingHandCursor)
+                b.setStyleSheet(
+                    f"QPushButton {{ background: {theme.CARD}; color: {theme.TEXT};"
+                    f" border: 1px solid {theme.BORDER_IN}; border-radius: 9px;"
+                    f" padding: 9px 12px; font-size: 14px; text-align: left; }}"
+                    f"QPushButton:hover {{ background: {theme.INDIGO_SOFT};"
+                    f" border-color: #d8d6fb; }}")
+                b.clicked.connect(lambda _=False, t=o: self.host and self.host._send_quick(t))
+                v.addWidget(b)
+            v.addWidget(self._ask_other_btn())
+        return card
+
+    def _ask_other_btn(self) -> QPushButton:
+        other = QPushButton("其他（自己输入）")
+        other.setCursor(Qt.CursorShape.PointingHandCursor)
+        other.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {theme.TEXT2};"
+            f" border: none; padding: 5px 2px; font-size: 13px; text-align: left; }}"
+            f"QPushButton:hover {{ color: {theme.INDIGO}; }}")
+        other.clicked.connect(lambda: self.host and self.host._focus_input())
+        return other
 
     def _improve_typography(self):
         """放宽行距与段间距，让 Markdown 不再挤成一团。"""
@@ -1098,11 +1231,15 @@ class AIChatWindow(OpenHamWindowBase):
         self._scroll_row_to_top(urow)   # 新发的消息滚到顶部，完整可见
 
     def _send_quick(self, text: str):
-        """点击快捷回复按钮：把该选项作为用户消息发出。"""
-        if self._streaming:
+        """点击快捷回复/选项：把该文本作为用户消息发出。"""
+        if self._streaming or not (text or "").strip():
             return
         self.input.setPlainText(text)
         self._send()
+
+    def _focus_input(self):
+        """「其他（自己输入）」：聚焦输入框让用户自由补充。"""
+        self.input.setFocus()
 
     def _run_completion(self):
         """基于当前会话已有消息，流式生成一条新的助手回答（供发送/重新生成/编辑后复用）。"""
@@ -1116,9 +1253,15 @@ class AIChatWindow(OpenHamWindowBase):
 
         history = []
         bot = self._cur_bot()
+        caps = bot.get("capabilities", [])
         sys_prompt = (bot.get("system") or "").strip()
-        if CAP_CHOICES in bot.get("capabilities", []):   # 绑定能力则并入规则
-            sys_prompt = (sys_prompt or _CHAT_SYS).strip() + "\n\n" + _CHOICES_RULE
+        extras = []
+        if CAP_ASK in caps:
+            extras.append(_ASK_RULE)
+        if CAP_CHOICES in caps:
+            extras.append(_CHOICES_RULE)
+        if extras:                                       # 绑定能力则并入规则
+            sys_prompt = (sys_prompt or _CHAT_SYS).strip() + "\n\n" + "\n\n".join(extras)
         if sys_prompt:
             history.append({"role": "system", "content": sys_prompt})
         history += [{"role": m["role"], "content": m["content"]}
