@@ -61,8 +61,8 @@ scp $SCPOPT "$VJSON" "$ECS:$DL/version.json"
 scp $SCPOPT "$SRC/relay/download.html" "$ECS:$DL/index.html"
 scp $SCPOPT "$SRC/logo.png" "$ECS:$DL/logo.png"
 
-# 发布成功后：把本机安装标记对齐到本次版本；VERSION 末位 +1 写回，供下次发布自增
-echo "$VERSION" > "$SRC/version.txt"
+# 发布成功后：VERSION 末位 +1 写回，供下次发布自增。
+# 注意：故意不改本机 $SRC/version.txt（安装标记），好让维护者用「检查更新」自测更新链路。
 NEXT="$(echo "$VERSION" | awk -F. '{printf "%d.%d.%d", $1, $2, ($3+1)}')"
 echo "$NEXT" > "$VERSION_FILE"
 (cd "$SRC" && git add VERSION && git commit -q -m "chore(release): v$VERSION（下一版预置 v$NEXT）" 2>/dev/null) || true
