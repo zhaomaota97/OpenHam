@@ -13,8 +13,9 @@ KEY="$HOME/.ssh/openham_ecs"
 ECS="root@47.102.218.59"
 DL="/opt/openham-dl"
 
-VERSION="$(cd "$SRC" && git rev-parse --short HEAD)"
-echo "[1/4] 生成精简副本（版本 $VERSION，排除依赖/敏感/dev 文件）…"
+VERSION_FILE="$SRC/VERSION"
+VERSION="$(tr -d ' \t\r\n' < "$VERSION_FILE")"
+echo "[1/4] 生成精简副本（版本 v$VERSION，排除依赖/敏感/dev 文件）…"
 rm -rf "$LITE"; mkdir -p "$LITE"
 rsync -a \
   --exclude='.git' --exclude='.env' --exclude='user_settings.json' \
@@ -60,4 +61,10 @@ scp $SCPOPT "$VJSON" "$ECS:$DL/version.json"
 scp $SCPOPT "$SRC/relay/download.html" "$ECS:$DL/index.html"
 scp $SCPOPT "$SRC/logo.png" "$ECS:$DL/logo.png"
 
-echo "[4/4] 完成 ✅  版本 $VERSION → http://47.102.218.59/openham/"
+# 发布成功后：把本机安装标记对齐到本次版本；VERSION 末位 +1 写回，供下次发布自增
+echo "$VERSION" > "$SRC/version.txt"
+NEXT="$(echo "$VERSION" | awk -F. '{printf "%d.%d.%d", $1, $2, ($3+1)}')"
+echo "$NEXT" > "$VERSION_FILE"
+(cd "$SRC" && git add VERSION && git commit -q -m "chore(release): v$VERSION（下一版预置 v$NEXT）" 2>/dev/null) || true
+
+echo "[4/4] 完成 ✅  版本 v$VERSION → http://47.102.218.59/openham/   （VERSION 已写回 $NEXT 备下次）"

@@ -88,8 +88,10 @@
     .then(function (r) { return r.json(); })
     .then(function (j) {
       var el = document.getElementById("version");
-      if (j && j.version) { el.textContent = "版本：" + j.version; }
-      else { el.style.display = "none"; }
+      if (j && j.version) {
+        var v = j.version;
+        el.textContent = "版本：" + (/^\d/.test(v) ? "v" + v : v);  // 语义化版本加 v 前缀
+      } else { el.style.display = "none"; }
     })
     .catch(function () { document.getElementById("version").style.display = "none"; });
 

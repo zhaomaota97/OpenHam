@@ -294,7 +294,8 @@ class SettingsWindow(OpenHamWindowBase):
             _ver = local_version() or "未知"
         except Exception:
             _ver = "未知"
-        version_label = QLabel(f"版本 {_ver}")
+        _disp = ("v" + _ver) if _ver[:1].isdigit() else _ver  # 语义化版本加 v 前缀
+        version_label = QLabel(f"版本 {_disp}")
         version_label.setStyleSheet("color: #a8a8ad; font-size: 12px;")
         version_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)

@@ -7,6 +7,7 @@
 """
 import os
 import io
+import re
 import json
 import shutil
 import zipfile
@@ -55,6 +56,17 @@ def _should_skip(rel: str) -> bool:
     return False
 
 
+_SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
+
+
+def _ver_key(v: str):
+    """把 '1.2.3' 解析成可比较的 (1,2,3)；不是规范语义化版本（如旧的 commit 短哈希）返回 None。"""
+    v = (v or "").strip().lstrip("vV")
+    if not _SEMVER.match(v):
+        return None
+    return tuple(int(x) for x in v.split("."))
+
+
 def local_version() -> str:
     try:
         with open(os.path.join(_base_dir(), "version.txt"), "r", encoding="utf-8") as f:
@@ -74,7 +86,13 @@ def check_update(base_url: str, timeout: int = 8):
         if "://" not in code_url:   # 相对地址 → 拼成绝对地址，避免 urlopen 报 unknown url type
             code_url = base_url.rstrip("/") + "/" + code_url.lstrip("/")
         notes = info.get("notes", "")
-        has = bool(latest) and latest != local_version()
+        # 语义化版本：仅当服务器版本「更大」才算有更新（真正判断是否落后）；
+        # 任一侧不是规范语义化版本（如老的 commit 短哈希）则回退到「不相等即更新」。
+        lk, rk = _ver_key(local_version()), _ver_key(latest)
+        if lk is not None and rk is not None:
+            has = rk > lk
+        else:
+            has = bool(latest) and latest != local_version()
         return has, latest, code_url, notes
     except Exception as e:
         log.warning("检查更新失败：%s", e)
