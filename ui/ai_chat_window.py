@@ -1,12 +1,13 @@
-"""AI 对话插件窗口：Monica 风格的聊天界面。
+"""AI 对话插件窗口：Monica 风格，带「Bots」（每个 bot 有自己的 system prompt 与会话历史）。
 
 布局（三栏）：
-- 最左细图标栏：品牌 logo + Chat（当前）+ 新建会话。
-- 会话侧栏：搜索框 + 「新建会话」+ 按时间分组（今天/昨天/7 天内/更早）的会话列表。
-- 右侧消息区：用户消息为右侧浅灰气泡；助手消息为「头像 + 名称 + 模型标签 + 纯 Markdown 正文」
-  （无气泡，QTextBrowser 原生渲染 Markdown，无需 WebEngine / 第三方库）。
+- 最左 Bots 栏：每个 bot 一个头像；点头像切换 bot，点「+」新建 bot（名称 + system prompt），
+  右键可编辑/删除。每个 bot 各自维护一份会话历史。
+- 会话侧栏：搜索框 + 新建会话 + 当前 bot 下按时间分组（今天/昨天/7 天内/更早）的会话列表。
+- 消息区：用户=右侧浅灰气泡；助手=「bot 头像 + bot 名 + 模型标签 + 纯 Markdown 正文」。
 
-其余：流式响应、携带上下文、会话持久化；模型沿用全局 AI 配置（core.ai_client）。
+其余：流式响应、携带上下文（含 bot 的 system prompt）、持久化；模型沿用全局 AI 配置。
+入口：主程序输入框里以 `--` 开头即唤起本窗口（见 plugins/ai_chat.py），无需其它触发词。
 """
 import os
 import time
@@ -16,11 +17,11 @@ import datetime
 import threading
 
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import QColor, QPixmap
+from PyQt6.QtGui import QColor, QPixmap, QPainter, QFont, QIcon
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
     QListWidget, QListWidgetItem, QScrollArea, QPlainTextEdit, QMenu,
-    QLineEdit, QTextBrowser,
+    QLineEdit, QTextBrowser, QDialog, QDialogButtonBox,
 )
 
 from ui.window_base import OpenHamWindowBase
@@ -39,38 +40,59 @@ def _data_path() -> str:
     return os.path.join(d, "sessions.json")
 
 
-def _load_sessions() -> list:
+def _norm_session(s: dict) -> dict:
+    s.setdefault("id", uuid.uuid4().hex)
+    s.setdefault("title", "新对话")
+    s.setdefault("created", time.time())
+    s.setdefault("messages", [])
+    return s
+
+
+def _make_bot(name: str, system: str, sessions=None) -> dict:
+    return {"id": uuid.uuid4().hex, "name": name or "助手",
+            "system": system or "", "created": time.time(),
+            "sessions": [_norm_session(s) for s in (sessions or [])]}
+
+
+def _load_store() -> dict:
+    """返回 {"bots": [...], "current_bot": id}。兼容旧的「顶层 sessions」格式。"""
     p = _data_path()
     if not os.path.exists(p):
-        return []
+        return {"bots": [_make_bot("默认助手", "")], "current_bot": None}
     try:
         with open(p, "r", encoding="utf-8") as f:
             data = json.load(f)
-        sessions = data.get("sessions", [])
-        for s in sessions:
-            s.setdefault("id", uuid.uuid4().hex)
-            s.setdefault("title", "新对话")
-            s.setdefault("created", time.time())
-            s.setdefault("messages", [])
-        return sessions
     except Exception:
-        return []
+        return {"bots": [_make_bot("默认助手", "")], "current_bot": None}
+
+    if "bots" not in data:   # 旧格式迁移：把原来的会话塞进一个默认 bot
+        old = data.get("sessions", [])
+        return {"bots": [_make_bot("默认助手", "", old)], "current_bot": None}
+
+    bots = data.get("bots", [])
+    for b in bots:
+        b.setdefault("id", uuid.uuid4().hex)
+        b.setdefault("name", "助手")
+        b.setdefault("system", "")
+        b.setdefault("created", time.time())
+        b["sessions"] = [_norm_session(s) for s in b.get("sessions", [])]
+    if not bots:
+        bots = [_make_bot("默认助手", "")]
+    return {"bots": bots, "current_bot": data.get("current_bot")}
 
 
-def _save_sessions(sessions: list):
-    p = _data_path()
+def _save_store(store: dict):
     try:
-        with open(p, "w", encoding="utf-8") as f:
-            json.dump({"sessions": sessions}, f, ensure_ascii=False, indent=2)
+        with open(_data_path(), "w", encoding="utf-8") as f:
+            json.dump(store, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
 
 def _time_group(ts: float) -> str:
     try:
-        d_now = datetime.date.today()
-        d_ts = datetime.date.fromtimestamp(ts or time.time())
-        delta = (d_now - d_ts).days
+        delta = (datetime.date.today()
+                 - datetime.date.fromtimestamp(ts or time.time())).days
     except Exception:
         return "更早"
     if delta <= 0:
@@ -83,17 +105,92 @@ def _time_group(ts: float) -> str:
 
 
 _GROUP_ORDER = ["今天", "昨天", "7 天内", "更早"]
+_AVA_PALETTE = ["#6e56cf", "#1f8f43", "#b25000", "#0a7ea4",
+                "#c0392b", "#7d3c98", "#2d6cdf", "#0f9b8e"]
+_ava_cache = {}
+
+
+def _letter_avatar(name: str, px: int = 34) -> QPixmap:
+    ch = (name.strip()[:1] or "?").upper()
+    key = (ch, px)
+    if key in _ava_cache:
+        return _ava_cache[key]
+    color = _AVA_PALETTE[(sum(ord(c) for c in ch)) % len(_AVA_PALETTE)]
+    pm = QPixmap(px, px)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setBrush(QColor(color))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.drawEllipse(0, 0, px, px)
+    p.setPen(QColor("#ffffff"))
+    f = QFont()
+    f.setPointSizeF(px * 0.42)
+    f.setBold(True)
+    p.setFont(f)
+    p.drawText(pm.rect(), Qt.AlignmentFlag.AlignCenter, ch)
+    p.end()
+    _ava_cache[key] = pm
+    return pm
+
+
+def _model_label() -> str:
+    try:
+        return app_config.get("ai_model") or "AI"
+    except Exception:
+        return "AI"
+
+
+class _BotDialog(QDialog):
+    """新建 / 编辑 bot：名称 + system prompt。"""
+
+    def __init__(self, parent=None, name="", system=""):
+        super().__init__(parent)
+        self.setWindowTitle("新建 Bot" if not name else "编辑 Bot")
+        self.setMinimumWidth(440)
+        self.setStyleSheet(f"QDialog {{ background: {theme.CARD}; }}")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 18, 20, 16)
+        lay.setSpacing(8)
+
+        lay.addWidget(self._lbl("名称"))
+        self.name_in = QLineEdit(name)
+        self.name_in.setPlaceholderText("例如：翻译官、代码助手、营养师…")
+        lay.addWidget(self.name_in)
+
+        lay.addSpacing(4)
+        lay.addWidget(self._lbl("System Prompt（人设 / 指令，可留空用默认）"))
+        self.sys_in = QPlainTextEdit(system)
+        self.sys_in.setPlaceholderText(
+            "例如：你是一名专业英汉翻译，只输出译文，不加解释。")
+        self.sys_in.setFixedHeight(140)
+        lay.addWidget(self.sys_in)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText("保存")
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        lay.addWidget(btns)
+
+    def _lbl(self, t):
+        l = QLabel(t)
+        l.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px; font-weight: 600;")
+        return l
+
+    def values(self):
+        return self.name_in.text().strip(), self.sys_in.toPlainText().strip()
 
 
 class _MessageRow(QWidget):
     """一条消息。用户=右侧浅灰气泡；助手=左侧「头像+名称+模型标签+Markdown 正文」。"""
 
-    def __init__(self, role: str, parent=None):
+    def __init__(self, role: str, bot_name="OpenHam AI", bot_avatar=None, parent=None):
         super().__init__(parent)
         self.role = role
         self._raw = ""
         self.setStyleSheet("background: transparent;")
-
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -113,17 +210,15 @@ class _MessageRow(QWidget):
             col = QVBoxLayout()
             col.setContentsMargins(0, 0, 0, 0)
             col.setSpacing(7)
-
             head = QHBoxLayout()
             head.setContentsMargins(0, 0, 0, 0)
             head.setSpacing(8)
             avatar = QLabel()
-            pm = _brand_pixmap(22)
-            if pm is not None:
-                avatar.setPixmap(pm)
+            avatar.setPixmap(bot_avatar if bot_avatar is not None
+                             else _letter_avatar(bot_name, 22))
             avatar.setFixedSize(22, 22)
             head.addWidget(avatar)
-            name = QLabel("OpenHam AI")
+            name = QLabel(bot_name)
             name.setStyleSheet(
                 f"color: {theme.TEXT}; font-size: 13px; font-weight: 600;"
                 " background: transparent;")
@@ -171,40 +266,8 @@ class _MessageRow(QWidget):
     def _fit_height(self):
         if self.role != "user" and self.browser is not None:
             doc = self.browser.document()
-            doc.setTextWidth(self.browser.viewport().width()
-                             or self.browser.width())
-            h = int(doc.size().height()) + 6
-            self.browser.setFixedHeight(max(24, h))
-
-
-_brand_cache = {}
-
-
-def _brand_pixmap(px: int):
-    if px in _brand_cache:
-        return _brand_cache[px]
-    pm = None
-    try:
-        logo = os.path.join(_base_dir(), "logo.png")
-        if os.path.exists(logo):
-            src = QPixmap(logo)
-            if not src.isNull():
-                pm = src.scaled(px, px, Qt.AspectRatioMode.KeepAspectRatio,
-                                Qt.TransformationMode.SmoothTransformation)
-    except Exception:
-        pm = None
-    if pm is None:
-        pm = icons.qicon("ai").pixmap(QSize(px, px))
-    _brand_cache[px] = pm
-    return pm
-
-
-def _model_label() -> str:
-    try:
-        m = app_config.get("ai_model") or "AI"
-    except Exception:
-        m = "AI"
-    return m
+            doc.setTextWidth(self.browser.viewport().width() or self.browser.width())
+            self.browser.setFixedHeight(max(24, int(doc.size().height()) + 6))
 
 
 class _ChatSignals(QObject):
@@ -217,13 +280,19 @@ class AIChatWindow(OpenHamWindowBase):
     """AI 对话主窗口（单例，由插件 setup 创建并复用）。"""
 
     def __init__(self):
-        super().__init__(title="💬 AI 对话", min_w=900, min_h=580)
-        self.resize(1040, 680)
+        super().__init__(title="💬 AI 对话", min_w=940, min_h=600)
+        self.resize(1080, 700)
 
-        self.sessions = _load_sessions()
-        self.cur_id = self.sessions[0]["id"] if self.sessions else None
+        self.store = _load_store()
+        self.bots = self.store["bots"]
+        self.cur_bot_id = self.store.get("current_bot") or self.bots[0]["id"]
+        if not any(b["id"] == self.cur_bot_id for b in self.bots):
+            self.cur_bot_id = self.bots[0]["id"]
+        bot = self._cur_bot()
+        self.cur_id = bot["sessions"][0]["id"] if bot["sessions"] else None
+
         self._rows = []
-        self._msgs = []          # 仅 _MessageRow（用于测宽）
+        self._msgs = []
         self._gen = 0
         self._streaming = False
         self._assistant_row = None
@@ -235,35 +304,56 @@ class AIChatWindow(OpenHamWindowBase):
         self._sig.done.connect(self._on_done)
         self._sig.error.connect(self._on_error)
 
+        self._add_maximize_button()
         self._build_ui()
+        self._refresh_bots()
+        self._refresh_session_list()
+        self._load_current()
 
-        if not self.sessions:
-            self._new_session(persist=False)
+    # ── 标题栏：最大化按钮 ────────────────────────────────────────────
+    def _add_maximize_button(self):
+        self.max_btn = QPushButton()
+        self.max_btn.setIcon(icons.qicon("maximize", color=theme.TEXT2))
+        self.max_btn.setFixedSize(28, 28)
+        self.max_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.max_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.max_btn.setToolTip("最大化 / 还原")
+        self.max_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; border-radius: 7px; }}"
+            f"QPushButton:hover {{ background: {theme.HOVER}; }}")
+        self.max_btn.clicked.connect(self._toggle_max)
+        tb = self.title_bar.layout()
+        tb.insertWidget(tb.indexOf(self.pin_btn), self.max_btn)
+
+    def _toggle_max(self):
+        if self.isMaximized():
+            self.showNormal()
+            self.max_btn.setIcon(icons.qicon("maximize", color=theme.TEXT2))
         else:
-            self._refresh_session_list()
-            self._load_current()
+            self.showMaximized()
+            self.max_btn.setIcon(icons.qicon("restore", color=theme.TEXT2))
 
-    # ── 界面 ──────────────────────────────────────────────────────────
+    # ── 界面骨架 ──────────────────────────────────────────────────────
     def _build_ui(self):
         row = QWidget()
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(0)
-
         h.addWidget(self._build_rail())
         h.addWidget(self._build_sidebar())
         h.addWidget(self._build_chat(), 1)
-
         self.content_layout.addWidget(row, 1)
 
     def _build_rail(self) -> QWidget:
         rail = QWidget()
-        rail.setFixedWidth(60)
-        rail.setStyleSheet(f"background: {theme.SUBTLE};"
-                           f" border-right: 1px solid {theme.BORDER};")
+        rail.setObjectName("botRail")
+        rail.setFixedWidth(72)
+        rail.setStyleSheet(
+            f"#botRail {{ background: {theme.SUBTLE};"
+            f" border-right: 1px solid {theme.BORDER}; }}")
         v = QVBoxLayout(rail)
-        v.setContentsMargins(0, 14, 0, 14)
-        v.setSpacing(10)
+        v.setContentsMargins(0, 12, 0, 12)
+        v.setSpacing(8)
         v.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         logo = QLabel()
@@ -274,41 +364,67 @@ class AIChatWindow(OpenHamWindowBase):
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
 
-        chat_btn = self._rail_btn("chat", "对话", active=True)
-        v.addWidget(chat_btn, 0, Qt.AlignmentFlag.AlignHCenter)
-        add_btn = self._rail_btn("add", "新建会话")
-        add_btn.clicked.connect(lambda: self._new_session())
-        v.addWidget(add_btn, 0, Qt.AlignmentFlag.AlignHCenter)
+        line = QFrame()
+        line.setFixedSize(34, 1)
+        line.setStyleSheet(f"background: {theme.BORDER};")
+        v.addWidget(line, 0, Qt.AlignmentFlag.AlignHCenter)
 
-        v.addStretch(1)
-        return rail
+        # bots 容器（可滚动）
+        self.bot_col = QVBoxLayout()
+        self.bot_col.setContentsMargins(0, 0, 0, 0)
+        self.bot_col.setSpacing(8)
+        self.bot_col.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        host = QWidget()
+        host.setStyleSheet("background: transparent;")
+        host.setLayout(self.bot_col)
+        sc = QScrollArea()
+        sc.setWidgetResizable(True)
+        sc.setFrameShape(QFrame.Shape.NoFrame)
+        sc.setStyleSheet("background: transparent;")
+        sc.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        sc.setWidget(host)
+        v.addWidget(sc, 1)
 
-    def _rail_btn(self, icon_name: str, tip: str, active: bool = False) -> QPushButton:
-        b = QPushButton()
-        b.setIcon(icons.qicon(icon_name, color=(theme.INDIGO if active else theme.TEXT2)))
-        b.setIconSize(QSize(20, 20))
-        b.setFixedSize(40, 40)
-        b.setCursor(Qt.CursorShape.PointingHandCursor)
-        b.setToolTip(tip)
-        bg = theme.INDIGO_SOFT if active else "transparent"
-        b.setStyleSheet(
-            f"QPushButton {{ background: {bg}; border: none; border-radius: 10px; }}"
+        add = QPushButton()
+        add.setIcon(icons.qicon("add", color=theme.TEXT2))
+        add.setIconSize(QSize(18, 18))
+        add.setFixedSize(44, 44)
+        add.setCursor(Qt.CursorShape.PointingHandCursor)
+        add.setToolTip("新建 Bot")
+        add.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: 1px dashed {theme.BORDER_IN};"
+            f" border-radius: 12px; }}"
             f"QPushButton:hover {{ background: {theme.HOVER}; }}")
-        return b
+        add.clicked.connect(self._create_bot)
+        v.addWidget(add, 0, Qt.AlignmentFlag.AlignHCenter)
+        return rail
 
     def _build_sidebar(self) -> QWidget:
         side = QWidget()
+        side.setObjectName("sideBar")
         side.setFixedWidth(244)
-        side.setStyleSheet(f"background: {theme.CARD};"
-                           f" border-right: 1px solid {theme.BORDER};")
+        side.setStyleSheet(
+            f"#sideBar {{ background: {theme.CARD};"
+            f" border-right: 1px solid {theme.BORDER}; }}")
         v = QVBoxLayout(side)
         v.setContentsMargins(12, 14, 12, 12)
         v.setSpacing(10)
 
+        self.bot_title = QLabel("")
+        self.bot_title.setStyleSheet(
+            f"color: {theme.TEXT}; font-size: 15px; font-weight: 700;"
+            " background: transparent;")
+        v.addWidget(self.bot_title)
+
         self.search = QLineEdit()
-        self.search.setPlaceholderText("搜索会话…")
-        self.search.addAction(icons.qicon("search", color=theme.TEXT3),
-                              QLineEdit.ActionPosition.LeadingPosition)
+        self.search.setPlaceholderText("🔍  搜索会话")
+        self.search.setFixedHeight(36)
+        self.search.setClearButtonEnabled(True)
+        self.search.setStyleSheet(
+            f"QLineEdit {{ background: {theme.SURFACE}; color: {theme.TEXT};"
+            f" border: 1px solid {theme.BORDER_IN}; border-radius: 9px;"
+            f" padding: 0 10px; font-size: 13px; }}"
+            f"QLineEdit:focus {{ border: 1px solid {theme.ACCENT}; }}")
         self.search.textChanged.connect(self._on_search)
         v.addWidget(self.search)
 
@@ -319,35 +435,27 @@ class AIChatWindow(OpenHamWindowBase):
         self.new_btn.setStyleSheet(
             f"QPushButton {{ background: {theme.CARD}; color: {theme.TEXT};"
             f" border: 1px solid {theme.BORDER_IN}; border-radius: 10px;"
-            f" font-size: 13px; font-weight: 500; text-align: center; }}"
-            f"QPushButton:hover {{ background: {theme.INDIGO_SOFT};"
-            f" border-color: #d8d6fb; }}")
+            f" font-size: 13px; font-weight: 500; }}"
+            f"QPushButton:hover {{ background: {theme.INDIGO_SOFT}; border-color: #d8d6fb; }}")
         self.new_btn.clicked.connect(lambda: self._new_session())
         v.addWidget(self.new_btn)
 
-        recent = QLabel("最近会话")
-        recent.setStyleSheet(f"color: {theme.TEXT3}; font-size: 12px;"
-                             " font-weight: 600; background: transparent;")
-        v.addWidget(recent)
-
         self.session_list = QListWidget()
-        self.session_list.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu)
+        self.session_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.session_list.customContextMenuRequested.connect(self._session_menu)
         self.session_list.itemClicked.connect(self._on_session_clicked)
         self.session_list.setStyleSheet(
             f"QListWidget {{ background: transparent; border: none; outline: none; }}"
-            f"QListWidget::item {{ border-radius: 8px; padding: 8px 9px;"
-            f" color: {theme.TEXT}; }}"
+            f"QListWidget::item {{ border-radius: 8px; padding: 8px 9px; color: {theme.TEXT}; }}"
             f"QListWidget::item:hover {{ background: {theme.SUBTLE}; }}"
-            f"QListWidget::item:selected {{ background: {theme.SELECT};"
-            f" color: {theme.TEXT}; }}")
+            f"QListWidget::item:selected {{ background: {theme.SELECT}; color: {theme.TEXT}; }}")
         v.addWidget(self.session_list, 1)
         return side
 
     def _build_chat(self) -> QWidget:
         right = QWidget()
-        right.setStyleSheet(f"background: {theme.BG};")
+        right.setObjectName("chatArea")
+        right.setStyleSheet(f"#chatArea {{ background: {theme.BG}; }}")
         rv = QVBoxLayout(right)
         rv.setContentsMargins(0, 0, 0, 0)
         rv.setSpacing(0)
@@ -356,8 +464,7 @@ class AIChatWindow(OpenHamWindowBase):
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setStyleSheet("background: transparent;")
-        self.scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.msg_host = QWidget()
         self.msg_host.setStyleSheet("background: transparent;")
         self.msg_layout = QVBoxLayout(self.msg_host)
@@ -367,13 +474,11 @@ class AIChatWindow(OpenHamWindowBase):
         self.scroll.setWidget(self.msg_host)
         rv.addWidget(self.scroll, 1)
 
-        # 输入卡片
         wrap = QWidget()
         wrap.setStyleSheet("background: transparent;")
         wl = QVBoxLayout(wrap)
         wl.setContentsMargins(28, 6, 28, 18)
         wl.setSpacing(0)
-
         card = QFrame()
         card.setObjectName("inputCard")
         card.setStyleSheet(
@@ -382,13 +487,11 @@ class AIChatWindow(OpenHamWindowBase):
         cl = QVBoxLayout(card)
         cl.setContentsMargins(14, 12, 12, 10)
         cl.setSpacing(6)
-
         self.input = QPlainTextEdit()
-        self.input.setPlaceholderText("给 OpenHam AI 发消息……（Enter 发送，Shift+Enter 换行）")
+        self.input.setPlaceholderText("给 AI 发消息……（Enter 发送，Shift+Enter 换行）")
         self.input.setFrameShape(QFrame.Shape.NoFrame)
         self.input.setStyleSheet(
-            "QPlainTextEdit { background: transparent; border: none;"
-            " font-size: 14px; }")
+            "QPlainTextEdit { background: transparent; border: none; font-size: 14px; }")
         self.input.setFixedHeight(58)
         self.input.installEventFilter(self)
         cl.addWidget(self.input)
@@ -396,35 +499,148 @@ class AIChatWindow(OpenHamWindowBase):
         bottom = QHBoxLayout()
         bottom.setContentsMargins(0, 0, 0, 0)
         bottom.setSpacing(8)
-        model_pill = QLabel("  " + _model_label())
-        model_pill.setStyleSheet(
+        self.model_pill = QLabel("  " + _model_label())
+        self.model_pill.setStyleSheet(
             f"QLabel {{ color: {theme.TEXT2}; background: {theme.SUBTLE};"
             " border-radius: 9px; padding: 3px 10px; font-size: 12px; }}")
-        bottom.addWidget(model_pill)
+        bottom.addWidget(self.model_pill)
         bottom.addStretch(1)
-
         self.send_btn = QPushButton()
-        self.send_btn.setObjectName("primary")
         self.send_btn.setIcon(icons.qicon("send", color="#ffffff"))
         self.send_btn.setIconSize(QSize(17, 17))
         self.send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.send_btn.setFixedSize(38, 38)
         self.send_btn.setStyleSheet(
-            f"QPushButton {{ background: {theme.ACCENT}; border: none;"
-            f" border-radius: 19px; }}"
+            f"QPushButton {{ background: {theme.ACCENT}; border: none; border-radius: 19px; }}"
             f"QPushButton:hover {{ background: {theme.ACCENT_HOV}; }}"
             f"QPushButton:disabled {{ background: {theme.TEXT3}; }}")
         self.send_btn.clicked.connect(self._send)
         bottom.addWidget(self.send_btn)
         cl.addLayout(bottom)
-
         wl.addWidget(card)
         rv.addWidget(wrap)
         return right
 
-    # ── 会话管理 ──────────────────────────────────────────────────────
+    # ── Bots ──────────────────────────────────────────────────────────
+    def _cur_bot(self):
+        for b in self.bots:
+            if b["id"] == self.cur_bot_id:
+                return b
+        return self.bots[0]
+
+    def _refresh_bots(self):
+        while self.bot_col.count():
+            it = self.bot_col.takeAt(0)
+            w = it.widget()
+            if w:
+                w.setParent(None)
+                w.deleteLater()
+        for b in self.bots:
+            btn = QPushButton()
+            btn.setIcon(QIcon(_letter_avatar(b["name"], 38)))
+            btn.setIconSize(QSize(38, 38))
+            btn.setFixedSize(48, 48)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setToolTip(b["name"])
+            active = b["id"] == self.cur_bot_id
+            btn.setStyleSheet(
+                f"QPushButton {{ background: {'#ffffff' if active else 'transparent'};"
+                f" border: 2px solid {theme.INDIGO if active else 'transparent'};"
+                f" border-radius: 14px; }}"
+                f"QPushButton:hover {{ background: {theme.HOVER}; }}")
+            btn.clicked.connect(lambda _=False, bid=b["id"]: self._select_bot(bid))
+            btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            btn.customContextMenuRequested.connect(
+                lambda pos, bid=b["id"], w=btn: self._bot_menu(bid, w, pos))
+            self.bot_col.addWidget(btn, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.bot_col.addStretch(1)
+
+    def _select_bot(self, bot_id: str):
+        if bot_id == self.cur_bot_id:
+            return
+        self._gen += 1
+        self._set_streaming(False)
+        self.cur_bot_id = bot_id
+        self.store["current_bot"] = bot_id
+        self._filter = ""
+        if hasattr(self, "search"):
+            self.search.blockSignals(True)
+            self.search.clear()
+            self.search.blockSignals(False)
+        bot = self._cur_bot()
+        self.cur_id = bot["sessions"][0]["id"] if bot["sessions"] else None
+        self._refresh_bots()
+        self._refresh_session_list()
+        self._load_current()
+
+    def _create_bot(self):
+        dlg = _BotDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        name, system = dlg.values()
+        if not name:
+            name = "新 Bot"
+        bot = _make_bot(name, system)
+        self.bots.append(bot)
+        self.cur_bot_id = bot["id"]
+        self.store["current_bot"] = bot["id"]
+        self.cur_id = None
+        _save_store(self.store)
+        self._refresh_bots()
+        self._refresh_session_list()
+        self._load_current()
+
+    def _bot_menu(self, bot_id: str, anchor: QWidget, pos):
+        menu = QMenu(self)
+        act_edit = menu.addAction(icons.qicon("edit"), "编辑 Bot")
+        act_del = menu.addAction(icons.qicon("delete"), "删除 Bot")
+        if len(self.bots) <= 1:
+            act_del.setEnabled(False)
+        chosen = menu.exec(anchor.mapToGlobal(pos))
+        if chosen == act_edit:
+            self._edit_bot(bot_id)
+        elif chosen == act_del:
+            self._delete_bot(bot_id)
+
+    def _edit_bot(self, bot_id: str):
+        bot = next((b for b in self.bots if b["id"] == bot_id), None)
+        if not bot:
+            return
+        dlg = _BotDialog(self, bot["name"], bot["system"])
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        name, system = dlg.values()
+        bot["name"] = name or bot["name"]
+        bot["system"] = system
+        _save_store(self.store)
+        self._refresh_bots()
+        if bot_id == self.cur_bot_id:
+            self.bot_title.setText(bot["name"])
+            self._load_current()   # 助手头像/名称随之刷新
+
+    def _delete_bot(self, bot_id: str):
+        if len(self.bots) <= 1:
+            return
+        self.bots = [b for b in self.bots if b["id"] != bot_id]
+        self.store["bots"] = self.bots
+        if self.cur_bot_id == bot_id:
+            self._gen += 1
+            self._set_streaming(False)
+            self.cur_bot_id = self.bots[0]["id"]
+            self.store["current_bot"] = self.cur_bot_id
+            bot = self._cur_bot()
+            self.cur_id = bot["sessions"][0]["id"] if bot["sessions"] else None
+        _save_store(self.store)
+        self._refresh_bots()
+        self._refresh_session_list()
+        self._load_current()
+
+    # ── 会话管理（作用于当前 bot）────────────────────────────────────
+    def _sessions(self):
+        return self._cur_bot()["sessions"]
+
     def _cur(self):
-        for s in self.sessions:
+        for s in self._sessions():
             if s["id"] == self.cur_id:
                 return s
         return None
@@ -434,12 +650,11 @@ class AIChatWindow(OpenHamWindowBase):
         if cur is not None and not cur["messages"]:
             self.input.setFocus()
             return
-        s = {"id": uuid.uuid4().hex, "title": "新对话",
-             "created": time.time(), "messages": []}
-        self.sessions.insert(0, s)
+        s = _norm_session({"title": "新对话", "created": time.time(), "messages": []})
+        self._sessions().insert(0, s)
         self.cur_id = s["id"]
         if persist:
-            _save_sessions(self.sessions)
+            _save_store(self.store)
         self._refresh_session_list()
         self._load_current()
         self.input.setFocus()
@@ -449,16 +664,15 @@ class AIChatWindow(OpenHamWindowBase):
         self._refresh_session_list()
 
     def _refresh_session_list(self):
+        self.bot_title.setText(self._cur_bot()["name"])
         self.session_list.clear()
         groups = {g: [] for g in _GROUP_ORDER}
-        for s in self.sessions:
+        for s in self._sessions():
             if self._filter and self._filter not in (s.get("title") or "").lower():
                 continue
             groups[_time_group(s.get("created", 0))].append(s)
-
         for g in _GROUP_ORDER:
-            items = groups[g]
-            if not items:
+            if not groups[g]:
                 continue
             header = QListWidgetItem(g)
             header.setFlags(Qt.ItemFlag.NoItemFlags)
@@ -467,7 +681,7 @@ class AIChatWindow(OpenHamWindowBase):
             header.setFont(f)
             header.setForeground(QColor(theme.TEXT3))
             self.session_list.addItem(header)
-            for s in items:
+            for s in groups[g]:
                 it = QListWidgetItem(icons.qicon("chat"), s["title"] or "新对话")
                 it.setData(Qt.ItemDataRole.UserRole, s["id"])
                 self.session_list.addItem(it)
@@ -494,15 +708,13 @@ class AIChatWindow(OpenHamWindowBase):
             self._delete_session(sid)
 
     def _delete_session(self, sid: str):
-        self.sessions = [s for s in self.sessions if s["id"] != sid]
+        bot = self._cur_bot()
+        bot["sessions"] = [s for s in bot["sessions"] if s["id"] != sid]
         if self.cur_id == sid:
             self._gen += 1
             self._set_streaming(False)
-            self.cur_id = self.sessions[0]["id"] if self.sessions else None
-        _save_sessions(self.sessions)
-        if not self.sessions:
-            self._new_session(persist=True)
-            return
+            self.cur_id = bot["sessions"][0]["id"] if bot["sessions"] else None
+        _save_store(self.store)
         self._refresh_session_list()
         self._load_current()
 
@@ -515,7 +727,9 @@ class AIChatWindow(OpenHamWindowBase):
         self._msgs = []
 
     def _add_message(self, role: str, text: str) -> _MessageRow:
-        msg = _MessageRow(role)
+        bot = self._cur_bot()
+        msg = _MessageRow(role, bot_name=bot["name"],
+                          bot_avatar=_letter_avatar(bot["name"], 22))
         self.msg_layout.insertWidget(self.msg_layout.count() - 1, msg)
         self._rows.append(msg)
         self._msgs.append(msg)
@@ -530,35 +744,32 @@ class AIChatWindow(OpenHamWindowBase):
     def _load_current(self):
         self._clear_messages()
         cur = self._cur()
-        if cur is None:
-            return
-        if not cur["messages"]:
+        if cur is None or not cur["messages"]:
             self._show_empty_hint()
-        for m in cur["messages"]:
-            self._add_message(m["role"], m["content"])
+        if cur is not None:
+            for m in cur["messages"]:
+                self._add_message(m["role"], m["content"])
         self._scroll_to_bottom()
 
     def _show_empty_hint(self):
+        bot = self._cur_bot()
         box = QWidget()
         box.setStyleSheet("background: transparent;")
         bl = QVBoxLayout(box)
         bl.setContentsMargins(0, 60, 0, 0)
         bl.setSpacing(12)
         logo = QLabel()
-        pm = _brand_pixmap(54)
-        if pm is not None:
-            logo.setPixmap(pm)
+        logo.setPixmap(_letter_avatar(bot["name"], 56))
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         bl.addWidget(logo)
-        hint = QLabel("有什么可以帮你的？")
+        hint = QLabel(f"我是「{bot['name']}」，有什么可以帮你的？")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint.setStyleSheet(f"color: {theme.TEXT2}; font-size: 16px;"
                            " font-weight: 600; background: transparent;")
         bl.addWidget(hint)
         sub = QLabel("在下方输入开始对话")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sub.setStyleSheet(f"color: {theme.TEXT3}; font-size: 13px;"
-                          " background: transparent;")
+        sub.setStyleSheet(f"color: {theme.TEXT3}; font-size: 13px; background: transparent;")
         bl.addWidget(sub)
         self.msg_layout.insertWidget(self.msg_layout.count() - 1, box)
         self._rows.append(box)
@@ -572,7 +783,10 @@ class AIChatWindow(OpenHamWindowBase):
             return
         cur = self._cur()
         if cur is None:
-            self._new_session()
+            s = _norm_session({"title": "新对话", "created": time.time(), "messages": []})
+            self._sessions().insert(0, s)
+            self.cur_id = s["id"]
+            self._refresh_session_list()
             cur = self._cur()
         if not cur["messages"]:
             self._clear_messages()
@@ -584,10 +798,14 @@ class AIChatWindow(OpenHamWindowBase):
         self._assistant_row = self._add_message("assistant", "▍")
         self._scroll_to_bottom()
         self._maybe_title(cur, text)
-        _save_sessions(self.sessions)
+        _save_store(self.store)
 
-        history = [{"role": m["role"], "content": m["content"]}
-                   for m in cur["messages"]]
+        history = []
+        sys_prompt = (self._cur_bot().get("system") or "").strip()
+        if sys_prompt:
+            history.append({"role": "system", "content": sys_prompt})
+        history += [{"role": m["role"], "content": m["content"]}
+                    for m in cur["messages"]]
         self._gen += 1
         gen = self._gen
         self._set_streaming(True)
@@ -620,9 +838,8 @@ class AIChatWindow(OpenHamWindowBase):
             self._assistant_row.set_text(self._assistant_text)
         cur = self._cur()
         if cur is not None:
-            cur["messages"].append(
-                {"role": "assistant", "content": self._assistant_text})
-            _save_sessions(self.sessions)
+            cur["messages"].append({"role": "assistant", "content": self._assistant_text})
+            _save_store(self.store)
         self._set_streaming(False)
         self._scroll_to_bottom()
 
@@ -634,9 +851,8 @@ class AIChatWindow(OpenHamWindowBase):
             self._assistant_row.set_text(self._assistant_text)
         cur = self._cur()
         if cur is not None:
-            cur["messages"].append(
-                {"role": "assistant", "content": self._assistant_text})
-            _save_sessions(self.sessions)
+            cur["messages"].append({"role": "assistant", "content": self._assistant_text})
+            _save_store(self.store)
         self._set_streaming(False)
 
     def _maybe_title(self, session: dict, first_user_text: str):
@@ -654,10 +870,8 @@ class AIChatWindow(OpenHamWindowBase):
 
     # ── 杂项 ──────────────────────────────────────────────────────────
     def _scroll_to_bottom(self):
-        def go():
-            bar = self.scroll.verticalScrollBar()
-            bar.setValue(bar.maximum())
-        QTimer.singleShot(0, go)
+        QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
+            self.scroll.verticalScrollBar().maximum()))
 
     def eventFilter(self, obj, event):
         from PyQt6.QtCore import QEvent
@@ -675,9 +889,43 @@ class AIChatWindow(OpenHamWindowBase):
         for m in self._msgs:
             m.set_width(w)
 
+    # ── 外部入口 ──────────────────────────────────────────────────────
     def open(self):
         """供插件调用：居中显示并聚焦输入框。"""
-        self.show_window_centered()
+        if not self.isVisible():
+            self.show_window_centered()
         self.raise_()
         self.activateWindow()
         self.input.setFocus()
+
+    def send_text(self, text: str):
+        """供 `--` 快捷命令调用：在当前 bot 下开一个新会话并自动发送 text。"""
+        text = (text or "").strip()
+        self.open()
+        if not text:
+            return
+        self._new_session()        # 复用空会话或新建
+        self.input.setPlainText(text)
+        QTimer.singleShot(0, self._send)
+
+
+_brand_cache = {}
+
+
+def _brand_pixmap(px: int):
+    if px in _brand_cache:
+        return _brand_cache[px]
+    pm = None
+    try:
+        logo = os.path.join(_base_dir(), "logo.png")
+        if os.path.exists(logo):
+            src = QPixmap(logo)
+            if not src.isNull():
+                pm = src.scaled(px, px, Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation)
+    except Exception:
+        pm = None
+    if pm is None:
+        pm = icons.qicon("ai").pixmap(QSize(px, px))
+    _brand_cache[px] = pm
+    return pm

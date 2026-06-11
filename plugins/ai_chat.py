@@ -1,11 +1,10 @@
-"""AI 对话插件：常规聊天软件式界面（参考 Monica）。
+"""AI 对话插件：Monica 风格的多 Bot 聊天窗口。
 
-- 支持保存历史会话、切换会话、新建会话；
-- 助手回复用 Markdown 渲染、流式输出、携带上下文；
-- 模型沿用全局 AI 配置（core.ai_client）。
+入口：主程序输入框里以 `--` 开头即唤起（无其它触发词）。
+- `--`            → 仅打开窗口
+- `--什么是土豆粉` → 打开窗口并自动发送「什么是土豆粉」
 
-触发后弹出独立窗口（ui/ai_chat_window.AIChatWindow），插件本体只负责
-单例创建与唤起。窗口在 setup 阶段（GUI 线程）预创建，避免首次触发卡顿。
+窗口本体见 ui/ai_chat_window.AIChatWindow；插件只负责单例创建与唤起/转发。
 """
 from core.plugin_manager import openham_plugin
 
@@ -23,19 +22,34 @@ def setup_ai_chat(api):
         _window = None
 
 
+def _ensure_window():
+    global _window
+    if _window is None:
+        from ui.ai_chat_window import AIChatWindow
+        _window = AIChatWindow()
+    return _window
+
+
+def match_dashdash(text: str) -> bool:
+    """以 `--` 开头即触发（作为 AI 对话的快捷命令前缀）。"""
+    return text.strip().startswith("--")
+
+
 @openham_plugin(
-    trigger=["对话", "ai对话", "chat", "聊天", "ai"],
-    desc="🧠 AI 对话（多轮 / 保存历史 / Markdown）",
+    match=match_dashdash,
+    desc="🧠 AI 对话（-- 前缀唤起 / 多 Bot / 多轮 / Markdown）",
     setup=setup_ai_chat,
 )
 def execute_ai_chat(text: str):
-    global _window
-    if _window is None:
-        # setup 未成功时兜底再建一次
-        try:
-            from ui.ai_chat_window import AIChatWindow
-            _window = AIChatWindow()
-        except Exception as e:
-            return {"type": "error", "content": f"❌ 无法打开 AI 对话：{e}"}
-    _window.open()
+    try:
+        win = _ensure_window()
+    except Exception as e:
+        return {"type": "error", "content": f"❌ 无法打开 AI 对话：{e}"}
+
+    query = text.strip()[2:].strip()   # 去掉前导 --
+    if query:
+        win.send_text(query)
+        preview = query if len(query) <= 16 else query[:16] + "…"
+        return {"type": "result", "content": f"✅ 已发送：{preview}"}
+    win.open()
     return {"type": "result", "content": "✅ 已打开 AI 对话"}

@@ -130,12 +130,6 @@
   },
   "plugins.ai_chat.execute_ai_chat": {
     "enabled": true,
-    "triggers": [
-      "对话",
-      "ai对话",
-      "chat",
-      "聊天",
-      "ai"
-    ]
+    "triggers": []
   }
 }
