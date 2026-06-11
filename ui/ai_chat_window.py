@@ -14,11 +14,13 @@ import re
 import time
 import uuid
 import json
+import random
 import datetime
 import tempfile
 import threading
 
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer, QSize, QPointF, QPoint
+from PyQt6.QtCore import (Qt, QObject, pyqtSignal, QTimer, QSize, QPointF,
+                          QPoint, QRectF)
 from PyQt6.QtGui import (QColor, QPixmap, QPainter, QFont, QIcon, QBrush, QPen,
                          QPolygonF, QTextCursor, QTextBlockFormat, QTextTable,
                          QTextTableFormat, QTextFrameFormat, QTextLength)
@@ -37,6 +39,7 @@ from core.ai_client import call_chat_stream, _CHAT_SYS
 # ── Bot 能力：交互控件（choices 快捷回复 / ask 澄清提问）──────────────
 CAP_CHOICES = "choices"
 CAP_ASK = "ask"
+CAP_DICE = "dice"
 
 _CHOICES_RULE = (
     "【快捷回复能力·重要】每次回答的最后，都要再追加一个「快捷追问选项」块，"
@@ -54,14 +57,31 @@ _ASK_RULE = (
     "若该问题允许多选，在标签后加 multi：第一行写 ```openham:ask multi。\n"
     "选项 2–5 个、简短；一次只问最关键的一个问题；意图已经清楚时不要提问，直接作答。"
 )
+_DICE_RULE = (
+    "【掷骰子能力】当用户想随机决定、抽签、掷骰子或要一个公平随机数时，"
+    "你先在心里随机决定一个 1–6 的点数，然后输出一个 openham:dice 块"
+    "（界面会在中央播放掷骰动画并揭晓点数）。语法：\n"
+    "```openham:dice\n4\n```\n"
+    "把 4 换成你决定的点数。该块前后照常说话（例如「好，我帮你扔一个」、扔完再点评结果），"
+    "把 dice 块放在「揭晓结果之前」的位置。"
+)
 
-# 统一匹配 choices / ask 两类围栏块（保留出现顺序），以及流式未闭合的尾块
+# 统一匹配 choices / ask / dice 围栏块（保留出现顺序），以及流式未闭合的尾块
 _BLOCK_RE = re.compile(
-    r"```[ \t]*openham:(choices|ask)([^\n]*)\r?\n(.*?)```",
+    r"```[ \t]*openham:(choices|ask|dice)([^\n]*)\r?\n(.*?)```",
     re.DOTALL | re.IGNORECASE)
 _BLOCK_TRAILING_RE = re.compile(
-    r"```[ \t]*openham:(?:choices|ask)[^\n]*\r?\n.*$",
+    r"```[ \t]*openham:(?:choices|ask|dice)[^\n]*\r?\n.*$",
     re.DOTALL | re.IGNORECASE)
+# 单独匹配「已闭合的 dice 块」，用于流式中检测掷骰时机
+_DICE_RE = re.compile(
+    r"```[ \t]*openham:dice[^\n]*\r?\n(.*?)```", re.DOTALL | re.IGNORECASE)
+
+
+def _dice_result(body: str) -> int:
+    m = re.search(r"\d+", body or "")
+    n = int(m.group()) if m else 1
+    return max(1, min(6, n))
 
 
 def _parse_ask_body(body: str):
@@ -95,6 +115,9 @@ def _parse_blocks(text: str):
             if items:
                 blocks.append({"type": "choices", "items": items})
         else:
+            if kind == "dice":
+                blocks.append({"type": "dice", "result": _dice_result(body)})
+                continue
             q, opts = _parse_ask_body(body)
             if opts:
                 blocks.append({"type": "ask", "multi": ("multi" in mods),
@@ -277,6 +300,98 @@ def _checkbox_style() -> str:
             f"QCheckBox::indicator:checked {{ image: url({_check_png(True)}); }}")
 
 
+# 骰子点数在 3×3 网格里的位置（列,行）∈ {0,1,2}
+_DIE_PIPS = {
+    1: [(1, 1)],
+    2: [(0, 0), (2, 2)],
+    3: [(0, 0), (1, 1), (2, 2)],
+    4: [(0, 0), (2, 0), (0, 2), (2, 2)],
+    5: [(0, 0), (2, 0), (1, 1), (0, 2), (2, 2)],
+    6: [(0, 0), (2, 0), (0, 1), (2, 1), (0, 2), (2, 2)],
+}
+
+
+def _draw_die(p: QPainter, x, y, s, value, pip="#1d1d1f", face="#ffffff"):
+    """在 (x,y) 处画一个边长 s 的骰子（含点数 value 的点）。"""
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setBrush(QColor(face))
+    p.setPen(QPen(QColor(0, 0, 0, 38), max(1.0, s * 0.02)))
+    p.drawRoundedRect(QRectF(x, y, s, s), s * 0.18, s * 0.18)
+    p.setBrush(QColor(pip))
+    p.setPen(Qt.PenStyle.NoPen)
+    pr = s * 0.13
+    cols = [x + s * 0.28, x + s * 0.5, x + s * 0.72]
+    rows = [y + s * 0.28, y + s * 0.5, y + s * 0.72]
+    for (c, r) in _DIE_PIPS.get(int(value), _DIE_PIPS[1]):
+        p.drawEllipse(QPointF(cols[c], rows[r]), pr, pr)
+
+
+def _die_pixmap(value: int, px: int = 38) -> QPixmap:
+    s = int(px * _SS)
+    pm = QPixmap(s, s)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    _draw_die(p, 1, 1, s - 2, value)
+    p.end()
+    pm.setDevicePixelRatio(_SS)
+    return pm
+
+
+class _DiceOverlay(QWidget):
+    """界面中央的掷骰动画浮层：滚动若干帧后落定到结果，再淡出。"""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setStyleSheet("background: transparent;")
+        self._face = 1
+        self._result = 1
+        self._ticks = 0
+        self._on_finish = None
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self.hide()
+
+    def roll(self, result: int, on_finish=None):
+        self._result = max(1, min(6, int(result)))
+        self._on_finish = on_finish
+        self._ticks = 0
+        self._face = random.randint(1, 6)
+        self.setGeometry(self.parent().rect())
+        self.show()
+        self.raise_()
+        self._timer.start(70)
+
+    def _tick(self):
+        self._ticks += 1
+        if self._ticks < 16:                       # 约 1.1s 滚动
+            f = random.randint(1, 6)
+            while f == self._face:
+                f = random.randint(1, 6)
+            self._face = f
+            self.update()
+        else:
+            self._timer.stop()
+            self._face = self._result              # 落定到结果
+            self.update()
+            QTimer.singleShot(650, self._finish)   # 停一下再揭晓
+
+    def _finish(self):
+        self.hide()
+        cb, self._on_finish = self._on_finish, None
+        if cb:
+            cb()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillRect(self.rect(), QColor(20, 22, 28, 90))   # 半透明遮罩
+        s = 110.0
+        x = (self.width() - s) / 2
+        y = (self.height() - s) / 2
+        _draw_die(p, x, y, s, self._face)
+        p.end()
+
+
 class _BotDialog(QDialog):
     """新建 / 编辑 bot：名称 + system prompt。"""
 
@@ -308,7 +423,9 @@ class _BotDialog(QDialog):
         caps = capabilities or []
         self.cap_choices = QCheckBox("快捷回复按钮（AI 给出可点击的追问选项）")
         self.cap_ask = QCheckBox("澄清提问（AI 主动用单选/多选问清你的需求）")
-        for cb, key in ((self.cap_choices, CAP_CHOICES), (self.cap_ask, CAP_ASK)):
+        self.cap_dice = QCheckBox("掷骰子（随机/抽签时播放掷骰动画并揭晓点数）")
+        for cb, key in ((self.cap_choices, CAP_CHOICES), (self.cap_ask, CAP_ASK),
+                        (self.cap_dice, CAP_DICE)):
             cb.setChecked(key in caps)
             cb.setCursor(Qt.CursorShape.PointingHandCursor)
             cb.setStyleSheet(_checkbox_style())
@@ -333,6 +450,8 @@ class _BotDialog(QDialog):
             caps.append(CAP_CHOICES)
         if self.cap_ask.isChecked():
             caps.append(CAP_ASK)
+        if self.cap_dice.isChecked():
+            caps.append(CAP_DICE)
         return (self.name_in.text().strip(),
                 self.sys_in.toPlainText().strip(), caps)
 
@@ -526,9 +645,28 @@ class _MessageRow(QWidget):
         for b in blocks:
             if b["type"] == "choices":
                 self.blocks_layout.addWidget(self._make_choices_widget(b["items"]))
+            elif b["type"] == "dice":
+                self.blocks_layout.addWidget(self._make_dice_widget(b["result"]))
             else:
                 self.blocks_layout.addWidget(self._make_ask_widget(b))
         self.blocks_host.setVisible(True)
+
+    def _make_dice_widget(self, result) -> QWidget:
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(8)
+        die = QLabel()
+        die.setPixmap(_die_pixmap(int(result), 34))
+        die.setFixedSize(34, 34)
+        h.addWidget(die)
+        lbl = QLabel(f"掷出 {int(result)} 点")
+        lbl.setStyleSheet(f"color: {theme.TEXT}; font-size: 14px; font-weight: 600;"
+                          " background: transparent;")
+        h.addWidget(lbl)
+        h.addStretch(1)
+        return w
 
     def _make_choices_widget(self, items) -> QWidget:
         w = QWidget()
@@ -708,7 +846,11 @@ class AIChatWindow(OpenHamWindowBase):
         self._sig.done.connect(self._on_done)
         self._sig.error.connect(self._on_error)
 
+        self._dice_rolled = False         # 本轮是否已触发掷骰动画
+        self._dice_reveal = True          # 是否已揭晓（未掷骰时默认 True）
+
         self._build_ui()
+        self._dice_overlay = _DiceOverlay(self._chat_area)
         self._add_sidebar_toggle()
         self.title_bar.installEventFilter(self)   # 双击标题栏最大化/还原
         # 基类底部 grip 行会在三栏下方留一道白条、还挤裁掉左栏「新建Bot」按钮；
@@ -865,6 +1007,7 @@ class AIChatWindow(OpenHamWindowBase):
 
     def _build_chat(self) -> QWidget:
         right = QWidget()
+        self._chat_area = right
         right.setObjectName("chatArea")
         right.setStyleSheet(
             f"#chatArea {{ background: {theme.BG};"
@@ -1258,6 +1401,8 @@ class AIChatWindow(OpenHamWindowBase):
         if cur is None:
             return
         self._autoscroll = True            # 新一轮生成：恢复自动滚到底
+        self._dice_rolled = False          # 本轮掷骰状态复位
+        self._dice_reveal = True
         self._assistant_text = ""
         self._assistant_row = self._add_message("assistant", "▍")
         self._scroll_to_bottom()
@@ -1269,6 +1414,8 @@ class AIChatWindow(OpenHamWindowBase):
         extras = []
         if CAP_ASK in caps:
             extras.append(_ASK_RULE)
+        if CAP_DICE in caps:
+            extras.append(_DICE_RULE)
         if CAP_CHOICES in caps:
             extras.append(_CHOICES_RULE)
         if extras:                                       # 绑定能力则并入规则
@@ -1358,26 +1505,52 @@ class AIChatWindow(OpenHamWindowBase):
         self._load_current()
         self._run_completion()
 
+    def _apply_stream_text(self, final: bool):
+        """渲染当前助手文本；遇到掷骰则先播动画、暂不揭晓骰子之后的内容。"""
+        if self._assistant_row is None:
+            return
+        text = self._assistant_text
+        mt = _DICE_RE.search(text)
+        if mt and not self._dice_reveal:
+            if not self._dice_rolled:                     # 首次遇到完整 dice 块 → 触发动画
+                self._dice_rolled = True
+                self._dice_overlay.roll(_dice_result(mt.group(1)),
+                                        on_finish=self._on_dice_revealed)
+            visible = text[:mt.start()].rstrip()          # 只显示骰子之前的内容
+            self._assistant_row.set_text(visible + ("" if final else " ▍"), final=False)
+            return
+        self._assistant_row.set_text(text + ("" if final else " ▍"), final=final)
+
+    def _on_dice_revealed(self):
+        """掷骰动画结束：揭晓骰子结果及其之后的内容。"""
+        self._dice_reveal = True
+        if self._assistant_row is not None:
+            self._assistant_row.set_text(self._assistant_text, final=not self._streaming)
+        if self._autoscroll:
+            self._scroll_to_bottom()
+
     def _on_chunk(self, gen: int, piece: str):
         if gen != self._gen or self._assistant_row is None:
             return
         self._assistant_text += piece
-        self._assistant_row.set_text(self._assistant_text + " ▍")
-        if self._autoscroll:               # 用户在生成期间手动上滚则不再自动滚
+        # 出现完整 dice 块时进入「先动画后揭晓」模式
+        if not self._dice_rolled and _DICE_RE.search(self._assistant_text):
+            self._dice_reveal = False
+        self._apply_stream_text(False)
+        if self._autoscroll and self._dice_reveal:
             self._scroll_to_bottom()
 
     def _on_done(self, gen: int):
         if gen != self._gen:
             return
-        if self._assistant_row is not None:
-            self._assistant_row.set_text(self._assistant_text, final=True)
+        self._apply_stream_text(True)
         cur = self._cur()
         if cur is not None:
             cur["messages"].append({"role": "assistant", "content": self._assistant_text})
             _save_store(self.store)
         self._set_streaming(False)
         self._update_action_visibility()
-        if self._autoscroll:
+        if self._autoscroll and self._dice_reveal:
             self._scroll_to_bottom()
 
     def _on_error(self, gen: int, msg: str):
@@ -1485,6 +1658,9 @@ class AIChatWindow(OpenHamWindowBase):
             g.move(self.card.width() - g.width() - 4,
                    self.card.height() - g.height() - 4)
             g.raise_()
+        ov = getattr(self, "_dice_overlay", None)
+        if ov is not None and ov.isVisible():
+            ov.setGeometry(self._chat_area.rect())
 
     # ── 外部入口 ──────────────────────────────────────────────────────
     def open(self):
