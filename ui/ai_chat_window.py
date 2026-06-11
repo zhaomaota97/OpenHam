@@ -203,7 +203,10 @@ class _MessageRow(QWidget):
         self.role = role
         self._raw = ""
         self.host = host
-        self.setStyleSheet("background: transparent;")
+        self._pinned = False
+        # 限定到自身，避免 bare 样式级联到子 QMenu（导致复制下拉菜单背景变黑）
+        self.setObjectName("msgRow")
+        self.setStyleSheet("#msgRow { background: transparent; }")
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -271,11 +274,13 @@ class _MessageRow(QWidget):
             self.bubble = None
             outer.addLayout(col, 1)
 
-        self.actions.setVisible(False)   # hover 才显示
+        self._set_buttons(False)   # 默认隐藏按钮（占位条仍在），hover/置顶时显示
 
     def _build_actions(self) -> QWidget:
         bar = QWidget()
-        bar.setStyleSheet("background: transparent;")
+        bar.setObjectName("msgActions")
+        bar.setStyleSheet("#msgActions { background: transparent; }")
+        bar.setFixedHeight(28)            # 始终占位，避免 hover 出现按钮时抖动
         h = QHBoxLayout(bar)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(2)
@@ -324,12 +329,25 @@ class _MessageRow(QWidget):
         elif chosen == a2:
             self.host._copy_plain(self)
 
+    def _set_buttons(self, vis: bool):
+        self.copy_btn.setVisible(vis)
+        if self.role == "assistant":
+            self.regen_btn.setVisible(vis)
+        else:
+            self.edit_btn.setVisible(vis)
+
+    def set_actions_pinned(self, pinned: bool):
+        """最新一条 AI 回答固定显示按钮；其余仅 hover 显示。"""
+        self._pinned = bool(pinned)
+        self._set_buttons(self._pinned)
+
     def enterEvent(self, event):
-        self.actions.setVisible(True)
+        self._set_buttons(True)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self.actions.setVisible(False)
+        if not self._pinned:
+            self._set_buttons(False)
         super().leaveEvent(event)
 
     def set_text(self, text: str):
@@ -408,7 +426,8 @@ class AIChatWindow(OpenHamWindowBase):
 
     def __init__(self):
         super().__init__(title="聊天", min_w=940, min_h=600)
-        self.resize(1080, 700)
+        self.resize(1100, 880)            # 默认窗口更高一些
+        self._autoscroll = True           # 流式生成时是否自动滚到底
 
         self.store = _load_store()
         self.bots = self.store["bots"]
@@ -613,11 +632,12 @@ class AIChatWindow(OpenHamWindowBase):
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setStyleSheet("background: transparent;")
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.verticalScrollBar().valueChanged.connect(self._on_scroll)
         self.msg_host = QWidget()
         self.msg_host.setStyleSheet("background: transparent;")
         self.msg_layout = QVBoxLayout(self.msg_host)
-        self.msg_layout.setContentsMargins(28, 22, 28, 22)
-        self.msg_layout.setSpacing(20)
+        self.msg_layout.setContentsMargins(28, 18, 28, 14)
+        self.msg_layout.setSpacing(10)
         self.msg_layout.addStretch(1)
         self.scroll.setWidget(self.msg_host)
         rv.addWidget(self.scroll, 1)
@@ -662,7 +682,7 @@ class AIChatWindow(OpenHamWindowBase):
             f"QPushButton {{ background: {theme.ACCENT}; border: none; border-radius: 19px; }}"
             f"QPushButton:hover {{ background: {theme.ACCENT_HOV}; }}"
             f"QPushButton:disabled {{ background: {theme.TEXT3}; }}")
-        self.send_btn.clicked.connect(self._send)
+        self.send_btn.clicked.connect(self._on_send_btn)
         bottom.addWidget(self.send_btn)
         cl.addLayout(bottom)
         wl.addWidget(card)
@@ -916,6 +936,7 @@ class AIChatWindow(OpenHamWindowBase):
         if cur is not None:
             for m in cur["messages"]:
                 self._add_message(m["role"], m["content"])
+        self._update_action_visibility()
         self._scroll_to_bottom()
 
     def _show_empty_hint(self):
@@ -942,12 +963,18 @@ class AIChatWindow(OpenHamWindowBase):
         self._rows.append(box)
 
     # ── 发送 / 流式 ───────────────────────────────────────────────────
-    def _send(self):
+    def _on_send_btn(self):
         if self._streaming:
-            return
+            self._stop()         # 生成中点击=停止
+        else:
+            self._send()
+
+    def _send(self):
         text = self.input.toPlainText().strip()
         if not text:
             return
+        if self._streaming:
+            self._stop()         # 发送新消息=中止当前生成
         cur = self._cur()
         if cur is None:
             s = _norm_session({"title": "新对话", "created": time.time(), "messages": []})
@@ -970,6 +997,7 @@ class AIChatWindow(OpenHamWindowBase):
         cur = self._cur()
         if cur is None:
             return
+        self._autoscroll = True            # 新一轮生成：恢复自动滚到底
         self._assistant_text = ""
         self._assistant_row = self._add_message("assistant", "▍")
         self._scroll_to_bottom()
@@ -1066,7 +1094,8 @@ class AIChatWindow(OpenHamWindowBase):
             return
         self._assistant_text += piece
         self._assistant_row.set_text(self._assistant_text + " ▍")
-        self._scroll_to_bottom()
+        if self._autoscroll:               # 用户在生成期间手动上滚则不再自动滚
+            self._scroll_to_bottom()
 
     def _on_done(self, gen: int):
         if gen != self._gen:
@@ -1078,7 +1107,9 @@ class AIChatWindow(OpenHamWindowBase):
             cur["messages"].append({"role": "assistant", "content": self._assistant_text})
             _save_store(self.store)
         self._set_streaming(False)
-        self._scroll_to_bottom()
+        self._update_action_visibility()
+        if self._autoscroll:
+            self._scroll_to_bottom()
 
     def _on_error(self, gen: int, msg: str):
         if gen != self._gen:
@@ -1091,6 +1122,29 @@ class AIChatWindow(OpenHamWindowBase):
             cur["messages"].append({"role": "assistant", "content": self._assistant_text})
             _save_store(self.store)
         self._set_streaming(False)
+        self._update_action_visibility()
+
+    def _stop(self):
+        """中止当前流式生成：保留已生成的部分并落库。"""
+        if not self._streaming:
+            return
+        self._gen += 1                     # 让在跑的流被丢弃
+        cur = self._cur()
+        if cur is not None and self._assistant_text.strip():
+            cur["messages"].append({"role": "assistant", "content": self._assistant_text})
+            _save_store(self.store)
+        self._set_streaming(False)
+        self._load_current()               # 重建：去掉光标/空助手行，固定最新回答按钮
+        self._update_action_visibility()
+
+    def _update_action_visibility(self):
+        """仅最新一条 AI 回答固定显示操作按钮，其余 hover 才显示。"""
+        last_assist = None
+        for r in self._msgs:
+            if r.role == "assistant":
+                last_assist = r
+        for r in self._msgs:
+            r.set_actions_pinned(r is last_assist)
 
     def _maybe_title(self, session: dict, first_user_text: str):
         if session["title"] and session["title"] != "新对话":
@@ -1101,9 +1155,21 @@ class AIChatWindow(OpenHamWindowBase):
 
     def _set_streaming(self, on: bool):
         self._streaming = on
-        self.send_btn.setEnabled(not on)
-        if not on:
+        # 生成中按钮变「停止」（可点击中止）；否则恢复「发送」
+        if on:
+            self.send_btn.setIcon(icons.qicon("stop", color="#ffffff"))
+            self.send_btn.setToolTip("停止生成")
+        else:
+            self.send_btn.setIcon(icons.qicon("send", color="#ffffff"))
+            self.send_btn.setToolTip("发送")
             self._assistant_row = None
+
+    def _on_scroll(self, value):
+        """生成期间用户上滚则关闭自动滚；滚回底部则恢复。"""
+        if not self._streaming:
+            return
+        bar = self.scroll.verticalScrollBar()
+        self._autoscroll = value >= bar.maximum() - 4
 
     # ── 杂项 ──────────────────────────────────────────────────────────
     def _scroll_to_bottom(self):
