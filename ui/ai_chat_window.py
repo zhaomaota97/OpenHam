@@ -17,8 +17,9 @@ import datetime
 import threading
 
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import (QColor, QPixmap, QPainter, QFont, QIcon,
-                         QTextCursor, QTextBlockFormat)
+from PyQt6.QtGui import (QColor, QPixmap, QPainter, QFont, QIcon, QBrush,
+                         QTextCursor, QTextBlockFormat, QTextTable,
+                         QTextTableFormat, QTextFrameFormat, QTextLength)
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
     QListWidget, QListWidgetItem, QScrollArea, QPlainTextEdit, QMenu,
@@ -265,6 +266,7 @@ class _MessageRow(QWidget):
         else:
             self.browser.setMarkdown(text)
             self._improve_typography()
+            self._style_tables()
             self._fit_height()
 
     def _improve_typography(self):
@@ -277,6 +279,36 @@ class _MessageRow(QWidget):
         bf.setTopMargin(2)
         bf.setBottomMargin(9)
         cur.mergeBlockFormat(bf)
+
+    def _style_tables(self):
+        """给 Markdown 表格补上边框/内边距/表头底色（Qt 默认渲染太朴素）。"""
+        doc = self.browser.document()
+        tables = []
+        stack = list(doc.rootFrame().childFrames())
+        while stack:
+            f = stack.pop()
+            if isinstance(f, QTextTable):
+                tables.append(f)
+            stack.extend(f.childFrames())
+        for tbl in tables:
+            fmt = QTextTableFormat()
+            fmt.setBorder(1)
+            fmt.setBorderStyle(QTextFrameFormat.BorderStyle.BorderStyle_Solid)
+            fmt.setBorderBrush(QBrush(QColor(theme.BORDER_IN)))
+            fmt.setCellPadding(7)
+            fmt.setCellSpacing(0)
+            try:
+                fmt.setBorderCollapse(True)
+            except Exception:
+                pass
+            fmt.setWidth(QTextLength(QTextLength.Type.PercentageLength, 100))
+            tbl.setFormat(fmt)
+            # 表头行底色
+            for c in range(tbl.columns()):
+                cell = tbl.cellAt(0, c)
+                cf = cell.format()
+                cf.setBackground(QBrush(QColor(theme.SUBTLE)))
+                cell.setFormat(cf)
 
     def set_width(self, content_px: int):
         if self.role == "user":
