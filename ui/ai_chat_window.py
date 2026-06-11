@@ -15,11 +15,12 @@ import time
 import uuid
 import json
 import datetime
+import tempfile
 import threading
 
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import (QColor, QPixmap, QPainter, QFont, QIcon, QBrush,
-                         QTextCursor, QTextBlockFormat, QTextTable,
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer, QSize, QPointF
+from PyQt6.QtGui import (QColor, QPixmap, QPainter, QFont, QIcon, QBrush, QPen,
+                         QPolygonF, QTextCursor, QTextBlockFormat, QTextTable,
                          QTextTableFormat, QTextFrameFormat, QTextLength)
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -184,6 +185,49 @@ def _model_label() -> str:
         return "AI"
 
 
+_check_cache = {}
+
+
+def _check_png(checked: bool) -> str:
+    """自绘勾选框：选中=靛紫底+白勾；未选=白底细边。返回 PNG 路径（供 QSS image:url）。"""
+    if checked in _check_cache:
+        return _check_cache[checked]
+    s = 40
+    pm = QPixmap(s, s)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    rad = s * 0.26
+    if checked:
+        p.setBrush(QColor(theme.INDIGO))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawRoundedRect(1, 1, s - 2, s - 2, rad, rad)
+        pen = QPen(QColor("#ffffff"))
+        pen.setWidthF(s * 0.12)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.drawPolyline(QPolygonF([QPointF(s * 0.27, s * 0.52),
+                                  QPointF(s * 0.42, s * 0.67),
+                                  QPointF(s * 0.73, s * 0.33)]))
+    else:
+        p.setBrush(QColor(theme.CARD))
+        pen = QPen(QColor(theme.BORDER_IN))
+        pen.setWidthF(s * 0.06)
+        p.setPen(pen)
+        p.drawRoundedRect(2, 2, s - 4, s - 4, rad, rad)
+    p.end()
+    try:
+        d = os.path.join(tempfile.gettempdir(), "openham_chk")
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, f"chk_{int(checked)}.png")
+        pm.save(path, "PNG")
+        _check_cache[checked] = path.replace("\\", "/")
+        return _check_cache[checked]
+    except Exception:
+        return ""
+
+
 class _BotDialog(QDialog):
     """新建 / 编辑 bot：名称 + system prompt。"""
 
@@ -215,23 +259,12 @@ class _BotDialog(QDialog):
         self.cap_choices = QCheckBox("快捷回复按钮（允许该 Bot 给出可点击的追问选项）")
         self.cap_choices.setChecked(CAP_CHOICES in (capabilities or []))
         self.cap_choices.setCursor(Qt.CursorShape.PointingHandCursor)
-        chk = ""
-        try:
-            from PyQt6.QtCore import QUrl
-            p = icons._png_path("check", "#ffffff", 13)
-            if p:
-                chk = f" image: url({QUrl.fromLocalFile(p).toString()});"
-        except Exception:
-            chk = ""
         self.cap_choices.setStyleSheet(
             f"QCheckBox {{ color: {theme.TEXT}; font-size: 14px; spacing: 8px;"
             f" background: transparent; }}"
-            f"QCheckBox::indicator {{ width: 18px; height: 18px;"
-            f" border: 1px solid {theme.BORDER_IN}; border-radius: 5px;"
-            f" background: {theme.CARD}; }}"
-            f"QCheckBox::indicator:hover {{ border-color: {theme.ACCENT}; }}"
-            f"QCheckBox::indicator:checked {{ background: {theme.ACCENT};"
-            f" border-color: {theme.ACCENT};{chk} }}")
+            f"QCheckBox::indicator {{ width: 19px; height: 19px;"
+            f" image: url({_check_png(False)}); }}"
+            f"QCheckBox::indicator:checked {{ image: url({_check_png(True)}); }}")
         lay.addWidget(self.cap_choices)
 
         btns = QDialogButtonBox(
