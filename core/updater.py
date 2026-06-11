@@ -22,6 +22,7 @@ _SKIP = ["runtime", ".env", "user_settings.json", "openham.log",
          ".git", "OpenHam.exe", "logo.ico", "OpenHam_lite", "OpenHam_send",
          "config.json", "config/plugins.json",
          "script_manager/scripts.json", "ui/script_manager/history.json",
+         "ui/script_manager/workspace", "ai_chat",
          "invented_games", "my_games"]
 
 

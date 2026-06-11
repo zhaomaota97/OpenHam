@@ -22,6 +22,7 @@ rsync -a \
   --exclude='runtime/Lib/site-packages' --exclude='runtime/.deps_ok' \
   --exclude='runtime/Scripts' --exclude='OpenHam_send' --exclude='OpenHam_lite' \
   --exclude='release.sh' --exclude='invented_games' --exclude='my_games' \
+  --exclude='ai_chat' --exclude='ui/script_manager/workspace' \
   "$SRC/" "$LITE/"
 echo "$VERSION" > "$LITE/version.txt"   # 安装包内记录版本，供日后比对
 
