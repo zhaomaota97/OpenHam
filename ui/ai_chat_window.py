@@ -197,10 +197,12 @@ class _BotDialog(QDialog):
 class _MessageRow(QWidget):
     """一条消息。用户=右侧浅灰气泡；助手=左侧「头像+名称+模型标签+Markdown 正文」。"""
 
-    def __init__(self, role: str, bot_name="OpenHam AI", bot_avatar=None, parent=None):
+    def __init__(self, role: str, bot_name="Hamster", bot_avatar=None,
+                 host=None, parent=None):
         super().__init__(parent)
         self.role = role
         self._raw = ""
+        self.host = host
         self.setStyleSheet("background: transparent;")
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -215,12 +217,20 @@ class _MessageRow(QWidget):
             self.bubble.setStyleSheet(
                 f"QLabel {{ background: {theme.SUBTLE}; color: {theme.TEXT};"
                 f" border-radius: 14px; padding: 10px 14px; font-size: 14px; }}")
+            self.actions = self._build_actions()
+            rightw = QWidget()
+            rightw.setStyleSheet("background: transparent;")
+            rv = QVBoxLayout(rightw)
+            rv.setContentsMargins(0, 0, 0, 0)
+            rv.setSpacing(3)
+            rv.addWidget(self.bubble, 0, Qt.AlignmentFlag.AlignRight)
+            rv.addWidget(self.actions, 0, Qt.AlignmentFlag.AlignRight)
             outer.addStretch(1)
-            outer.addWidget(self.bubble)
+            outer.addWidget(rightw)
         else:
             col = QVBoxLayout()
             col.setContentsMargins(0, 0, 0, 0)
-            col.setSpacing(7)
+            col.setSpacing(6)
             head = QHBoxLayout()
             head.setContentsMargins(0, 0, 0, 0)
             head.setSpacing(8)
@@ -256,8 +266,71 @@ class _MessageRow(QWidget):
                 "pre, code { background:#f3f3f5; font-family:Consolas,monospace; }"
                 "a { color:#6e56cf; }")
             col.addWidget(self.browser)
+            self.actions = self._build_actions()
+            col.addWidget(self.actions)
             self.bubble = None
             outer.addLayout(col, 1)
+
+        self.actions.setVisible(False)   # hover 才显示
+
+    def _build_actions(self) -> QWidget:
+        bar = QWidget()
+        bar.setStyleSheet("background: transparent;")
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(2)
+
+        def mkbtn(icon_name, tip):
+            b = QPushButton()
+            b.setIcon(icons.qicon(icon_name, color=theme.TEXT3))
+            b.setIconSize(QSize(13, 13))
+            b.setFixedSize(26, 26)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setToolTip(tip)
+            b.setStyleSheet(
+                f"QPushButton {{ background: transparent; border: none; border-radius: 6px; }}"
+                f"QPushButton:hover {{ background: {theme.SUBTLE}; }}")
+            return b
+
+        self.copy_btn = mkbtn("copy", "复制")
+        if self.role == "assistant":
+            self.copy_btn.clicked.connect(self._copy_menu)
+            self.regen_btn = mkbtn("refresh", "重新生成")
+            self.regen_btn.clicked.connect(
+                lambda: self.host and self.host._regenerate(self))
+            h.addWidget(self.copy_btn)
+            h.addWidget(self.regen_btn)
+            h.addStretch(1)
+        else:
+            self.copy_btn.clicked.connect(
+                lambda: self.host and self.host._copy_plain(self))
+            self.edit_btn = mkbtn("edit", "编辑")
+            self.edit_btn.clicked.connect(
+                lambda: self.host and self.host._edit_user(self))
+            h.addWidget(self.copy_btn)
+            h.addWidget(self.edit_btn)
+        return bar
+
+    def _copy_menu(self):
+        if self.host is None:
+            return
+        menu = QMenu(self)
+        a1 = menu.addAction("复制为 Markdown")
+        a2 = menu.addAction("复制为纯文本")
+        chosen = menu.exec(self.copy_btn.mapToGlobal(
+            self.copy_btn.rect().bottomLeft()))
+        if chosen == a1:
+            self.host._copy_markdown(self)
+        elif chosen == a2:
+            self.host._copy_plain(self)
+
+    def enterEvent(self, event):
+        self.actions.setVisible(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.actions.setVisible(False)
+        super().leaveEvent(event)
 
     def set_text(self, text: str):
         self._raw = text
@@ -823,7 +896,7 @@ class AIChatWindow(OpenHamWindowBase):
     def _add_message(self, role: str, text: str) -> _MessageRow:
         bot = self._cur_bot()
         msg = _MessageRow(role, bot_name=bot["name"],
-                          bot_avatar=self._bot_avatar(bot, 22))
+                          bot_avatar=self._bot_avatar(bot, 22), host=self)
         self.msg_layout.insertWidget(self.msg_layout.count() - 1, msg)
         self._rows.append(msg)
         self._msgs.append(msg)
@@ -888,11 +961,18 @@ class AIChatWindow(OpenHamWindowBase):
 
         cur["messages"].append({"role": "user", "content": text})
         self._add_message("user", text)
+        self._maybe_title(cur, text)
+        _save_store(self.store)
+        self._run_completion()
+
+    def _run_completion(self):
+        """基于当前会话已有消息，流式生成一条新的助手回答（供发送/重新生成/编辑后复用）。"""
+        cur = self._cur()
+        if cur is None:
+            return
         self._assistant_text = ""
         self._assistant_row = self._add_message("assistant", "▍")
         self._scroll_to_bottom()
-        self._maybe_title(cur, text)
-        _save_store(self.store)
 
         history = []
         sys_prompt = (self._cur_bot().get("system") or "").strip()
@@ -917,6 +997,69 @@ class AIChatWindow(OpenHamWindowBase):
                     self._sig.error.emit(gen, str(e))
 
         threading.Thread(target=work, daemon=True).start()
+
+    # ── 消息操作：复制 / 重新生成 / 编辑 ──────────────────────────────
+    def _copy_markdown(self, row):
+        from PyQt6.QtWidgets import QApplication
+        QApplication.clipboard().setText(row._raw or "")
+
+    def _copy_plain(self, row):
+        from PyQt6.QtWidgets import QApplication
+        if row.role == "assistant" and row.browser is not None:
+            QApplication.clipboard().setText(row.browser.toPlainText())
+        else:
+            QApplication.clipboard().setText(row._raw or "")
+
+    def _regenerate(self, row):
+        if self._streaming:
+            return
+        cur = self._cur()
+        if cur is None:
+            return
+        try:
+            i = self._msgs.index(row)
+        except ValueError:
+            return
+        if i >= len(cur["messages"]) or cur["messages"][i]["role"] != "assistant":
+            return
+        self._gen += 1
+        self._set_streaming(False)
+        cur["messages"] = cur["messages"][:i]   # 去掉该回答及其后续
+        _save_store(self.store)
+        self._load_current()
+        self._run_completion()
+
+    def _edit_user(self, row):
+        if self._streaming:
+            return
+        cur = self._cur()
+        if cur is None:
+            return
+        try:
+            i = self._msgs.index(row)
+        except ValueError:
+            return
+        if i >= len(cur["messages"]) or cur["messages"][i]["role"] != "user":
+            return
+        from PyQt6.QtWidgets import QInputDialog
+        old = cur["messages"][i]["content"]
+        new, ok = QInputDialog.getMultiLineText(
+            self, "编辑消息", "修改后将丢弃此条之后的对话，并重新生成回答：", old)
+        if not ok:
+            return
+        new = new.strip()
+        if not new:
+            return
+        self._gen += 1
+        self._set_streaming(False)
+        cur["messages"] = cur["messages"][:i]            # 丢弃此条及其后续
+        cur["messages"].append({"role": "user", "content": new})
+        if i == 0:                                       # 首条则更新会话标题
+            cur["title"] = (new[:18] + "…") if len(new) > 18 else new
+        _save_store(self.store)
+        self._refresh_session_list()
+        self._load_current()
+        self._run_completion()
 
     def _on_chunk(self, gen: int, piece: str):
         if gen != self._gen or self._assistant_row is None:
