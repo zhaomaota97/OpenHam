@@ -17,7 +17,8 @@ import datetime
 import threading
 
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import QColor, QPixmap, QPainter, QFont, QIcon
+from PyQt6.QtGui import (QColor, QPixmap, QPainter, QFont, QIcon,
+                         QTextCursor, QTextBlockFormat)
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
     QListWidget, QListWidgetItem, QScrollArea, QPlainTextEdit, QMenu,
@@ -111,6 +112,7 @@ _GROUP_ORDER = ["今天", "昨天", "7 天内", "更早"]
 _AVA_PALETTE = ["#5b6b8c", "#4a7c6f", "#8c5b6b", "#6b5b8c",
                 "#8c7a5b", "#4f7d8a", "#7a8c5b", "#9c6f4a"]
 _ava_cache = {}
+_SS = 3   # 头像超采样倍率：按物理像素绘制再标 DPR，保证高分屏清晰不糊
 
 
 def _letter_avatar(name: str, px: int = 34) -> QPixmap:
@@ -120,21 +122,24 @@ def _letter_avatar(name: str, px: int = 34) -> QPixmap:
     if key in _ava_cache:
         return _ava_cache[key]
     color = _AVA_PALETTE[(sum(ord(c) for c in name)) % len(_AVA_PALETTE)]
-    pm = QPixmap(px, px)
+    s = int(px * _SS)
+    pm = QPixmap(s, s)
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     p.setBrush(QColor(color))
     p.setPen(Qt.PenStyle.NoPen)
-    r = px * 0.30
-    p.drawRoundedRect(0, 0, px, px, r, r)
+    r = s * 0.30
+    p.drawRoundedRect(0, 0, s, s, r, r)
     p.setPen(QColor("#ffffff"))
     f = QFont()
-    f.setPointSizeF(px * 0.40)
+    f.setPixelSize(int(s * 0.42))
     f.setBold(True)
     p.setFont(f)
     p.drawText(pm.rect(), Qt.AlignmentFlag.AlignCenter, ch)
     p.end()
+    pm.setDevicePixelRatio(_SS)
     _ava_cache[key] = pm
     return pm
 
@@ -259,7 +264,19 @@ class _MessageRow(QWidget):
             self.bubble.setText(text)
         else:
             self.browser.setMarkdown(text)
+            self._improve_typography()
             self._fit_height()
+
+    def _improve_typography(self):
+        """放宽行距与段间距，让 Markdown 不再挤成一团。"""
+        doc = self.browser.document()
+        cur = QTextCursor(doc)
+        cur.select(QTextCursor.SelectionType.Document)
+        bf = QTextBlockFormat()
+        bf.setLineHeight(165, 1)   # 1 = ProportionalHeight，约 1.65 倍行距
+        bf.setTopMargin(2)
+        bf.setBottomMargin(9)
+        cur.mergeBlockFormat(bf)
 
     def set_width(self, content_px: int):
         if self.role == "user":
@@ -311,6 +328,7 @@ class AIChatWindow(OpenHamWindowBase):
 
         self._add_maximize_button()
         self._build_ui()
+        self._add_sidebar_toggle()
         self._refresh_bots()
         self._refresh_session_list()
         self._load_current()
@@ -338,6 +356,24 @@ class AIChatWindow(OpenHamWindowBase):
             self.showMaximized()
             self.max_btn.setIcon(icons.qicon("restore", color=theme.TEXT2))
 
+    # ── 标题栏：折叠/展开会话面板 ─────────────────────────────────────
+    def _add_sidebar_toggle(self):
+        self.sidebar_btn = QPushButton()
+        self.sidebar_btn.setIcon(icons.qicon("panel", color=theme.TEXT2))
+        self.sidebar_btn.setFixedSize(28, 28)
+        self.sidebar_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sidebar_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.sidebar_btn.setToolTip("折叠 / 展开会话面板")
+        self.sidebar_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; border-radius: 7px; }}"
+            f"QPushButton:hover {{ background: {theme.HOVER}; }}")
+        self.sidebar_btn.clicked.connect(self._toggle_sidebar)
+        self.header_tools_layout.addWidget(self.sidebar_btn)
+
+    def _toggle_sidebar(self):
+        self._sidebar.setVisible(not self._sidebar.isVisible())
+        QTimer.singleShot(0, lambda: [m.set_width(self._content_width()) for m in self._msgs])
+
     # ── 界面骨架 ──────────────────────────────────────────────────────
     def _build_ui(self):
         row = QWidget()
@@ -345,7 +381,8 @@ class AIChatWindow(OpenHamWindowBase):
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(0)
         h.addWidget(self._build_rail())
-        h.addWidget(self._build_sidebar())
+        self._sidebar = self._build_sidebar()
+        h.addWidget(self._sidebar)
         h.addWidget(self._build_chat(), 1)
         self.content_layout.addWidget(row, 1)
 
@@ -549,36 +586,23 @@ class AIChatWindow(OpenHamWindowBase):
 
     def _make_bot_row(self, bot) -> QWidget:
         active = bot["id"] == self.cur_bot_id
-        roww = QWidget()
-        roww.setStyleSheet("background: transparent;")
-        rl = QHBoxLayout(roww)
-        rl.setContentsMargins(0, 0, 0, 0)
-        rl.setSpacing(0)
-        pill = QFrame()
-        pill.setFixedSize(3, 26)
-        pill.setStyleSheet(
-            f"background: {theme.INDIGO if active else 'transparent'}; border-radius: 1px;")
-        rl.addWidget(pill, 0, Qt.AlignmentFlag.AlignVCenter)
-        rl.addSpacing(5)
         btn = QPushButton()
         btn.setIcon(QIcon(self._bot_avatar(bot, 40)))
         btn.setIconSize(QSize(40, 40))
-        btn.setFixedSize(46, 46)
+        btn.setFixedSize(52, 52)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setToolTip(bot["name"])
+        # 选中=柔和浅底（无描边/无指示条），克制优雅
         btn.setStyleSheet(
-            f"QPushButton {{ background: transparent;"
-            f" border: 2px solid {theme.INDIGO if active else 'transparent'};"
-            f" border-radius: 15px; padding: 0; }}"
-            f"QPushButton:hover {{ border-color: {theme.INDIGO if active else theme.BORDER_IN}; }}")
+            f"QPushButton {{ background: {theme.SELECT if active else 'transparent'};"
+            f" border: none; border-radius: 15px; padding: 0; }}"
+            f"QPushButton:hover {{ background: {theme.SELECT if active else theme.HOVER}; }}")
         bid = bot["id"]
         btn.clicked.connect(lambda _=False, b=bid: self._select_bot(b))
         btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         btn.customContextMenuRequested.connect(
             lambda pos, b=bid, w=btn: self._bot_menu(b, w, pos))
-        rl.addWidget(btn)
-        rl.addSpacing(3)
-        return roww
+        return btn
 
     def _refresh_bots(self):
         # 默认 bot（Hamster）固定最上
@@ -936,12 +960,24 @@ class AIChatWindow(OpenHamWindowBase):
         self.input.setFocus()
 
     def send_text(self, text: str):
-        """供 `--` 快捷命令调用：在当前 bot 下开一个新会话并自动发送 text。"""
+        """供 `--` 快捷命令调用：始终走默认 Hamster bot，开/复用一个会话并自动发送。"""
         text = (text or "").strip()
         self.open()
         if not text:
             return
-        self._new_session()        # 复用空会话或新建
+        hb = self.bots[0]                       # 快捷对话固定 Hamster
+        self.cur_bot_id = hb["id"]
+        self.store["current_bot"] = hb["id"]
+        empty = next((s for s in hb["sessions"] if not s["messages"]), None)
+        if empty:
+            self.cur_id = empty["id"]
+        else:
+            s = _norm_session({"title": "新对话", "created": time.time(), "messages": []})
+            hb["sessions"].insert(0, s)
+            self.cur_id = s["id"]
+        self._refresh_bots()
+        self._refresh_session_list()
+        self._load_current()
         self.input.setPlainText(text)
         QTimer.singleShot(0, self._send)
 
@@ -958,8 +994,10 @@ def _brand_pixmap(px: int):
         if os.path.exists(logo):
             src = QPixmap(logo)
             if not src.isNull():
-                pm = src.scaled(px, px, Qt.AspectRatioMode.KeepAspectRatio,
+                s = int(px * _SS)
+                pm = src.scaled(s, s, Qt.AspectRatioMode.KeepAspectRatio,
                                 Qt.TransformationMode.SmoothTransformation)
+                pm.setDevicePixelRatio(_SS)
     except Exception:
         pm = None
     if pm is None:

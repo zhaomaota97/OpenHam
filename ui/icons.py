@@ -92,6 +92,7 @@ _MAP = {
     "maximize": ("fa5.window-maximize", MUTED),
     "restore": ("fa5.window-restore", MUTED),
     "robot": ("fa5s.robot", PURPLE),
+    "panel": ("fa5s.columns", MUTED),
     "back": ("fa5s.arrow-left", MUTED),
     "forward": ("fa5s.arrow-right", MUTED),
     "up": ("fa5s.arrow-up", MUTED),
