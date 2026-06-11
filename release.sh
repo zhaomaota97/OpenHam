@@ -54,12 +54,21 @@ with open(vjson, "w", encoding="utf-8") as f:
 PY
 
 echo "[3/4] 上传 完整包 + 代码包 + version.json + 下载页 + logo…"
-SCPOPT="-i $KEY -o StrictHostKeyChecking=no"
-scp $SCPOPT "$ZIP" "$ECS:$DL/OpenHam-lite.zip"
-scp $SCPOPT "$CODEZIP" "$ECS:$DL/OpenHam-code.zip"
-scp $SCPOPT "$VJSON" "$ECS:$DL/version.json"
-scp $SCPOPT "$SRC/relay/download.html" "$ECS:$DL/index.html"
-scp $SCPOPT "$SRC/logo.png" "$ECS:$DL/logo.png"
+# ECS 出公网链路不稳，scp 常中途掐断；每个文件按退出码多重试，避免发布只传一半。
+SCPOPT="-i $KEY -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=5"
+put() {  # $1=本地文件  $2=远端文件名
+  local i
+  for i in $(seq 1 8); do
+    if scp $SCPOPT "$1" "$ECS:$DL/$2"; then return 0; fi
+    echo "    … $2 第 $i 次上传中断，重试"; sleep 3
+  done
+  echo "    ✗ $2 上传失败（链路反复中断）"; return 1
+}
+put "$ZIP" OpenHam-lite.zip
+put "$CODEZIP" OpenHam-code.zip
+put "$VJSON" version.json
+put "$SRC/relay/download.html" index.html
+put "$SRC/logo.png" logo.png
 
 # 发布成功后：VERSION 末位 +1 写回，供下次发布自增。
 # 注意：故意不改本机 $SRC/version.txt（安装标记），好让维护者用「检查更新」自测更新链路。
