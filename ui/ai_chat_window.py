@@ -848,6 +848,7 @@ class AIChatWindow(OpenHamWindowBase):
 
         self._dice_rolled = False         # 本轮是否已触发掷骰动画
         self._dice_reveal = True          # 是否已揭晓（未掷骰时默认 True）
+        self._dice_row = None             # 掷骰所在的消息行（不随 _assistant_row 置空而丢）
 
         self._build_ui()
         self._dice_overlay = _DiceOverlay(self._chat_area)
@@ -1403,6 +1404,7 @@ class AIChatWindow(OpenHamWindowBase):
         self._autoscroll = True            # 新一轮生成：恢复自动滚到底
         self._dice_rolled = False          # 本轮掷骰状态复位
         self._dice_reveal = True
+        self._dice_row = None
         self._assistant_text = ""
         self._assistant_row = self._add_message("assistant", "▍")
         self._scroll_to_bottom()
@@ -1514,6 +1516,7 @@ class AIChatWindow(OpenHamWindowBase):
         if mt and not self._dice_reveal:
             if not self._dice_rolled:                     # 首次遇到完整 dice 块 → 触发动画
                 self._dice_rolled = True
+                self._dice_row = self._assistant_row      # 存住行引用，揭晓时用
                 self._dice_overlay.roll(_dice_result(mt.group(1)),
                                         on_finish=self._on_dice_revealed)
             visible = text[:mt.start()].rstrip()          # 只显示骰子之前的内容
@@ -1522,10 +1525,16 @@ class AIChatWindow(OpenHamWindowBase):
         self._assistant_row.set_text(text + ("" if final else " ▍"), final=final)
 
     def _on_dice_revealed(self):
-        """掷骰动画结束：揭晓骰子结果及其之后的内容。"""
+        """掷骰动画结束：揭晓骰子结果及其之后的内容。
+
+        注意：流式可能已结束(_on_done 把 _assistant_row 置空)，所以用单独存的 _dice_row。
+        """
         self._dice_reveal = True
-        if self._assistant_row is not None:
-            self._assistant_row.set_text(self._assistant_text, final=not self._streaming)
+        row = self._dice_row or self._assistant_row
+        if row is not None:
+            # 流式已结束(行已落库) → final=True 渲染内联骰子；否则仍带光标，待 _on_done 收尾
+            row.set_text(self._assistant_text, final=not self._streaming)
+        self._dice_row = None
         if self._autoscroll:
             self._scroll_to_bottom()
 
