@@ -47,6 +47,7 @@
         <div style="font-weight:700;font-size:17px;">OpenHam（精简版）</div>
         <a class="btn" href="OpenHam-lite.zip" download>⬇ 下载 OpenHam</a>
         <div class="meta">Windows · 约 14 MB · 首次运行自动联网安装依赖</div>
+        <div class="meta" id="version">版本：加载中…</div>
         <div class="meta" id="updated">更新时间：加载中…</div>
       </div>
     </div>
@@ -81,6 +82,16 @@
 <script>
   // 联机网页版在 9000 端口
   document.getElementById("webplay").href = location.protocol + "//" + location.hostname + ":9000/";
+
+  // 读取当前发布版本号（来自 version.json）
+  fetch("version.json", { cache: "no-store" })
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      var el = document.getElementById("version");
+      if (j && j.version) { el.textContent = "版本：" + j.version; }
+      else { el.style.display = "none"; }
+    })
+    .catch(function () { document.getElementById("version").style.display = "none"; });
 
   // 自动读取安装包的最后更新时间（来自 nginx 的 Last-Modified）
   fetch("OpenHam-lite.zip", { method: "HEAD", cache: "no-store" })

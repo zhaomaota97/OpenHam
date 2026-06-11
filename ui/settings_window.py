@@ -289,6 +289,17 @@ class SettingsWindow(OpenHamWindowBase):
         footer = QHBoxLayout()
         footer.setSpacing(10)
 
+        try:
+            from core.updater import local_version
+            _ver = local_version() or "未知"
+        except Exception:
+            _ver = "未知"
+        version_label = QLabel(f"版本 {_ver}")
+        version_label.setStyleSheet("color: #a8a8ad; font-size: 12px;")
+        version_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        footer.addWidget(version_label)
+
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color: #86868b; font-size: 12px;")
         footer.addWidget(self.status_label, 1)
