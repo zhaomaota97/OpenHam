@@ -13,6 +13,9 @@ version.txt
 # AI 发明的游戏（用户数据）
 invented_games/
 
+# 用户自己的游戏（用户数据）
+my_games/
+
 # AI 对话插件的会话历史（用户数据）
 ai_chat/
 
