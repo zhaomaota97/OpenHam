@@ -329,6 +329,7 @@ class AIChatWindow(OpenHamWindowBase):
         self._add_maximize_button()
         self._build_ui()
         self._add_sidebar_toggle()
+        self.title_bar.installEventFilter(self)   # 双击标题栏最大化/还原
         self._refresh_bots()
         self._refresh_session_list()
         self._load_current()
@@ -942,6 +943,10 @@ class AIChatWindow(OpenHamWindowBase):
                     return False
                 self._send()
                 return True
+        # 双击标题栏：最大化 / 还原
+        if obj is self.title_bar and event.type() == QEvent.Type.MouseButtonDblClick:
+            self._toggle_max()
+            return True
         return super().eventFilter(obj, event)
 
     def resizeEvent(self, event):
@@ -952,12 +957,38 @@ class AIChatWindow(OpenHamWindowBase):
 
     # ── 外部入口 ──────────────────────────────────────────────────────
     def open(self):
-        """供插件调用：居中显示并聚焦输入框。"""
+        """供插件调用：无论之前在哪（最小化/被遮挡），都强制置顶到前台并聚焦。"""
+        if self.isMinimized():
+            self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
         if not self.isVisible():
             self.show_window_centered()
+        else:
+            self.show()
         self.raise_()
         self.activateWindow()
+        self._force_foreground()
         self.input.setFocus()
+
+    def _force_foreground(self):
+        """Win32 AttachThreadInput 强制把本窗口提到最前（绕过 SetForegroundWindow 限制）。"""
+        try:
+            import ctypes
+            hwnd = int(self.winId())
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+            fg = user32.GetForegroundWindow()
+            fg_tid = user32.GetWindowThreadProcessId(fg, None)
+            cur_tid = kernel32.GetCurrentThreadId()
+            attached = False
+            if fg_tid and fg_tid != cur_tid:
+                user32.AttachThreadInput(cur_tid, fg_tid, True)
+                attached = True
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+            if attached:
+                user32.AttachThreadInput(cur_tid, fg_tid, False)
+        except Exception:
+            pass
 
     def send_text(self, text: str, context: dict = None):
         """供 `--` 快捷命令调用：始终走默认 Hamster bot，自动发送。
