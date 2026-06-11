@@ -219,7 +219,7 @@ class _MessageRow(QWidget):
                 Qt.TextInteractionFlag.TextSelectableByMouse)
             self.bubble.setStyleSheet(
                 f"QLabel {{ background: {theme.SUBTLE}; color: {theme.TEXT};"
-                f" border-radius: 14px; padding: 10px 14px; font-size: 14px; }}")
+                f" border-radius: 14px; padding: 10px 14px; font-size: 15px; }}")
             self.actions = self._build_actions()
             rightw = QWidget()
             rightw.setStyleSheet("background: transparent;")
@@ -264,7 +264,7 @@ class _MessageRow(QWidget):
                 Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             self.browser.setStyleSheet(
                 "QTextBrowser { background: transparent; border: none;"
-                " color: #1d1d1f; font-size: 14px; }")
+                " color: #1d1d1f; font-size: 15px; }")
             self.browser.document().setDefaultStyleSheet(
                 "pre, code { background:#f3f3f5; font-family:Consolas,monospace; }"
                 "a { color:#6e56cf; }")
@@ -659,7 +659,7 @@ class AIChatWindow(OpenHamWindowBase):
         self.input.setPlaceholderText("发消息……（Enter 发送，Shift+Enter 换行）")
         self.input.setFrameShape(QFrame.Shape.NoFrame)
         self.input.setStyleSheet(
-            "QPlainTextEdit { background: transparent; border: none; font-size: 14px; }")
+            "QPlainTextEdit { background: transparent; border: none; font-size: 15px; }")
         self.input.setFixedHeight(58)
         self.input.installEventFilter(self)
         cl.addWidget(self.input)
