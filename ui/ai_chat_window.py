@@ -590,7 +590,7 @@ class AIChatWindow(OpenHamWindowBase):
         self.search.setStyleSheet(
             f"QLineEdit {{ background: {theme.SURFACE}; color: {theme.TEXT};"
             f" border: 1px solid {theme.BORDER_IN}; border-radius: 9px;"
-            f" padding: 0 8px; font-size: 13px; }}"
+            f" padding: 0 8px; font-size: 14px; }}"
             f"QLineEdit:focus {{ border: 1px solid {theme.ACCENT}; }}")
         self.search.textChanged.connect(self._on_search)
         v.addWidget(self.search)
@@ -602,7 +602,7 @@ class AIChatWindow(OpenHamWindowBase):
         self.new_btn.setStyleSheet(
             f"QPushButton {{ background: {theme.CARD}; color: {theme.TEXT};"
             f" border: 1px solid {theme.BORDER_IN}; border-radius: 10px;"
-            f" font-size: 13px; font-weight: 500; }}"
+            f" font-size: 14px; font-weight: 500; }}"
             f"QPushButton:hover {{ background: {theme.INDIGO_SOFT}; border-color: #d8d6fb; }}")
         self.new_btn.clicked.connect(lambda: self._new_session())
         v.addWidget(self.new_btn)
@@ -612,8 +612,9 @@ class AIChatWindow(OpenHamWindowBase):
         self.session_list.customContextMenuRequested.connect(self._session_menu)
         self.session_list.itemClicked.connect(self._on_session_clicked)
         self.session_list.setStyleSheet(
-            f"QListWidget {{ background: transparent; border: none; outline: none; }}"
-            f"QListWidget::item {{ border-radius: 8px; padding: 8px 9px; color: {theme.TEXT}; }}"
+            f"QListWidget {{ background: transparent; border: none; outline: none;"
+            f" font-size: 14px; }}"
+            f"QListWidget::item {{ border-radius: 8px; padding: 9px 10px; color: {theme.TEXT}; }}"
             f"QListWidget::item:hover {{ background: {theme.SUBTLE}; }}"
             f"QListWidget::item:selected {{ background: {theme.SELECT}; color: {theme.TEXT}; }}")
         v.addWidget(self.session_list, 1)
