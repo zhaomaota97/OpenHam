@@ -1,35 +1,40 @@
-"""AI 对话插件窗口：常规聊天软件式界面（参考 Monica）。
+"""AI 对话插件窗口：Monica 风格的聊天界面。
 
-特性：
-- 左侧会话列表，可新建 / 切换 / 删除会话；会话历史持久化到磁盘。
-- 右侧消息流：用户消息为深色气泡、助手消息用 QTextBrowser 原生渲染 Markdown
-  （代码块/列表/表格等），无需 WebEngine 或第三方 markdown 库。
-- 流式响应：逐片段追加并实时重渲染当前助手气泡。
-- 携带上下文：每次发送都把整段会话历史传给模型。
-- 模型沿用全局 AI 配置（core.ai_client / user_settings.json 中的 Key 与模型）。
+布局（三栏）：
+- 最左细图标栏：品牌 logo + Chat（当前）+ 新建会话。
+- 会话侧栏：搜索框 + 「新建会话」+ 按时间分组（今天/昨天/7 天内/更早）的会话列表。
+- 右侧消息区：用户消息为右侧浅灰气泡；助手消息为「头像 + 名称 + 模型标签 + 纯 Markdown 正文」
+  （无气泡，QTextBrowser 原生渲染 Markdown，无需 WebEngine / 第三方库）。
+
+其余：流式响应、携带上下文、会话持久化；模型沿用全局 AI 配置（core.ai_client）。
 """
 import os
-import json
 import time
 import uuid
+import json
+import datetime
 import threading
 
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer, QSize
+from PyQt6.QtGui import QColor, QPixmap
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
     QListWidget, QListWidgetItem, QScrollArea, QPlainTextEdit, QMenu,
-    QSizePolicy, QTextBrowser,
+    QLineEdit, QTextBrowser,
 )
 
 from ui.window_base import OpenHamWindowBase
 from ui import icons, theme
+from core import app_config
 from core.ai_client import call_chat_stream
 
 
+def _base_dir() -> str:
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def _data_path() -> str:
-    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    d = os.path.join(base, "ai_chat")
+    d = os.path.join(_base_dir(), "ai_chat")
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, "sessions.json")
 
@@ -42,7 +47,6 @@ def _load_sessions() -> list:
         with open(p, "r", encoding="utf-8") as f:
             data = json.load(f)
         sessions = data.get("sessions", [])
-        # 兼容性兜底：补全字段
         for s in sessions:
             s.setdefault("id", uuid.uuid4().hex)
             s.setdefault("title", "新对话")
@@ -62,31 +66,76 @@ def _save_sessions(sessions: list):
         pass
 
 
-class _Bubble(QFrame):
-    """单条消息气泡。用户=深色纯文本标签；助手=浅色 Markdown 渲染。"""
+def _time_group(ts: float) -> str:
+    try:
+        d_now = datetime.date.today()
+        d_ts = datetime.date.fromtimestamp(ts or time.time())
+        delta = (d_now - d_ts).days
+    except Exception:
+        return "更早"
+    if delta <= 0:
+        return "今天"
+    if delta == 1:
+        return "昨天"
+    if delta <= 7:
+        return "7 天内"
+    return "更早"
+
+
+_GROUP_ORDER = ["今天", "昨天", "7 天内", "更早"]
+
+
+class _MessageRow(QWidget):
+    """一条消息。用户=右侧浅灰气泡；助手=左侧「头像+名称+模型标签+Markdown 正文」。"""
 
     def __init__(self, role: str, parent=None):
         super().__init__(parent)
         self.role = role
         self._raw = ""
-        self.setObjectName("bubble")
+        self.setStyleSheet("background: transparent;")
 
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(14, 10, 14, 10)
-        lay.setSpacing(0)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
         if role == "user":
-            self.label = QLabel("")
-            self.label.setWordWrap(True)
-            self.label.setTextInteractionFlags(
-                Qt.TextInteractionFlag.TextSelectableByMouse)
-            self.label.setStyleSheet("color: #ffffff; background: transparent;"
-                                     " font-size: 13px; border: none;")
-            lay.addWidget(self.label)
-            self.setStyleSheet(
-                f"#bubble {{ background: {theme.ACCENT}; border-radius: 12px; }}")
             self.browser = None
+            self.bubble = QLabel("")
+            self.bubble.setWordWrap(True)
+            self.bubble.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse)
+            self.bubble.setStyleSheet(
+                f"QLabel {{ background: {theme.SUBTLE}; color: {theme.TEXT};"
+                f" border-radius: 14px; padding: 10px 14px; font-size: 14px; }}")
+            outer.addStretch(1)
+            outer.addWidget(self.bubble)
         else:
+            col = QVBoxLayout()
+            col.setContentsMargins(0, 0, 0, 0)
+            col.setSpacing(7)
+
+            head = QHBoxLayout()
+            head.setContentsMargins(0, 0, 0, 0)
+            head.setSpacing(8)
+            avatar = QLabel()
+            pm = _brand_pixmap(22)
+            if pm is not None:
+                avatar.setPixmap(pm)
+            avatar.setFixedSize(22, 22)
+            head.addWidget(avatar)
+            name = QLabel("OpenHam AI")
+            name.setStyleSheet(
+                f"color: {theme.TEXT}; font-size: 13px; font-weight: 600;"
+                " background: transparent;")
+            head.addWidget(name)
+            badge = QLabel(_model_label())
+            badge.setStyleSheet(
+                f"QLabel {{ color: {theme.INDIGO}; background: {theme.INDIGO_SOFT};"
+                " border-radius: 6px; padding: 1px 7px; font-size: 11px; }}")
+            head.addWidget(badge)
+            head.addStretch(1)
+            col.addLayout(head)
+
             self.browser = QTextBrowser()
             self.browser.setOpenExternalLinks(True)
             self.browser.setFrameShape(QFrame.Shape.NoFrame)
@@ -96,28 +145,27 @@ class _Bubble(QFrame):
                 Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             self.browser.setStyleSheet(
                 "QTextBrowser { background: transparent; border: none;"
-                " color: #1d1d1f; font-size: 13px; }")
-            lay.addWidget(self.browser)
-            self.setStyleSheet(
-                f"#bubble {{ background: {theme.SUBTLE};"
-                f" border: 1px solid {theme.BORDER}; border-radius: 12px; }}")
-            self.label = None
+                " color: #1d1d1f; font-size: 14px; }")
+            self.browser.document().setDefaultStyleSheet(
+                "pre, code { background:#f3f3f5; font-family:Consolas,monospace; }"
+                "a { color:#6e56cf; }")
+            col.addWidget(self.browser)
+            self.bubble = None
+            outer.addLayout(col, 1)
 
     def set_text(self, text: str):
         self._raw = text
         if self.role == "user":
-            self.label.setText(text)
+            self.bubble.setText(text)
         else:
             self.browser.setMarkdown(text)
             self._fit_height()
 
-    def set_width(self, px: int):
-        if px < 80:
-            px = 80
+    def set_width(self, content_px: int):
         if self.role == "user":
-            self.label.setMaximumWidth(px)
+            self.bubble.setMaximumWidth(max(120, int(content_px * 0.72)))
         else:
-            self.browser.setFixedWidth(px)
+            self.browser.setFixedWidth(max(160, content_px))
             self._fit_height()
 
     def _fit_height(self):
@@ -129,8 +177,38 @@ class _Bubble(QFrame):
             self.browser.setFixedHeight(max(24, h))
 
 
+_brand_cache = {}
+
+
+def _brand_pixmap(px: int):
+    if px in _brand_cache:
+        return _brand_cache[px]
+    pm = None
+    try:
+        logo = os.path.join(_base_dir(), "logo.png")
+        if os.path.exists(logo):
+            src = QPixmap(logo)
+            if not src.isNull():
+                pm = src.scaled(px, px, Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation)
+    except Exception:
+        pm = None
+    if pm is None:
+        pm = icons.qicon("ai").pixmap(QSize(px, px))
+    _brand_cache[px] = pm
+    return pm
+
+
+def _model_label() -> str:
+    try:
+        m = app_config.get("ai_model") or "AI"
+    except Exception:
+        m = "AI"
+    return m
+
+
 class _ChatSignals(QObject):
-    chunk = pyqtSignal(int, str)   # (gen, piece)
+    chunk = pyqtSignal(int, str)
     done = pyqtSignal(int)
     error = pyqtSignal(int, str)
 
@@ -139,17 +217,18 @@ class AIChatWindow(OpenHamWindowBase):
     """AI 对话主窗口（单例，由插件 setup 创建并复用）。"""
 
     def __init__(self):
-        super().__init__(title="💬 AI 对话", min_w=860, min_h=560)
-        self.resize(980, 640)
+        super().__init__(title="💬 AI 对话", min_w=900, min_h=580)
+        self.resize(1040, 680)
 
         self.sessions = _load_sessions()
         self.cur_id = self.sessions[0]["id"] if self.sessions else None
-        self._bubbles = []           # 当前会话渲染中的 _Bubble 列表
-        self._rows = []              # 每条消息对应的行容器（用于整行销毁）
-        self._gen = 0                # 流式请求代号，用于取消过期请求
+        self._rows = []
+        self._msgs = []          # 仅 _MessageRow（用于测宽）
+        self._gen = 0
         self._streaming = False
-        self._assistant_bubble = None
+        self._assistant_row = None
         self._assistant_text = ""
+        self._filter = ""
 
         self._sig = _ChatSignals()
         self._sig.chunk.connect(self._on_chunk)
@@ -171,31 +250,102 @@ class AIChatWindow(OpenHamWindowBase):
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(0)
 
-        # 左侧栏
+        h.addWidget(self._build_rail())
+        h.addWidget(self._build_sidebar())
+        h.addWidget(self._build_chat(), 1)
+
+        self.content_layout.addWidget(row, 1)
+
+    def _build_rail(self) -> QWidget:
+        rail = QWidget()
+        rail.setFixedWidth(60)
+        rail.setStyleSheet(f"background: {theme.SUBTLE};"
+                           f" border-right: 1px solid {theme.BORDER};")
+        v = QVBoxLayout(rail)
+        v.setContentsMargins(0, 14, 0, 14)
+        v.setSpacing(10)
+        v.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+
+        logo = QLabel()
+        pm = _brand_pixmap(30)
+        if pm is not None:
+            logo.setPixmap(pm)
+        logo.setFixedSize(30, 30)
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        chat_btn = self._rail_btn("chat", "对话", active=True)
+        v.addWidget(chat_btn, 0, Qt.AlignmentFlag.AlignHCenter)
+        add_btn = self._rail_btn("add", "新建会话")
+        add_btn.clicked.connect(lambda: self._new_session())
+        v.addWidget(add_btn, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        v.addStretch(1)
+        return rail
+
+    def _rail_btn(self, icon_name: str, tip: str, active: bool = False) -> QPushButton:
+        b = QPushButton()
+        b.setIcon(icons.qicon(icon_name, color=(theme.INDIGO if active else theme.TEXT2)))
+        b.setIconSize(QSize(20, 20))
+        b.setFixedSize(40, 40)
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setToolTip(tip)
+        bg = theme.INDIGO_SOFT if active else "transparent"
+        b.setStyleSheet(
+            f"QPushButton {{ background: {bg}; border: none; border-radius: 10px; }}"
+            f"QPushButton:hover {{ background: {theme.HOVER}; }}")
+        return b
+
+    def _build_sidebar(self) -> QWidget:
         side = QWidget()
-        side.setFixedWidth(232)
+        side.setFixedWidth(244)
         side.setStyleSheet(f"background: {theme.CARD};"
                            f" border-right: 1px solid {theme.BORDER};")
-        sv = QVBoxLayout(side)
-        sv.setContentsMargins(12, 12, 12, 12)
-        sv.setSpacing(10)
+        v = QVBoxLayout(side)
+        v.setContentsMargins(12, 14, 12, 12)
+        v.setSpacing(10)
+
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("搜索会话…")
+        self.search.addAction(icons.qicon("search", color=theme.TEXT3),
+                              QLineEdit.ActionPosition.LeadingPosition)
+        self.search.textChanged.connect(self._on_search)
+        v.addWidget(self.search)
 
         self.new_btn = QPushButton("  新建会话")
-        self.new_btn.setObjectName("primary")
-        self.new_btn.setIcon(icons.qicon("add", color="#ffffff"))
+        self.new_btn.setIcon(icons.qicon("add", color=theme.INDIGO))
         self.new_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.new_btn.setFixedHeight(38)
+        self.new_btn.setStyleSheet(
+            f"QPushButton {{ background: {theme.CARD}; color: {theme.TEXT};"
+            f" border: 1px solid {theme.BORDER_IN}; border-radius: 10px;"
+            f" font-size: 13px; font-weight: 500; text-align: center; }}"
+            f"QPushButton:hover {{ background: {theme.INDIGO_SOFT};"
+            f" border-color: #d8d6fb; }}")
         self.new_btn.clicked.connect(lambda: self._new_session())
-        sv.addWidget(self.new_btn)
+        v.addWidget(self.new_btn)
+
+        recent = QLabel("最近会话")
+        recent.setStyleSheet(f"color: {theme.TEXT3}; font-size: 12px;"
+                             " font-weight: 600; background: transparent;")
+        v.addWidget(recent)
 
         self.session_list = QListWidget()
         self.session_list.setContextMenuPolicy(
             Qt.ContextMenuPolicy.CustomContextMenu)
         self.session_list.customContextMenuRequested.connect(self._session_menu)
         self.session_list.itemClicked.connect(self._on_session_clicked)
-        sv.addWidget(self.session_list, 1)
-        h.addWidget(side)
+        self.session_list.setStyleSheet(
+            f"QListWidget {{ background: transparent; border: none; outline: none; }}"
+            f"QListWidget::item {{ border-radius: 8px; padding: 8px 9px;"
+            f" color: {theme.TEXT}; }}"
+            f"QListWidget::item:hover {{ background: {theme.SUBTLE}; }}"
+            f"QListWidget::item:selected {{ background: {theme.SELECT};"
+            f" color: {theme.TEXT}; }}")
+        v.addWidget(self.session_list, 1)
+        return side
 
-        # 右侧聊天区
+    def _build_chat(self) -> QWidget:
         right = QWidget()
         right.setStyleSheet(f"background: {theme.BG};")
         rv = QVBoxLayout(right)
@@ -208,44 +358,72 @@ class AIChatWindow(OpenHamWindowBase):
         self.scroll.setStyleSheet("background: transparent;")
         self.scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
         self.msg_host = QWidget()
         self.msg_host.setStyleSheet("background: transparent;")
         self.msg_layout = QVBoxLayout(self.msg_host)
-        self.msg_layout.setContentsMargins(22, 20, 22, 20)
-        self.msg_layout.setSpacing(14)
+        self.msg_layout.setContentsMargins(28, 22, 28, 22)
+        self.msg_layout.setSpacing(20)
         self.msg_layout.addStretch(1)
         self.scroll.setWidget(self.msg_host)
         rv.addWidget(self.scroll, 1)
 
-        # 输入区
-        bar = QWidget()
-        bar.setStyleSheet(f"background: {theme.CARD};"
-                          f" border-top: 1px solid {theme.BORDER};")
-        bl = QHBoxLayout(bar)
-        bl.setContentsMargins(18, 14, 18, 16)
-        bl.setSpacing(10)
+        # 输入卡片
+        wrap = QWidget()
+        wrap.setStyleSheet("background: transparent;")
+        wl = QVBoxLayout(wrap)
+        wl.setContentsMargins(28, 6, 28, 18)
+        wl.setSpacing(0)
+
+        card = QFrame()
+        card.setObjectName("inputCard")
+        card.setStyleSheet(
+            f"#inputCard {{ background: {theme.CARD};"
+            f" border: 1px solid {theme.BORDER_IN}; border-radius: 16px; }}")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(14, 12, 12, 10)
+        cl.setSpacing(6)
 
         self.input = QPlainTextEdit()
-        self.input.setPlaceholderText("输入消息，Enter 发送，Shift+Enter 换行…")
-        self.input.setFixedHeight(54)
+        self.input.setPlaceholderText("给 OpenHam AI 发消息……（Enter 发送，Shift+Enter 换行）")
+        self.input.setFrameShape(QFrame.Shape.NoFrame)
+        self.input.setStyleSheet(
+            "QPlainTextEdit { background: transparent; border: none;"
+            " font-size: 14px; }")
+        self.input.setFixedHeight(58)
         self.input.installEventFilter(self)
-        bl.addWidget(self.input, 1)
+        cl.addWidget(self.input)
 
-        self.send_btn = QPushButton("  发送")
+        bottom = QHBoxLayout()
+        bottom.setContentsMargins(0, 0, 0, 0)
+        bottom.setSpacing(8)
+        model_pill = QLabel("  " + _model_label())
+        model_pill.setStyleSheet(
+            f"QLabel {{ color: {theme.TEXT2}; background: {theme.SUBTLE};"
+            " border-radius: 9px; padding: 3px 10px; font-size: 12px; }}")
+        bottom.addWidget(model_pill)
+        bottom.addStretch(1)
+
+        self.send_btn = QPushButton()
         self.send_btn.setObjectName("primary")
         self.send_btn.setIcon(icons.qicon("send", color="#ffffff"))
+        self.send_btn.setIconSize(QSize(17, 17))
         self.send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.send_btn.setFixedHeight(54)
+        self.send_btn.setFixedSize(38, 38)
+        self.send_btn.setStyleSheet(
+            f"QPushButton {{ background: {theme.ACCENT}; border: none;"
+            f" border-radius: 19px; }}"
+            f"QPushButton:hover {{ background: {theme.ACCENT_HOV}; }}"
+            f"QPushButton:disabled {{ background: {theme.TEXT3}; }}")
         self.send_btn.clicked.connect(self._send)
-        bl.addWidget(self.send_btn)
-        rv.addWidget(bar)
+        bottom.addWidget(self.send_btn)
+        cl.addLayout(bottom)
 
-        h.addWidget(right, 1)
-        self.content_layout.addWidget(row, 1)
+        wl.addWidget(card)
+        rv.addWidget(wrap)
+        return right
 
     # ── 会话管理 ──────────────────────────────────────────────────────
-    def _cur(self) -> dict | None:
+    def _cur(self):
         for s in self.sessions:
             if s["id"] == self.cur_id:
                 return s
@@ -253,9 +431,7 @@ class AIChatWindow(OpenHamWindowBase):
 
     def _new_session(self, persist: bool = True):
         cur = self._cur()
-        # 当前会话还空着就别再开新的，直接复用
         if cur is not None and not cur["messages"]:
-            self.session_list.setFocus()
             self.input.setFocus()
             return
         s = {"id": uuid.uuid4().hex, "title": "新对话",
@@ -268,33 +444,53 @@ class AIChatWindow(OpenHamWindowBase):
         self._load_current()
         self.input.setFocus()
 
+    def _on_search(self, text: str):
+        self._filter = (text or "").strip().lower()
+        self._refresh_session_list()
+
     def _refresh_session_list(self):
         self.session_list.clear()
+        groups = {g: [] for g in _GROUP_ORDER}
         for s in self.sessions:
-            it = QListWidgetItem(icons.qicon("chat"), s["title"] or "新对话")
-            it.setData(Qt.ItemDataRole.UserRole, s["id"])
-            self.session_list.addItem(it)
-            if s["id"] == self.cur_id:
-                self.session_list.setCurrentItem(it)
+            if self._filter and self._filter not in (s.get("title") or "").lower():
+                continue
+            groups[_time_group(s.get("created", 0))].append(s)
+
+        for g in _GROUP_ORDER:
+            items = groups[g]
+            if not items:
+                continue
+            header = QListWidgetItem(g)
+            header.setFlags(Qt.ItemFlag.NoItemFlags)
+            f = header.font()
+            f.setPointSize(max(7, f.pointSize() - 1))
+            header.setFont(f)
+            header.setForeground(QColor(theme.TEXT3))
+            self.session_list.addItem(header)
+            for s in items:
+                it = QListWidgetItem(icons.qicon("chat"), s["title"] or "新对话")
+                it.setData(Qt.ItemDataRole.UserRole, s["id"])
+                self.session_list.addItem(it)
+                if s["id"] == self.cur_id:
+                    self.session_list.setCurrentItem(it)
 
     def _on_session_clicked(self, item: QListWidgetItem):
         sid = item.data(Qt.ItemDataRole.UserRole)
-        if sid == self.cur_id:
+        if not sid or sid == self.cur_id:
             return
-        self._gen += 1            # 取消可能在跑的流
+        self._gen += 1
         self._set_streaming(False)
         self.cur_id = sid
         self._load_current()
 
     def _session_menu(self, pos):
         item = self.session_list.itemAt(pos)
-        if item is None:
+        if item is None or not item.data(Qt.ItemDataRole.UserRole):
             return
         sid = item.data(Qt.ItemDataRole.UserRole)
         menu = QMenu(self)
         act_del = menu.addAction(icons.qicon("delete"), "删除会话")
-        chosen = menu.exec(self.session_list.mapToGlobal(pos))
-        if chosen == act_del:
+        if menu.exec(self.session_list.mapToGlobal(pos)) == act_del:
             self._delete_session(sid)
 
     def _delete_session(self, sid: str):
@@ -316,33 +512,20 @@ class AIChatWindow(OpenHamWindowBase):
             w.setParent(None)
             w.deleteLater()
         self._rows = []
-        self._bubbles = []
+        self._msgs = []
 
-    def _add_bubble(self, role: str, text: str) -> _Bubble:
-        bubble = _Bubble(role)
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        wrap = QWidget()
-        wrap.setStyleSheet("background: transparent;")
-        wrap.setLayout(row)
-        if role == "user":
-            row.addStretch(1)
-            row.addWidget(bubble)
-        else:
-            row.addWidget(bubble)
-            row.addStretch(1)
-        # 插在末尾 stretch 之前
-        self.msg_layout.insertWidget(self.msg_layout.count() - 1, wrap)
-        self._rows.append(wrap)
-        self._bubbles.append(bubble)
-        bubble.set_width(self._bubble_width(role))
-        bubble.set_text(text)
-        return bubble
+    def _add_message(self, role: str, text: str) -> _MessageRow:
+        msg = _MessageRow(role)
+        self.msg_layout.insertWidget(self.msg_layout.count() - 1, msg)
+        self._rows.append(msg)
+        self._msgs.append(msg)
+        msg.set_width(self._content_width())
+        msg.set_text(text)
+        return msg
 
-    def _bubble_width(self, role: str) -> int:
+    def _content_width(self) -> int:
         vw = self.scroll.viewport().width() or 700
-        avail = vw - 44  # 减去左右内边距
-        return int(avail * (0.74 if role == "assistant" else 0.66))
+        return max(200, vw - 56)
 
     def _load_current(self):
         self._clear_messages()
@@ -352,21 +535,33 @@ class AIChatWindow(OpenHamWindowBase):
         if not cur["messages"]:
             self._show_empty_hint()
         for m in cur["messages"]:
-            self._add_bubble(m["role"], m["content"])
+            self._add_message(m["role"], m["content"])
         self._scroll_to_bottom()
 
     def _show_empty_hint(self):
-        # 空会话的居中提示
-        hint = QLabel("有什么可以帮你的？\n\n直接在下方输入开始对话吧")
+        box = QWidget()
+        box.setStyleSheet("background: transparent;")
+        bl = QVBoxLayout(box)
+        bl.setContentsMargins(0, 60, 0, 0)
+        bl.setSpacing(12)
+        logo = QLabel()
+        pm = _brand_pixmap(54)
+        if pm is not None:
+            logo.setPixmap(pm)
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bl.addWidget(logo)
+        hint = QLabel("有什么可以帮你的？")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint.setStyleSheet(f"color: {theme.TEXT3}; font-size: 14px;"
-                           " background: transparent;")
-        wrap = QWidget()
-        wrap.setStyleSheet("background: transparent;")
-        wl = QVBoxLayout(wrap)
-        wl.addWidget(hint)
-        self.msg_layout.insertWidget(self.msg_layout.count() - 1, wrap)
-        self._rows.append(wrap)   # 纳入统一清理，但不入 _bubbles（无需测宽）
+        hint.setStyleSheet(f"color: {theme.TEXT2}; font-size: 16px;"
+                           " font-weight: 600; background: transparent;")
+        bl.addWidget(hint)
+        sub = QLabel("在下方输入开始对话")
+        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sub.setStyleSheet(f"color: {theme.TEXT3}; font-size: 13px;"
+                          " background: transparent;")
+        bl.addWidget(sub)
+        self.msg_layout.insertWidget(self.msg_layout.count() - 1, box)
+        self._rows.append(box)
 
     # ── 发送 / 流式 ───────────────────────────────────────────────────
     def _send(self):
@@ -379,15 +574,14 @@ class AIChatWindow(OpenHamWindowBase):
         if cur is None:
             self._new_session()
             cur = self._cur()
-        # 首条消息：清掉空提示
         if not cur["messages"]:
             self._clear_messages()
         self.input.clear()
 
         cur["messages"].append({"role": "user", "content": text})
-        self._add_bubble("user", text)
+        self._add_message("user", text)
         self._assistant_text = ""
-        self._assistant_bubble = self._add_bubble("assistant", "▍")
+        self._assistant_row = self._add_message("assistant", "▍")
         self._scroll_to_bottom()
         self._maybe_title(cur, text)
         _save_sessions(self.sessions)
@@ -413,17 +607,17 @@ class AIChatWindow(OpenHamWindowBase):
         threading.Thread(target=work, daemon=True).start()
 
     def _on_chunk(self, gen: int, piece: str):
-        if gen != self._gen or self._assistant_bubble is None:
+        if gen != self._gen or self._assistant_row is None:
             return
         self._assistant_text += piece
-        self._assistant_bubble.set_text(self._assistant_text + " ▍")
+        self._assistant_row.set_text(self._assistant_text + " ▍")
         self._scroll_to_bottom()
 
     def _on_done(self, gen: int):
         if gen != self._gen:
             return
-        if self._assistant_bubble is not None:
-            self._assistant_bubble.set_text(self._assistant_text)
+        if self._assistant_row is not None:
+            self._assistant_row.set_text(self._assistant_text)
         cur = self._cur()
         if cur is not None:
             cur["messages"].append(
@@ -436,8 +630,8 @@ class AIChatWindow(OpenHamWindowBase):
         if gen != self._gen:
             return
         self._assistant_text += f"\n\n❌ {msg}"
-        if self._assistant_bubble is not None:
-            self._assistant_bubble.set_text(self._assistant_text)
+        if self._assistant_row is not None:
+            self._assistant_row.set_text(self._assistant_text)
         cur = self._cur()
         if cur is not None:
             cur["messages"].append(
@@ -455,9 +649,8 @@ class AIChatWindow(OpenHamWindowBase):
     def _set_streaming(self, on: bool):
         self._streaming = on
         self.send_btn.setEnabled(not on)
-        self.send_btn.setText("  回复中…" if on else "  发送")
         if not on:
-            self._assistant_bubble = None
+            self._assistant_row = None
 
     # ── 杂项 ──────────────────────────────────────────────────────────
     def _scroll_to_bottom(self):
@@ -469,18 +662,18 @@ class AIChatWindow(OpenHamWindowBase):
     def eventFilter(self, obj, event):
         from PyQt6.QtCore import QEvent
         if obj is self.input and event.type() == QEvent.Type.KeyPress:
-            key = event.key()
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-                    return False  # 换行
+                    return False
                 self._send()
                 return True
         return super().eventFilter(obj, event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        for b in self._bubbles:
-            b.set_width(self._bubble_width(b.role))
+        w = self._content_width()
+        for m in self._msgs:
+            m.set_width(w)
 
     def open(self):
         """供插件调用：居中显示并聚焦输入框。"""
