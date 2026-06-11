@@ -37,14 +37,14 @@ def match_dashdash(text: str) -> bool:
 
 @openham_plugin(
     match=match_dashdash,
-    desc="🧠 AI 对话（-- 前缀唤起 / 多 Bot / 多轮 / Markdown）",
+    desc="聊天（-- 前缀唤起 / 多 Bot / 多轮 / Markdown）",
     setup=setup_ai_chat,
 )
 def execute_ai_chat(text: str):
     try:
         win = _ensure_window()
     except Exception as e:
-        return {"type": "error", "content": f"❌ 无法打开 AI 对话：{e}"}
+        return {"type": "error", "content": f"❌ 无法打开聊天：{e}"}
 
     query = text.strip()[2:].strip()   # 去掉前导 --
     if query:
@@ -52,4 +52,4 @@ def execute_ai_chat(text: str):
         preview = query if len(query) <= 16 else query[:16] + "…"
         return {"type": "result", "content": f"✅ 已发送：{preview}"}
     win.open()
-    return {"type": "result", "content": "✅ 已打开 AI 对话"}
+    return {"type": "result", "content": "✅ 已打开聊天"}

@@ -105,27 +105,30 @@ def _time_group(ts: float) -> str:
 
 
 _GROUP_ORDER = ["今天", "昨天", "7 天内", "更早"]
-_AVA_PALETTE = ["#6e56cf", "#1f8f43", "#b25000", "#0a7ea4",
-                "#c0392b", "#7d3c98", "#2d6cdf", "#0f9b8e"]
+# 克制、低饱和的配色（避免刺眼的纯色），圆角方形头像
+_AVA_PALETTE = ["#5b6b8c", "#4a7c6f", "#8c5b6b", "#6b5b8c",
+                "#8c7a5b", "#4f7d8a", "#7a8c5b", "#9c6f4a"]
 _ava_cache = {}
 
 
 def _letter_avatar(name: str, px: int = 34) -> QPixmap:
-    ch = (name.strip()[:1] or "?").upper()
-    key = (ch, px)
+    name = name.strip() or "?"
+    ch = name[:1].upper()
+    key = (name, px)
     if key in _ava_cache:
         return _ava_cache[key]
-    color = _AVA_PALETTE[(sum(ord(c) for c in ch)) % len(_AVA_PALETTE)]
+    color = _AVA_PALETTE[(sum(ord(c) for c in name)) % len(_AVA_PALETTE)]
     pm = QPixmap(px, px)
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.setBrush(QColor(color))
     p.setPen(Qt.PenStyle.NoPen)
-    p.drawEllipse(0, 0, px, px)
+    r = px * 0.30
+    p.drawRoundedRect(0, 0, px, px, r, r)
     p.setPen(QColor("#ffffff"))
     f = QFont()
-    f.setPointSizeF(px * 0.42)
+    f.setPointSizeF(px * 0.40)
     f.setBold(True)
     p.setFont(f)
     p.drawText(pm.rect(), Qt.AlignmentFlag.AlignCenter, ch)
@@ -280,7 +283,7 @@ class AIChatWindow(OpenHamWindowBase):
     """AI 对话主窗口（单例，由插件 setup 创建并复用）。"""
 
     def __init__(self):
-        super().__init__(title="💬 AI 对话", min_w=940, min_h=600)
+        super().__init__(title="聊天", min_w=940, min_h=600)
         self.resize(1080, 700)
 
         self.store = _load_store()
@@ -363,11 +366,7 @@ class AIChatWindow(OpenHamWindowBase):
         logo.setFixedSize(30, 30)
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
-
-        line = QFrame()
-        line.setFixedSize(34, 1)
-        line.setStyleSheet(f"background: {theme.BORDER};")
-        v.addWidget(line, 0, Qt.AlignmentFlag.AlignHCenter)
+        v.addSpacing(4)
 
         # bots 容器（可滚动）
         self.bot_col = QVBoxLayout()
@@ -416,14 +415,22 @@ class AIChatWindow(OpenHamWindowBase):
             " background: transparent;")
         v.addWidget(self.bot_title)
 
+        self.bot_sub = QLabel("")
+        self.bot_sub.setStyleSheet(
+            f"color: {theme.TEXT3}; font-size: 11px; background: transparent;")
+        v.addWidget(self.bot_sub)
+
         self.search = QLineEdit()
-        self.search.setPlaceholderText("🔍  搜索会话")
+        self.search.setPlaceholderText("搜索会话")
         self.search.setFixedHeight(36)
         self.search.setClearButtonEnabled(True)
+        self.search.addAction(icons.qicon("search", color=theme.TEXT3),
+                              QLineEdit.ActionPosition.LeadingPosition)
+        # 等宽聚焦边框 + 固定高度，避免聚焦时被裁剪
         self.search.setStyleSheet(
             f"QLineEdit {{ background: {theme.SURFACE}; color: {theme.TEXT};"
             f" border: 1px solid {theme.BORDER_IN}; border-radius: 9px;"
-            f" padding: 0 10px; font-size: 13px; }}"
+            f" padding: 0 8px; font-size: 13px; }}"
             f"QLineEdit:focus {{ border: 1px solid {theme.ACCENT}; }}")
         self.search.textChanged.connect(self._on_search)
         v.addWidget(self.search)
@@ -488,7 +495,7 @@ class AIChatWindow(OpenHamWindowBase):
         cl.setContentsMargins(14, 12, 12, 10)
         cl.setSpacing(6)
         self.input = QPlainTextEdit()
-        self.input.setPlaceholderText("给 AI 发消息……（Enter 发送，Shift+Enter 换行）")
+        self.input.setPlaceholderText("发消息……（Enter 发送，Shift+Enter 换行）")
         self.input.setFrameShape(QFrame.Shape.NoFrame)
         self.input.setStyleSheet(
             "QPlainTextEdit { background: transparent; border: none; font-size: 14px; }")
@@ -536,23 +543,38 @@ class AIChatWindow(OpenHamWindowBase):
                 w.setParent(None)
                 w.deleteLater()
         for b in self.bots:
+            active = b["id"] == self.cur_bot_id
+            # 一行：左侧选中指示条（仅当前 bot 显示）+ 圆角方形头像按钮
+            roww = QWidget()
+            roww.setStyleSheet("background: transparent;")
+            rl = QHBoxLayout(roww)
+            rl.setContentsMargins(0, 0, 0, 0)
+            rl.setSpacing(0)
+            pill = QFrame()
+            pill.setFixedSize(3, 26)
+            pill.setStyleSheet(
+                f"background: {theme.INDIGO if active else 'transparent'};"
+                " border-radius: 1px;")
+            rl.addWidget(pill, 0, Qt.AlignmentFlag.AlignVCenter)
+            rl.addSpacing(5)
             btn = QPushButton()
-            btn.setIcon(QIcon(_letter_avatar(b["name"], 38)))
-            btn.setIconSize(QSize(38, 38))
-            btn.setFixedSize(48, 48)
+            btn.setIcon(QIcon(_letter_avatar(b["name"], 40)))
+            btn.setIconSize(QSize(40, 40))
+            btn.setFixedSize(46, 46)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(b["name"])
-            active = b["id"] == self.cur_bot_id
             btn.setStyleSheet(
-                f"QPushButton {{ background: {'#ffffff' if active else 'transparent'};"
+                f"QPushButton {{ background: transparent;"
                 f" border: 2px solid {theme.INDIGO if active else 'transparent'};"
-                f" border-radius: 14px; }}"
-                f"QPushButton:hover {{ background: {theme.HOVER}; }}")
+                f" border-radius: 15px; padding: 0; }}"
+                f"QPushButton:hover {{ border-color: {theme.BORDER_IN if not active else theme.INDIGO}; }}")
             btn.clicked.connect(lambda _=False, bid=b["id"]: self._select_bot(bid))
             btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             btn.customContextMenuRequested.connect(
                 lambda pos, bid=b["id"], w=btn: self._bot_menu(bid, w, pos))
-            self.bot_col.addWidget(btn, 0, Qt.AlignmentFlag.AlignHCenter)
+            rl.addWidget(btn)
+            rl.addSpacing(3)
+            self.bot_col.addWidget(roww, 0, Qt.AlignmentFlag.AlignHCenter)
         self.bot_col.addStretch(1)
 
     def _select_bot(self, bot_id: str):
@@ -664,7 +686,13 @@ class AIChatWindow(OpenHamWindowBase):
         self._refresh_session_list()
 
     def _refresh_session_list(self):
-        self.bot_title.setText(self._cur_bot()["name"])
+        bot = self._cur_bot()
+        self.bot_title.setText(bot["name"])
+        sysp = (bot.get("system") or "").strip().replace("\n", " ")
+        if sysp:
+            self.bot_sub.setText("人设：" + (sysp[:16] + "…" if len(sysp) > 16 else sysp))
+        else:
+            self.bot_sub.setText("通用助手（未设人设）")
         self.session_list.clear()
         groups = {g: [] for g in _GROUP_ORDER}
         for s in self._sessions():
