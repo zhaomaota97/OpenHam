@@ -237,7 +237,48 @@ def _install_popup_fix(app):
     return styler
 
 
+def _light_palette():
+    from PyQt6.QtGui import QPalette, QColor
+    pal = QPalette()
+    R = QPalette.ColorRole
+    pal.setColor(R.Window, QColor(CARD))
+    pal.setColor(R.WindowText, QColor(TEXT))
+    pal.setColor(R.Base, QColor(SURFACE))
+    pal.setColor(R.AlternateBase, QColor(SUBTLE))
+    pal.setColor(R.Text, QColor(TEXT))
+    pal.setColor(R.Button, QColor(CARD))
+    pal.setColor(R.ButtonText, QColor(TEXT))
+    pal.setColor(R.BrightText, QColor("#ffffff"))
+    pal.setColor(R.ToolTipBase, QColor(CARD))
+    pal.setColor(R.ToolTipText, QColor(TEXT))
+    pal.setColor(R.Highlight, QColor(ACCENT))
+    pal.setColor(R.HighlightedText, QColor("#ffffff"))
+    try:
+        pal.setColor(R.PlaceholderText, QColor(TEXT3))
+    except Exception:
+        pass
+    # 禁用态文字
+    for grp in (QPalette.ColorGroup.Disabled,):
+        pal.setColor(grp, R.Text, QColor(TEXT3))
+        pal.setColor(grp, R.WindowText, QColor(TEXT3))
+        pal.setColor(grp, R.ButtonText, QColor(TEXT3))
+    return pal
+
+
 def apply(app):
-    """统一入口：设全局样式表 + 安装弹出层兜底。main.py 调用一次即可。"""
+    """统一入口：强制浅色配色 + 全局样式表 + 弹出层兜底。main.py 调用一次即可。
+
+    关键：Qt6 默认跟随系统深/浅色。系统处于【深色模式】时，菜单/Tooltip 等原生件
+    会用深色调色板 → 背景发黑（样式表盖不全）。这里强制浅色 ColorScheme + 浅色调色板，
+    再叠加 app_qss() 与弹出层事件过滤器，三重保证不发黑。"""
+    from PyQt6.QtCore import Qt
+    try:
+        app.styleHints().setColorScheme(Qt.ColorScheme.Light)   # Qt 6.8+：强制浅色
+    except Exception:
+        pass
+    try:
+        app.setPalette(_light_palette())
+    except Exception:
+        pass
     app.setStyleSheet(app_qss())
     _install_popup_fix(app)
