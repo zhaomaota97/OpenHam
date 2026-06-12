@@ -1039,6 +1039,8 @@ class TextGameWindow(OpenHamWindowBase):
         self._stack.setCurrentIndex(2)
         self.canvas.load(world["start"])
         self.layout_overlays()
+        QTimer.singleShot(0, self.canvas.setFocus)        # 确保画布拿到键盘焦点
+        self.canvas.toast("↑↓←→ / WASD 移动 · 空格 交互")
         if world.get("intro"):
             QTimer.singleShot(120, lambda: self._show_dialog(world["name"], world["intro"]))
 
@@ -1156,6 +1158,20 @@ class TextGameWindow(OpenHamWindowBase):
         if self._dialog_npc is None or not self.dialog.isVisible():
             return
         self.dialog.show_dialog(self._dialog_npc["name"], text)
+
+    # 无边框窗口下焦点常落在别处，键盘事件会冒泡到窗口；对局中转交给画布处理，
+    # 这样即便画布没拿到焦点也能用方向键移动。
+    def keyPressEvent(self, e):
+        if self._stack.currentIndex() == 2 and hasattr(self, "canvas"):
+            self.canvas.keyPressEvent(e)
+        else:
+            super().keyPressEvent(e)
+
+    def keyReleaseEvent(self, e):
+        if self._stack.currentIndex() == 2 and hasattr(self, "canvas"):
+            self.canvas.keyReleaseEvent(e)
+        else:
+            super().keyReleaseEvent(e)
 
     # ── 布局 ──────────────────────────────────────────────────────────
     def layout_overlays(self):
