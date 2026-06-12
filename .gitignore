@@ -33,3 +33,6 @@ ui/script_manager/workspace/
 OpenHam.exe
 make_ico.py
 logo.ico
+
+# 文字游戏插件已删；防止其残留存档被再次跟踪
+text_game/
