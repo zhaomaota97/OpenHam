@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
 from ui.window_base import OpenHamWindowBase
 from ui import icons, theme
 from core import app_config
-from core.ai_client import call_chat_stream, _CHAT_SYS
+from core.ai_client import call_chat_stream, call_deepseek_sync, _CHAT_SYS
 
 
 # ── Bot 能力：交互控件（choices 快捷回复 / ask 澄清提问）──
@@ -745,6 +745,8 @@ class _ChatSignals(QObject):
     chunk = pyqtSignal(int, str)
     done = pyqtSignal(int)
     error = pyqtSignal(int, str)
+    group_plan = pyqtSignal(int, object)      # gen, [成员id 按发言顺序]
+    member_reply = pyqtSignal(int, str, str)  # gen, 成员id, 完整台词
 
 
 class AIChatWindow(OpenHamWindowBase):
@@ -770,15 +772,22 @@ class AIChatWindow(OpenHamWindowBase):
         self._assistant_row = None
         self._assistant_text = ""
         self._filter = ""
-        # 群聊：当前轮里待发言的成员队列
+        # 群聊：编排器选出本轮发言成员 → 并行生成 → 各自「打字中」占位再填入
         self._group_active = False
-        self._group_queue = []
-        self._group_speaker = None
+        self._group_plan = []          # 本轮发言成员 id（顺序）
+        self._group_pending = set()    # 还没回完的成员 id
+        self._group_results = {}       # 成员 id -> 台词
+        self._typing_rows = {}         # 成员 id -> 占位消息行
+        self._typing_phase = 0
+        self._typing_timer = QTimer(self)
+        self._typing_timer.timeout.connect(self._animate_typing)
 
         self._sig = _ChatSignals()
         self._sig.chunk.connect(self._on_chunk)
         self._sig.done.connect(self._on_done)
         self._sig.error.connect(self._on_error)
+        self._sig.group_plan.connect(self._on_group_plan)
+        self._sig.member_reply.connect(self._on_member_reply)
 
         self._build_ui()
         self._add_sidebar_toggle()
@@ -1132,8 +1141,7 @@ class AIChatWindow(OpenHamWindowBase):
         if bot_id == self.cur_bot_id:
             return
         self._gen += 1
-        self._group_active = False
-        self._group_queue = []
+        self._cancel_group()
         self._set_streaming(False)
         self.cur_bot_id = bot_id
         self.store["current_bot"] = bot_id
@@ -1505,6 +1513,7 @@ class AIChatWindow(OpenHamWindowBase):
 
     # ── 群聊：成员依次发言 ────────────────────────────────────────────
     def _run_group_completion(self):
+        """编排器决定本轮谁开口 → 选中的成员并行生成 → 各自「打字中」占位再填台词。"""
         cur = self._cur()
         members = self._members(self._cur_bot())
         if cur is None or not members:
@@ -1514,41 +1523,134 @@ class AIChatWindow(OpenHamWindowBase):
             return
         self._autoscroll = True
         self._group_active = True
-        self._group_queue = list(members)
-        self._group_step()
-
-    def _group_step(self):
-        """让队首成员发言；其 _on_done 会接着叫下一个。"""
-        if not self._group_queue:
-            self._group_active = False
-            self._group_speaker = None
-            self._set_streaming(False)
-            self._update_action_visibility()
-            return
-        member = self._group_queue.pop(0)
-        self._group_speaker = member
-        self._assistant_text = ""
-        self._assistant_row = self._add_message("assistant", "▍", bot=member)
-        if self._autoscroll:
-            self._scroll_to_bottom()
-        history = self._build_group_history(self._cur_bot(), member, self._cur()["messages"])
+        self._set_streaming(True)
         self._gen += 1
         gen = self._gen
-        self._set_streaming(True)
+        group = self._cur_bot()
+        msgs = list(cur["messages"])
 
         def work():
-            try:
-                for piece in call_chat_stream(history):
-                    if gen != self._gen:
-                        return
-                    self._sig.chunk.emit(gen, piece)
-                if gen == self._gen:
-                    self._sig.done.emit(gen)
-            except Exception as e:
-                if gen == self._gen:
-                    self._sig.error.emit(gen, str(e))
+            ids = self._orchestrate(group, members, msgs)
+            if gen == self._gen:
+                self._sig.group_plan.emit(gen, ids)
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _orchestrate(self, group, members, messages):
+        """让模型决定这条消息后哪些成员会开口；返回成员 id 列表（可空/可多个）。"""
+        roster = "\n".join(
+            f"- {m['name']}：{(m.get('system') or '随和的群友')[:40]}" for m in members)
+        lines = []
+        for m in messages[-12:]:
+            who = "我" if m["role"] == "user" else (self._bot_name(m.get("bot")) or "成员")
+            lines.append(f"{who}：{m['content']}")
+        transcript = "\n".join(lines) if lines else "（刚开始）"
+        sysp = ("你是群聊编排器。根据成员设定和最新对话，判断这条消息发出后，"
+                "群里【谁会自然地开口回应】。不是每个人都要说话——只挑真正相关、想接话的人，"
+                "通常 1-2 个，偶尔更多或没人。只输出 JSON 数组（成员名字，按发言先后），"
+                "例如 [\"产品经理\",\"设计师\"] 或 []，不要别的内容。")
+        prompt = f"群成员：\n{roster}\n\n最近对话：\n{transcript}\n\n谁会接着开口？只回 JSON 数组。"
+        name2id = {m["name"]: m["id"] for m in members}
+        try:
+            raw = call_deepseek_sync(prompt, None, sysp, max_tokens=120)
+            mt = re.search(r"\[.*?\]", raw, re.DOTALL)
+            names = json.loads(mt.group()) if mt else []
+            ids, seen = [], set()
+            for nm in names:
+                mid = name2id.get(str(nm).strip())
+                if mid and mid not in seen:
+                    seen.add(mid)
+                    ids.append(mid)
+            return ids[:len(members)]
+        except Exception:
+            return [members[0]["id"]]   # 兜底：至少一个人接话
+
+    def _on_group_plan(self, gen, ids):
+        if gen != self._gen:
+            return
+        if not ids:                      # 没人接话，安静收场
+            self._end_group()
+            return
+        self._group_plan = list(ids)
+        self._group_pending = set(ids)
+        self._group_results = {}
+        self._typing_rows = {}
+        base = list(self._cur()["messages"])     # 本轮所有成员看同一份上下文（并行）
+        group = self._cur_bot()
+        for mid in ids:                  # 先按顺序铺占位「打字中」行
+            member = self._bot_by_id(mid)
+            row = self._add_message("assistant", "•", final=False, bot=member)
+            self._typing_rows[mid] = row
+        if not self._typing_timer.isActive():
+            self._typing_timer.start(380)
+        if self._autoscroll:
+            self._scroll_to_bottom()
+        for mid in ids:                  # 并行生成
+            member = self._bot_by_id(mid)
+            history = self._build_group_history(group, member, base)
+            self._spawn_member(gen, mid, history)
+
+    def _spawn_member(self, gen, mid, history):
+        def work():
+            try:
+                text = "".join(call_chat_stream(history, max_tokens=400)).strip()
+            except Exception as e:
+                text = f"（没接上话：{e}）"
+            if gen == self._gen:
+                self._sig.member_reply.emit(gen, mid, text or "……")
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_member_reply(self, gen, mid, text):
+        if gen != self._gen:
+            return
+        self._group_results[mid] = text
+        row = self._typing_rows.get(mid)
+        if row is not None:
+            row.set_text(text, final=True)
+        self._group_pending.discard(mid)
+        if self._autoscroll:
+            self._scroll_to_bottom()
+        if not self._group_pending:
+            self._finish_group_round()
+
+    def _finish_group_round(self):
+        """本轮成员都回完（或被中止）：按发言顺序把台词落库。"""
+        self._typing_timer.stop()
+        cur = self._cur()
+        if cur is not None:
+            for mid in self._group_plan:
+                if mid in self._group_results:
+                    cur["messages"].append({"role": "assistant",
+                                            "content": self._group_results[mid], "bot": mid})
+            _save_store(self.store)
+        self._group_active = False
+        self._group_plan, self._group_pending = [], set()
+        self._group_results, self._typing_rows = {}, {}
+        self._set_streaming(False)
+        self._load_current()            # 重建：占位行换成落库消息、固定最新按钮
+        self._update_action_visibility()
+
+    def _end_group(self):
+        self._typing_timer.stop()
+        self._group_active = False
+        self._group_plan, self._group_pending = [], set()
+        self._group_results, self._typing_rows = {}, {}
+        self._set_streaming(False)
+        self._update_action_visibility()
+
+    def _cancel_group(self):
+        """切换 bot/会话时丢弃进行中的群聊轮次（不落库）。"""
+        self._typing_timer.stop()
+        self._group_active = False
+        self._group_plan, self._group_pending = [], set()
+        self._group_results, self._typing_rows = {}, {}
+
+    def _animate_typing(self):
+        self._typing_phase = (self._typing_phase + 1) % 3
+        dots = ["•", "• •", "• • •"][self._typing_phase]
+        for mid, row in self._typing_rows.items():
+            if mid in self._group_pending and row is not None:
+                row.set_text(dots, final=False)
 
     def _build_group_history(self, group, member, messages):
         members = self._members(group)
@@ -1650,18 +1752,12 @@ class AIChatWindow(OpenHamWindowBase):
             self._assistant_row.set_text(self._assistant_text, final=True)
         cur = self._cur()
         if cur is not None:
-            m = {"role": "assistant", "content": self._assistant_text}
-            if self._group_active and self._group_speaker:
-                m["bot"] = self._group_speaker["id"]
-            cur["messages"].append(m)
+            cur["messages"].append({"role": "assistant", "content": self._assistant_text})
             _save_store(self.store)
+        self._set_streaming(False)
         self._update_action_visibility()
         if self._autoscroll:
             self._scroll_to_bottom()
-        if self._group_active:
-            self._group_step()         # 叫下一个成员发言（保持 streaming）
-        else:
-            self._set_streaming(False)
 
     def _on_error(self, gen: int, msg: str):
         if gen != self._gen:
@@ -1671,32 +1767,23 @@ class AIChatWindow(OpenHamWindowBase):
             self._assistant_row.set_text(self._assistant_text)
         cur = self._cur()
         if cur is not None:
-            m = {"role": "assistant", "content": self._assistant_text}
-            if self._group_active and self._group_speaker:
-                m["bot"] = self._group_speaker["id"]
-            cur["messages"].append(m)
+            cur["messages"].append({"role": "assistant", "content": self._assistant_text})
             _save_store(self.store)
+        self._set_streaming(False)
         self._update_action_visibility()
-        if self._group_active:
-            self._group_step()
-        else:
-            self._set_streaming(False)
 
     def _stop(self):
-        """中止当前流式生成：保留已生成的部分并落库。"""
+        """中止当前生成：保留已生成的部分并落库。"""
         if not self._streaming:
             return
-        self._gen += 1                     # 让在跑的流被丢弃
+        self._gen += 1                     # 让在跑的流/成员被丢弃
+        if self._group_active:
+            self._finish_group_round()     # 把已到的成员发言落库、清理打字行
+            return
         cur = self._cur()
         if cur is not None and self._assistant_text.strip():
-            m = {"role": "assistant", "content": self._assistant_text}
-            if self._group_active and self._group_speaker:
-                m["bot"] = self._group_speaker["id"]
-            cur["messages"].append(m)
+            cur["messages"].append({"role": "assistant", "content": self._assistant_text})
             _save_store(self.store)
-        self._group_active = False         # 中止整轮群聊
-        self._group_queue = []
-        self._group_speaker = None
         self._set_streaming(False)
         self._load_current()               # 重建：去掉光标/空助手行，固定最新回答按钮
         self._update_action_visibility()
