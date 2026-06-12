@@ -295,6 +295,7 @@ class _HUD(QWidget):
         while self.items_box.count():
             w = self.items_box.takeAt(0).widget()
             if w:
+                w.setParent(None)        # 立即脱离，避免删除前残影
                 w.deleteLater()
         if not items:
             e = QLabel("（空）")
@@ -586,6 +587,7 @@ class TextGameWindow(OpenHamWindowBase):
             it = self._story_box.takeAt(0)
             w = it.widget()
             if w:
+                w.setParent(None)
                 w.deleteLater()
         self._clear_actions()
 
@@ -606,6 +608,7 @@ class TextGameWindow(OpenHamWindowBase):
             it = self._action_box.takeAt(0)
             w = it.widget()
             if w:
+                w.setParent(None)
                 w.deleteLater()
 
     def _action_button(self, text: str, primary=False) -> QPushButton:
