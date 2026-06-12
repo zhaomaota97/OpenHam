@@ -198,43 +198,78 @@ def tooltip_qss() -> str:
             f" border-radius: 6px; padding: 5px 8px; font-size: 12px;")
 
 
-# ── 全局兜底：所有弹出层（菜单 / 提示）强制浅色 ──────────────────────────
-# 根因：无边框 + 半透明主窗口下，QMenu / QToolTip(QTipLabel) 会继承父控件的
-# bare 样式（background:transparent），漏进来后在半透明窗上合成成黑色——连
-# 文本框/浏览器的「系统右键菜单」也黑。逐个设样式管不全（系统菜单是 Qt 内部建的）。
-# 这里用一个 App 级事件过滤器：任何 QMenu / QTipLabel 一出现就给它套上不透明浅色样式。
+# ── 全局兜底：菜单浅色 + 用自绘 tooltip 取代系统 tooltip ─────────────────
+# 根因：无边框 + 半透明主窗口 + 系统深色模式下，QMenu / 系统右键菜单 / Tooltip(QTipLabel)
+# 的原生背景会发黑。菜单靠「出现即套浅色样式」搞定；但 QToolTip 全程【复用同一个
+# QTipLabel】、每次 showText 又拿自己的(深色)静态调色板重设，快速移动时复用的提示又黑、
+# 防不胜防。最稳的办法：直接拦掉系统 tooltip，自己用一个完全可控的浅色 QLabel 当提示。
 def _install_popup_fix(app):
-    from PyQt6.QtCore import QObject, QEvent, QTimer
-    from PyQt6.QtWidgets import QMenu
+    from PyQt6.QtCore import QObject, QEvent, QTimer, Qt, QPoint
+    from PyQt6.QtGui import QCursor
+    from PyQt6.QtWidgets import QMenu, QLabel, QWidget
 
-    def _fix_tip(tip):
-        # QToolTip 每次 showText 会重设 QTipLabel 的样式/调色板，所以要在它设完之后
-        # （事件循环下一拍）再覆盖，并关掉半透明，确保不透明浅底、不发黑。
-        try:
-            from PyQt6.QtCore import Qt as _Qt
-            tip.setAttribute(_Qt.WidgetAttribute.WA_TranslucentBackground, False)
-            tip.setStyleSheet(tooltip_qss())
-        except Exception:
-            pass
+    class _PopupFix(QObject):
+        def __init__(self, parent):
+            super().__init__(parent)
+            self._tip = None
+            self._hide_timer = QTimer(self)
+            self._hide_timer.setSingleShot(True)
+            self._hide_timer.timeout.connect(self._hide_tip)
 
-    class _PopupStyler(QObject):
+        def _ensure_tip(self):
+            if self._tip is None:
+                lbl = QLabel(None)
+                lbl.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
+                lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+                lbl.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+                lbl.setStyleSheet(
+                    f"QLabel {{ background: {CARD}; color: {TEXT}; border: 1px solid {BORDER};"
+                    f" border-radius: 6px; padding: 5px 9px; font-size: 12px; }}")
+                self._tip = lbl
+            return self._tip
+
+        def _show_tip(self, text, gpos):
+            t = self._ensure_tip()
+            t.setText(text)
+            t.adjustSize()
+            t.move(gpos + QPoint(12, 18))
+            t.show()
+            t.raise_()
+            self._hide_timer.start(6000)
+
+        def _hide_tip(self):
+            if self._tip is not None and self._tip.isVisible():
+                self._tip.hide()
+
         def eventFilter(self, obj, event):
-            t = event.type()
-            if t == QEvent.Type.Polish or t == QEvent.Type.Show:
-                cls = obj.metaObject().className()
-                if cls == "QMenu" or isinstance(obj, QMenu):
+            et = event.type()
+            if et == QEvent.Type.ToolTip:
+                text = obj.toolTip() if isinstance(obj, QWidget) else ""
+                if text:
+                    gpos = None
+                    try:
+                        gpos = event.globalPos()
+                    except Exception:
+                        gpos = QCursor.pos()
+                    self._show_tip(text, gpos or QCursor.pos())
+                    return True            # 吃掉系统 tooltip，用我们自绘的
+                self._hide_tip()
+                return False
+            if et in (QEvent.Type.Leave, QEvent.Type.MouseButtonPress, QEvent.Type.Wheel,
+                      QEvent.Type.WindowDeactivate, QEvent.Type.FocusOut,
+                      QEvent.Type.KeyPress):
+                self._hide_tip()
+            elif et == QEvent.Type.Polish or et == QEvent.Type.Show:
+                if isinstance(obj, QMenu) or obj.metaObject().className() == "QMenu":
                     if not obj.property("_oh_styled"):
                         obj.setProperty("_oh_styled", True)
                         obj.setStyleSheet(menu_qss())
-                elif cls == "QTipLabel":
-                    _fix_tip(obj)                      # 立即设一次
-                    QTimer.singleShot(0, lambda o=obj: _fix_tip(o))   # 再覆盖一次
             return False
 
-    styler = _PopupStyler(app)
-    app.installEventFilter(styler)
-    app._oh_popup_styler = styler   # 持引用，防止被回收
-    return styler
+    fix = _PopupFix(app)
+    app.installEventFilter(fix)
+    app._oh_popup_styler = fix   # 持引用，防止被回收
+    return fix
 
 
 def _light_palette():

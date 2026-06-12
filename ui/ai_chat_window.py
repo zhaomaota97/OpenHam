@@ -962,6 +962,10 @@ class AIChatWindow(OpenHamWindowBase):
         self.session_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.session_list.customContextMenuRequested.connect(self._session_menu)
         self.session_list.itemClicked.connect(self._on_session_clicked)
+        # 标题过长不横向滚动，改为右侧省略号
+        self.session_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.session_list.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.session_list.setWordWrap(False)
         self.session_list.setStyleSheet(
             f"QListWidget {{ background: transparent; border: none; outline: none;"
             f" font-size: 14px; }}"
