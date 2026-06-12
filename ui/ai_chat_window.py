@@ -11,11 +11,9 @@
 """
 import os
 import re
-import math
 import time
 import uuid
 import json
-import random
 import datetime
 import tempfile
 import threading
@@ -37,11 +35,10 @@ from core import app_config
 from core.ai_client import call_chat_stream, _CHAT_SYS
 
 
-# ── Bot 能力：交互控件（choices 快捷回复 / ask 澄清提问 / game 文字游戏）──
+# ── Bot 能力：交互控件（choices 快捷回复 / ask 澄清提问）──
+# （文字游戏已拆为独立插件 plugins/text_game，聊天不再内置游戏能力）
 CAP_CHOICES = "choices"
 CAP_ASK = "ask"
-CAP_GAME = "game"
-CAP_DICE = "dice"   # 旧值，载入时迁移为 game
 
 _CHOICES_RULE = (
     "【快捷回复能力·重要】每次回答的最后，都要再追加一个「快捷追问选项」块，"
@@ -59,124 +56,14 @@ _ASK_RULE = (
     "若该问题允许多选，在标签后加 multi：第一行写 ```openham:ask multi。\n"
     "选项 2–5 个、简短；一次只问最关键的一个问题；意图已经清楚时不要提问，直接作答。"
 )
-_GAME_RULE = (
-    "【文字游戏能力】当你主持文字游戏、需要随机/抽签/展示状态/庆祝时，可用这些道具"
-    "（独立围栏代码块，块前后照常说话；随机类道具放在「揭晓结果之前」的位置）：\n"
-    "· 掷骰子（先随机决定 1–6）：\n```openham:dice\n4\n```\n"
-    "· 抛硬币（先随机决定 正/反）：\n```openham:coin\n正\n```\n"
-    "· 抽牌（先随机决定一张，花色用 ♠♥♦♣，点数 A 2-10 J Q K）：\n```openham:card\n♠A\n```\n"
-    "· 命运转盘（每行一个选项，最后一行 winner: 指定中奖项）：\n"
-    "```openham:wheel\n吃火锅\n吃烧烤\n点外卖\nwinner: 吃烧烤\n```\n"
-    "· 计分板（每行「名字: 分数」）：\n```openham:score\n小明: 12\n小红: 9\n```\n"
-    "· 血条/数值条（每行「名字: 当前/上限」）：\n```openham:bar\n勇者: 70/100\n史莱姆: 20/40\n```\n"
-    "· 撒花庆祝（赢了/达成时）：\n```openham:confetti\n```\n"
-    "随机类（骰子/硬币/抽牌/转盘）的结果由你预先决定，并在块之后用文字揭晓点评。"
-)
-
-# 统一匹配所有道具围栏块（保留出现顺序），以及流式未闭合的尾块
-_KINDS = "choices|ask|dice|coin|card|wheel|score|bar|confetti"
+# 匹配交互控件围栏块（choices/ask，保留出现顺序），以及流式未闭合的尾块
+_KINDS = "choices|ask"
 _BLOCK_RE = re.compile(
     r"```[ \t]*openham:(" + _KINDS + r")([^\n]*)\r?\n(.*?)```",
     re.DOTALL | re.IGNORECASE)
 _BLOCK_TRAILING_RE = re.compile(
     r"```[ \t]*openham:(?:" + _KINDS + r")[^\n]*\r?\n.*$",
     re.DOTALL | re.IGNORECASE)
-# 「已闭合的 随机动画类（骰子/硬币/抽牌/转盘）块」，用于流式中检测播放动画的时机
-_ROLL_RE = re.compile(
-    r"```[ \t]*openham:(dice|coin|card|wheel)[^\n]*\r?\n(.*?)```",
-    re.DOTALL | re.IGNORECASE)
-# confetti 块（无需暂存，揭晓后放）
-_CONFETTI_RE = re.compile(
-    r"```[ \t]*openham:confetti[^\n]*\r?\n.*?```", re.DOTALL | re.IGNORECASE)
-
-_SUITS = "♠♥♦♣"
-_RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
-
-
-def _dice_result(body: str) -> int:
-    m = re.search(r"\d+", body or "")
-    n = int(m.group()) if m else 1
-    return max(1, min(6, n))
-
-
-def _coin_result(body: str) -> str:
-    s = (body or "")
-    return "反" if ("反" in s or "tail" in s.lower()) else "正"
-
-
-def _parse_card(body: str):
-    s = (body or "").strip()
-    suit = "♠"
-    found = next((c for c in _SUITS if c in s), None)
-    if found:
-        suit = found
-    else:
-        low = s.lower()
-        for word, sym in (("黑桃", "♠"), ("红桃", "♥"), ("红心", "♥"), ("方块", "♦"),
-                          ("方片", "♦"), ("梅花", "♣"), ("spade", "♠"), ("heart", "♥"),
-                          ("diamond", "♦"), ("club", "♣")):
-            if word in s or word in low:
-                suit = sym
-                break
-    core = re.sub(r"[♠♥♦♣]|黑桃|红桃|红心|方块|方片|梅花", "", s)
-    core = re.sub(r"(?i)spade|heart|diamond|club|of|花色|点数|:|：", "", core).strip()
-    mr = re.search(r"10|[2-9]|[AJQKajqk]", core)
-    rank = mr.group(0).upper() if mr else "A"
-    return suit, rank
-
-
-def _parse_wheel(body: str):
-    opts, winner = [], ""
-    for line in (body or "").splitlines():
-        s = line.strip().lstrip("-*• ").strip()
-        if not s:
-            continue
-        low = s.lower()
-        if low.startswith("winner") or s.startswith("中奖") or s.startswith("结果"):
-            sep = "：" if "：" in s else (":" if ":" in s else None)
-            winner = s.split(sep, 1)[1].strip() if sep else ""
-        else:
-            opts.append(s)
-    opts = opts[:8]
-    if opts and winner not in opts:
-        winner = opts[0]
-    return opts, winner
-
-
-def _parse_score(body: str):
-    rows = []
-    for line in (body or "").splitlines():
-        s = line.strip().lstrip("-*• ").strip()
-        if not s:
-            continue
-        sep = "：" if "：" in s else (":" if ":" in s else None)
-        if sep:
-            name, _, val = s.partition(sep)
-            rows.append((name.strip(), val.strip()))
-        else:
-            rows.append((s, ""))
-    return rows[:8]
-
-
-def _parse_bar(body: str):
-    rows = []
-    for line in (body or "").splitlines():
-        s = line.strip().lstrip("-*• ").strip()
-        if not s:
-            continue
-        sep = "：" if "：" in s else (":" if ":" in s else None)
-        if not sep:
-            continue
-        name, _, val = s.partition(sep)
-        mm = re.search(r"(\d+)\s*/\s*(\d+)", val)
-        if mm:
-            cur, mx = int(mm.group(1)), int(mm.group(2))
-        else:
-            m2 = re.search(r"\d+", val)
-            cur = int(m2.group()) if m2 else 0
-            mx = max(cur, 100)
-        rows.append((name.strip(), max(0, cur), max(1, mx)))
-    return rows[:6]
 
 
 def _parse_ask_body(body: str):
@@ -209,27 +96,6 @@ def _parse_blocks(text: str):
             items = [x for x in items if x][:4]
             if items:
                 blocks.append({"type": "choices", "items": items})
-        elif kind == "dice":
-            blocks.append({"type": "dice", "result": _dice_result(body)})
-        elif kind == "coin":
-            blocks.append({"type": "coin", "result": _coin_result(body)})
-        elif kind == "card":
-            suit, rank = _parse_card(body)
-            blocks.append({"type": "card", "suit": suit, "rank": rank})
-        elif kind == "wheel":
-            opts, winner = _parse_wheel(body)
-            if opts:
-                blocks.append({"type": "wheel", "options": opts, "winner": winner})
-        elif kind == "score":
-            rows = _parse_score(body)
-            if rows:
-                blocks.append({"type": "score", "rows": rows})
-        elif kind == "bar":
-            rows = _parse_bar(body)
-            if rows:
-                blocks.append({"type": "bar", "rows": rows})
-        elif kind == "confetti":
-            blocks.append({"type": "confetti"})
         else:
             q, opts = _parse_ask_body(body)
             if opts:
@@ -286,8 +152,8 @@ def _load_store() -> dict:
         b.setdefault("name", "助手")
         b.setdefault("system", "")
         b.setdefault("capabilities", [])
-        # 旧的「dice」能力迁移为「game」文字游戏包
-        b["capabilities"] = ["game" if c == "dice" else c for c in b["capabilities"]]
+        # 文字游戏已拆为独立插件，移除旧的 game/dice 能力（聊天仅保留 choices/ask）
+        b["capabilities"] = [c for c in b["capabilities"] if c not in ("game", "dice")]
         b.setdefault("created", time.time())
         b["sessions"] = [_norm_session(s) for s in b.get("sessions", [])]
     if not bots:
@@ -415,345 +281,6 @@ def _checkbox_style() -> str:
             f"QCheckBox::indicator:checked {{ image: url({_check_png(True)}); }}")
 
 
-# 骰子点数在 3×3 网格里的位置（列,行）∈ {0,1,2}
-_DIE_PIPS = {
-    1: [(1, 1)],
-    2: [(0, 0), (2, 2)],
-    3: [(0, 0), (1, 1), (2, 2)],
-    4: [(0, 0), (2, 0), (0, 2), (2, 2)],
-    5: [(0, 0), (2, 0), (1, 1), (0, 2), (2, 2)],
-    6: [(0, 0), (2, 0), (0, 1), (2, 1), (0, 2), (2, 2)],
-}
-
-
-def _draw_die(p: QPainter, x, y, s, value, pip="#1d1d1f", face="#ffffff"):
-    """在 (x,y) 处画一个边长 s 的骰子（含点数 value 的点）。"""
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setBrush(QColor(face))
-    p.setPen(QPen(QColor(0, 0, 0, 38), max(1.0, s * 0.02)))
-    p.drawRoundedRect(QRectF(x, y, s, s), s * 0.18, s * 0.18)
-    p.setBrush(QColor(pip))
-    p.setPen(Qt.PenStyle.NoPen)
-    pr = s * 0.13
-    cols = [x + s * 0.28, x + s * 0.5, x + s * 0.72]
-    rows = [y + s * 0.28, y + s * 0.5, y + s * 0.72]
-    for (c, r) in _DIE_PIPS.get(int(value), _DIE_PIPS[1]):
-        p.drawEllipse(QPointF(cols[c], rows[r]), pr, pr)
-
-
-def _die_pixmap(value: int, px: int = 38) -> QPixmap:
-    s = int(px * _SS)
-    pm = QPixmap(s, s)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    _draw_die(p, 1, 1, s - 2, value)
-    p.end()
-    pm.setDevicePixelRatio(_SS)
-    return pm
-
-
-def _draw_coin(p: QPainter, cx, cy, w, h, side):
-    """画一枚金币（中心 cx,cy，宽 w 高 h）；w<h 时呈翻转中的椭圆。"""
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    rect = QRectF(cx - w / 2, cy - h / 2, max(2.0, w), h)
-    p.setBrush(QColor("#ecc34d"))
-    p.setPen(QPen(QColor("#b8881f"), max(1.0, h * 0.045)))
-    p.drawEllipse(rect)
-    if w > h * 0.45:                       # 够宽才画字
-        p.setPen(QColor("#6e4f10"))
-        f = QFont()
-        f.setPixelSize(int(h * 0.44))
-        f.setBold(True)
-        p.setFont(f)
-        p.drawText(rect, Qt.AlignmentFlag.AlignCenter, side)
-
-
-def _coin_pixmap(side: str, px: int = 34) -> QPixmap:
-    s = int(px * _SS)
-    pm = QPixmap(s, s)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    _draw_coin(p, s / 2, s / 2, s - 2, s - 2, side)
-    p.end()
-    pm.setDevicePixelRatio(_SS)
-    return pm
-
-
-def _draw_card(p: QPainter, cx, cy, w, h, suit, rank):
-    """画一张扑克牌（中心 cx,cy）。"""
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    rect = QRectF(cx - w / 2, cy - h / 2, w, h)
-    p.setBrush(QColor("#ffffff"))
-    p.setPen(QPen(QColor(0, 0, 0, 45), max(1.0, w * 0.02)))
-    p.drawRoundedRect(rect, w * 0.10, w * 0.10)
-    color = "#d23b3b" if suit in "♥♦" else "#1d1d1f"
-    p.setPen(QColor(color))
-    fr = QFont()
-    fr.setPixelSize(int(h * 0.15))
-    fr.setBold(True)
-    p.setFont(fr)
-    p.drawText(QRectF(rect.x() + w * 0.08, rect.y() + h * 0.04, w * 0.6, h * 0.3),
-               Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, str(rank))
-    fs = QFont()
-    fs.setPixelSize(int(h * 0.12))
-    p.setFont(fs)
-    p.drawText(QRectF(rect.x() + w * 0.08, rect.y() + h * 0.2, w * 0.6, h * 0.3),
-               Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, suit)
-    fc = QFont()
-    fc.setPixelSize(int(h * 0.4))
-    fc.setBold(True)
-    p.setFont(fc)
-    p.drawText(rect, Qt.AlignmentFlag.AlignCenter, suit)
-
-
-def _card_pixmap(suit, rank, px: int = 30) -> QPixmap:
-    w = int(px * _SS)
-    h = int(px * 1.4 * _SS)
-    pm = QPixmap(w, h)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    _draw_card(p, w / 2, h / 2, w - 2, h - 2, suit, rank)
-    p.end()
-    pm.setDevicePixelRatio(_SS)
-    return pm
-
-
-class _RollOverlay(QWidget):
-    """界面中央的随机动画浮层（掷骰/抛硬币/抽牌）：滚动若干帧后落定到结果，再揭晓。"""
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.setStyleSheet("background: transparent;")
-        self._mode = "dice"
-        self._face = 1
-        self._result = 1
-        self._ticks = 0
-        self._on_finish = None
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._tick)
-        self.hide()
-
-    def roll(self, mode: str, result, on_finish=None):
-        self._mode = mode if mode in ("coin", "card") else "dice"
-        self._on_finish = on_finish
-        self._ticks = 0
-        if self._mode == "coin":
-            self._result = "反" if str(result) == "反" else "正"
-            self._face = random.choice(["正", "反"])
-        elif self._mode == "card":
-            self._result = result                  # (suit, rank)
-            self._face = (random.choice(_SUITS), random.choice(_RANKS))
-        else:
-            self._result = max(1, min(6, int(result)))
-            self._face = random.randint(1, 6)
-        self.setGeometry(self.parent().rect())
-        self.show()
-        self.raise_()
-        self._timer.start(70)
-
-    def _tick(self):
-        self._ticks += 1
-        if self._ticks < 16:                       # 约 1.1s 滚动
-            if self._mode == "coin":
-                self._face = "反" if self._face == "正" else "正"
-            elif self._mode == "card":
-                self._face = (random.choice(_SUITS), random.choice(_RANKS))
-            else:
-                f = random.randint(1, 6)
-                while f == self._face:
-                    f = random.randint(1, 6)
-                self._face = f
-            self.update()
-        else:
-            self._timer.stop()
-            self._face = self._result              # 落定到结果
-            self.update()
-            QTimer.singleShot(650, self._finish)
-
-    def _finish(self):
-        self.hide()
-        cb, self._on_finish = self._on_finish, None
-        if cb:
-            cb()
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), QColor(20, 22, 28, 90))   # 半透明遮罩
-        s = 116.0
-        cx, cy = self.width() / 2, self.height() / 2
-        rolling = self._timer.isActive()
-        if self._mode == "coin":
-            if rolling:                            # 翻转中：横向挤压模拟立起来转
-                t = self._ticks % 6
-                scale = abs(t / 3.0 - 1.0)
-                _draw_coin(p, cx, cy, s * max(0.14, scale), s, self._face)
-            else:
-                _draw_coin(p, cx, cy, s, s, self._face)
-        elif self._mode == "card":
-            _draw_card(p, cx, cy, 100, 140, self._face[0], self._face[1])
-        else:
-            _draw_die(p, cx - s / 2, cy - s / 2, s, self._face)
-        p.end()
-
-
-_WHEEL_PALETTE = ["#6e56cf", "#1f8f43", "#c79a2e", "#0a7ea4",
-                  "#c0392b", "#7d3c98", "#2d6cdf", "#0f9b8e"]
-
-
-class _WheelOverlay(QWidget):
-    """命运转盘浮层：旋转减速后让指针落在中奖项上。"""
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.setStyleSheet("background: transparent;")
-        self._options = []
-        self._angle = 0.0
-        self._final = 0.0
-        self._total = 0.0
-        self._t = 0
-        self._dur = 46
-        self._on_finish = None
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._tick)
-        self.hide()
-
-    def spin(self, options, winner, on_finish=None):
-        self._options = options[:8] or ["?"]
-        try:
-            widx = self._options.index(winner)
-        except ValueError:
-            widx = 0
-        n = len(self._options)
-        seg = 360.0 / n
-        self._final = (90 - (widx + 0.5) * seg) % 360    # 中奖项中心转到正上方
-        self._total = 5 * 360 + self._final
-        self._t = 0
-        self._angle = 0.0
-        self._on_finish = on_finish
-        self.setGeometry(self.parent().rect())
-        self.show()
-        self.raise_()
-        self._timer.start(40)
-
-    def _tick(self):
-        self._t += 1
-        prog = self._t / self._dur
-        if prog >= 1:
-            self._angle = self._final
-            self._timer.stop()
-            self.update()
-            QTimer.singleShot(700, self._finish)
-        else:
-            ease = 1 - (1 - prog) ** 3               # ease-out 减速
-            self._angle = ease * self._total
-            self.update()
-
-    def _finish(self):
-        self.hide()
-        cb, self._on_finish = self._on_finish, None
-        if cb:
-            cb()
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), QColor(20, 22, 28, 90))
-        cx, cy = self.width() / 2, self.height() / 2
-        R = min(150.0, min(self.width(), self.height()) * 0.26)
-        n = len(self._options)
-        seg = 360.0 / n
-        rect = QRectF(cx - R, cy - R, 2 * R, 2 * R)
-        for i in range(n):
-            p.setBrush(QColor(_WHEEL_PALETTE[i % len(_WHEEL_PALETTE)]))
-            p.setPen(QPen(QColor("#ffffff"), 2))
-            p.drawPie(rect, int((self._angle + i * seg) * 16), int(seg * 16) + 1)
-        p.setPen(QColor("#ffffff"))
-        f = QFont()
-        f.setPixelSize(int(max(11, R * 0.13)))
-        f.setBold(True)
-        p.setFont(f)
-        for i, opt in enumerate(self._options):
-            mid = math.radians(self._angle + (i + 0.5) * seg)
-            lx = cx + math.cos(mid) * R * 0.6
-            ly = cy - math.sin(mid) * R * 0.6
-            p.drawText(QRectF(lx - R * 0.55, ly - 12, R * 1.1, 24),
-                       Qt.AlignmentFlag.AlignCenter, str(opt)[:6])
-        p.setBrush(QColor("#ffffff"))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawEllipse(QPointF(cx, cy), R * 0.12, R * 0.12)
-        p.setBrush(QColor("#1d1d1f"))                # 顶部指针（朝下）
-        tip = QPolygonF([QPointF(cx, cy - R + 4),
-                         QPointF(cx - 13, cy - R - 18),
-                         QPointF(cx + 13, cy - R - 18)])
-        p.drawPolygon(tip)
-        p.end()
-
-
-class _ConfettiOverlay(QWidget):
-    """撒花庆祝：彩色碎片落下，约 1.7s 后自动消失（不挡点击、无遮罩）。"""
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.setStyleSheet("background: transparent;")
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self._parts = []
-        self._t = 0
-        self._on_finish = None
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._tick)
-        self.hide()
-
-    def burst(self, on_finish=None):
-        self.setGeometry(self.parent().rect())
-        w = self.width() or 600
-        h = self.height() or 400
-        cols = ["#6e56cf", "#1f8f43", "#e0a02e", "#c0392b",
-                "#2d6cdf", "#0f9b8e", "#d23b8c"]
-        self._parts = []
-        for _ in range(90):
-            self._parts.append({
-                "x": random.uniform(0, w), "y": random.uniform(-h * 0.4, 0),
-                "vx": random.uniform(-1.6, 1.6), "vy": random.uniform(2.5, 7.0),
-                "c": random.choice(cols), "s": random.uniform(5, 11),
-                "a": random.uniform(0, 360), "va": random.uniform(-13, 13)})
-        self._t = 0
-        self._on_finish = on_finish
-        self.show()
-        self.raise_()
-        self._timer.start(30)
-
-    def _tick(self):
-        self._t += 1
-        for q in self._parts:
-            q["x"] += q["vx"]
-            q["y"] += q["vy"]
-            q["vy"] += 0.18
-            q["a"] += q["va"]
-        self.update()
-        if self._t > 56:
-            self._timer.stop()
-            self.hide()
-            cb, self._on_finish = self._on_finish, None
-            if cb:
-                cb()
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(Qt.PenStyle.NoPen)
-        for q in self._parts:
-            if q["y"] > self.height() + 20:
-                continue
-            p.save()
-            p.translate(q["x"], q["y"])
-            p.rotate(q["a"])
-            p.setBrush(QColor(q["c"]))
-            p.drawRect(QRectF(-q["s"] / 2, -q["s"] * 0.3, q["s"], q["s"] * 0.6))
-            p.restore()
-        p.end()
-
-
 class _BotDialog(QDialog):
     """新建 / 编辑 bot：名称 + system prompt。"""
 
@@ -785,10 +312,8 @@ class _BotDialog(QDialog):
         caps = capabilities or []
         self.cap_choices = QCheckBox("快捷回复按钮（AI 给出可点击的追问选项）")
         self.cap_ask = QCheckBox("澄清提问（AI 主动用单选/多选问清你的需求）")
-        self.cap_game = QCheckBox("文字游戏（掷骰子 / 抛硬币 / 计分板，让 AI 当游戏主持人）")
-        game_on = (CAP_GAME in caps) or (CAP_DICE in caps)
         for cb, on in ((self.cap_choices, CAP_CHOICES in caps),
-                       (self.cap_ask, CAP_ASK in caps), (self.cap_game, game_on)):
+                       (self.cap_ask, CAP_ASK in caps)):
             cb.setChecked(on)
             cb.setCursor(Qt.CursorShape.PointingHandCursor)
             cb.setStyleSheet(_checkbox_style())
@@ -813,8 +338,6 @@ class _BotDialog(QDialog):
             caps.append(CAP_CHOICES)
         if self.cap_ask.isChecked():
             caps.append(CAP_ASK)
-        if self.cap_game.isChecked():
-            caps.append(CAP_GAME)
         return (self.name_in.text().strip(),
                 self.sys_in.toPlainText().strip(), caps)
 
@@ -1008,155 +531,10 @@ class _MessageRow(QWidget):
         for b in blocks:
             if b["type"] == "choices":
                 self.blocks_layout.addWidget(self._make_choices_widget(b["items"]))
-            elif b["type"] == "dice":
-                self.blocks_layout.addWidget(self._make_dice_widget(b["result"]))
-            elif b["type"] == "coin":
-                self.blocks_layout.addWidget(self._make_coin_widget(b["result"]))
-            elif b["type"] == "card":
-                self.blocks_layout.addWidget(self._make_card_widget(b["suit"], b["rank"]))
-            elif b["type"] == "wheel":
-                self.blocks_layout.addWidget(self._make_wheel_widget(b["winner"]))
-            elif b["type"] == "score":
-                self.blocks_layout.addWidget(self._make_score_widget(b["rows"]))
-            elif b["type"] == "bar":
-                self.blocks_layout.addWidget(self._make_bar_widget(b["rows"]))
-            elif b["type"] == "confetti":
-                continue                           # 撒花仅是浮层动画，无内联控件
             else:
                 self.blocks_layout.addWidget(self._make_ask_widget(b))
-        # 全是 confetti 时容器可能为空
+        # choices 全部为空时容器可能为空
         self.blocks_host.setVisible(self.blocks_layout.count() > 0)
-
-    def _make_card_widget(self, suit, rank) -> QWidget:
-        w = QWidget()
-        w.setStyleSheet("background: transparent;")
-        h = QHBoxLayout(w)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(8)
-        card = QLabel()
-        card.setPixmap(_card_pixmap(suit, rank, 30))
-        card.setFixedSize(30, 42)
-        h.addWidget(card)
-        lbl = QLabel(f"抽到 {rank}{suit}")
-        lbl.setStyleSheet(f"color: {theme.TEXT}; font-size: 14px; font-weight: 600;"
-                          " background: transparent;")
-        h.addWidget(lbl)
-        h.addStretch(1)
-        return w
-
-    def _make_wheel_widget(self, winner) -> QWidget:
-        w = QWidget()
-        w.setStyleSheet("background: transparent;")
-        h = QHBoxLayout(w)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(8)
-        pill = QLabel(f"转盘选中：{winner}")
-        pill.setStyleSheet(
-            f"QLabel {{ color: {theme.INDIGO}; background: {theme.INDIGO_SOFT};"
-            f" border: 1px solid #d8d6fb; border-radius: 13px;"
-            f" padding: 5px 14px; font-size: 14px; font-weight: 600; }}")
-        h.addWidget(pill)
-        h.addStretch(1)
-        return w
-
-    def _make_bar_widget(self, rows) -> QWidget:
-        card = QFrame()
-        card.setObjectName("barCard")
-        card.setStyleSheet(
-            f"#barCard {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER};"
-            f" border-radius: 12px; }}")
-        v = QVBoxLayout(card)
-        v.setContentsMargins(14, 10, 14, 12)
-        v.setSpacing(7)
-        for name, cur, mx in rows:
-            head = QHBoxLayout()
-            head.setContentsMargins(0, 0, 0, 0)
-            n = QLabel(str(name))
-            n.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px; font-weight: 600;"
-                            " background: transparent; border: none;")
-            head.addWidget(n)
-            head.addStretch(1)
-            val = QLabel(f"{cur}/{mx}")
-            val.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px;"
-                              " background: transparent; border: none;")
-            head.addWidget(val)
-            v.addLayout(head)
-            from PyQt6.QtWidgets import QProgressBar
-            pb = QProgressBar()
-            pb.setRange(0, mx)
-            pb.setValue(min(cur, mx))
-            pb.setTextVisible(False)
-            pb.setFixedHeight(10)
-            ratio = cur / mx if mx else 0
-            fill = "#1f8f43" if ratio > 0.5 else ("#c79a2e" if ratio > 0.25 else "#c0392b")
-            pb.setStyleSheet(
-                f"QProgressBar {{ background: {theme.BORDER_IN}; border: none;"
-                f" border-radius: 5px; }}"
-                f"QProgressBar::chunk {{ background: {fill}; border-radius: 5px; }}")
-            v.addWidget(pb)
-        return card
-
-    def _make_coin_widget(self, side) -> QWidget:
-        w = QWidget()
-        w.setStyleSheet("background: transparent;")
-        h = QHBoxLayout(w)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(8)
-        coin = QLabel()
-        coin.setPixmap(_coin_pixmap(str(side), 32))
-        coin.setFixedSize(32, 32)
-        h.addWidget(coin)
-        lbl = QLabel(f"{side}面朝上")
-        lbl.setStyleSheet(f"color: {theme.TEXT}; font-size: 14px; font-weight: 600;"
-                          " background: transparent;")
-        h.addWidget(lbl)
-        h.addStretch(1)
-        return w
-
-    def _make_score_widget(self, rows) -> QWidget:
-        card = QFrame()
-        card.setObjectName("scoreCard")
-        card.setStyleSheet(
-            f"#scoreCard {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER};"
-            f" border-radius: 12px; }}")
-        v = QVBoxLayout(card)
-        v.setContentsMargins(14, 10, 14, 10)
-        v.setSpacing(5)
-        title = QLabel("计分板")
-        title.setStyleSheet(f"color: {theme.TEXT3}; font-size: 12px; font-weight: 600;"
-                            " background: transparent; border: none;")
-        v.addWidget(title)
-        for name, val in rows:
-            row = QHBoxLayout()
-            row.setContentsMargins(0, 0, 0, 0)
-            n = QLabel(str(name))
-            n.setStyleSheet(f"color: {theme.TEXT}; font-size: 14px; background: transparent;"
-                            " border: none;")
-            row.addWidget(n)
-            row.addStretch(1)
-            s = QLabel(str(val))
-            s.setStyleSheet(f"color: {theme.INDIGO}; font-size: 15px; font-weight: 700;"
-                            " background: transparent; border: none;")
-            row.addWidget(s)
-            v.addLayout(row)
-        return card
-
-    def _make_dice_widget(self, result) -> QWidget:
-        w = QWidget()
-        w.setStyleSheet("background: transparent;")
-        h = QHBoxLayout(w)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(8)
-        die = QLabel()
-        die.setPixmap(_die_pixmap(int(result), 34))
-        die.setFixedSize(34, 34)
-        h.addWidget(die)
-        lbl = QLabel(f"掷出 {int(result)} 点")
-        lbl.setStyleSheet(f"color: {theme.TEXT}; font-size: 14px; font-weight: 600;"
-                          " background: transparent;")
-        h.addWidget(lbl)
-        h.addStretch(1)
-        return w
 
     def _make_choices_widget(self, items) -> QWidget:
         w = QWidget()
@@ -1336,15 +714,7 @@ class AIChatWindow(OpenHamWindowBase):
         self._sig.done.connect(self._on_done)
         self._sig.error.connect(self._on_error)
 
-        self._dice_rolled = False         # 本轮是否已触发随机动画
-        self._dice_reveal = True          # 是否已揭晓（无随机动画时默认 True）
-        self._dice_row = None             # 动画所在的消息行（不随 _assistant_row 置空而丢）
-        self._confetti_played = False     # 本轮是否已撒花
-
         self._build_ui()
-        self._roll_overlay = _RollOverlay(self._chat_area)
-        self._wheel_overlay = _WheelOverlay(self._chat_area)
-        self._confetti_overlay = _ConfettiOverlay(self._chat_area)
         self._add_sidebar_toggle()
         self.title_bar.installEventFilter(self)   # 双击标题栏最大化/还原
         # 基类底部 grip 行会在三栏下方留一道白条、还挤裁掉左栏「新建Bot」按钮；
@@ -1895,10 +1265,6 @@ class AIChatWindow(OpenHamWindowBase):
         if cur is None:
             return
         self._autoscroll = True            # 新一轮生成：恢复自动滚到底
-        self._dice_rolled = False          # 本轮随机动画状态复位
-        self._dice_reveal = True
-        self._dice_row = None
-        self._confetti_played = False
         self._assistant_text = ""
         self._assistant_row = self._add_message("assistant", "▍")
         self._scroll_to_bottom()
@@ -1910,8 +1276,6 @@ class AIChatWindow(OpenHamWindowBase):
         extras = []
         if CAP_ASK in caps:
             extras.append(_ASK_RULE)
-        if CAP_GAME in caps or CAP_DICE in caps:
-            extras.append(_GAME_RULE)
         if CAP_CHOICES in caps:
             extras.append(_CHOICES_RULE)
         if extras:                                       # 绑定能力则并入规则
@@ -2001,81 +1365,26 @@ class AIChatWindow(OpenHamWindowBase):
         self._load_current()
         self._run_completion()
 
-    def _apply_stream_text(self, final: bool):
-        """渲染当前助手文本；遇到掷骰则先播动画、暂不揭晓骰子之后的内容。"""
-        if self._assistant_row is None:
-            return
-        text = self._assistant_text
-        mt = _ROLL_RE.search(text)
-        if mt and not self._dice_reveal:
-            if not self._dice_rolled:                     # 首次遇到完整 随机动画块 → 触发动画
-                self._dice_rolled = True
-                self._dice_row = self._assistant_row      # 存住行引用，揭晓时用
-                self._start_roll(mt.group(1).lower(), mt.group(2))
-            visible = text[:mt.start()].rstrip()          # 只显示动画块之前的内容
-            self._assistant_row.set_text(visible + ("" if final else " ▍"), final=False)
-            return
-        self._assistant_row.set_text(text + ("" if final else " ▍"), final=final)
-
-    def _start_roll(self, kind, body):
-        """按类型启动对应动画（骰子/硬币/抽牌 → 滚动浮层；转盘 → 转盘浮层）。"""
-        if kind == "wheel":
-            opts, winner = _parse_wheel(body)
-            self._wheel_overlay.spin(opts, winner, on_finish=self._on_dice_revealed)
-        elif kind == "card":
-            self._roll_overlay.roll("card", _parse_card(body), on_finish=self._on_dice_revealed)
-        elif kind == "coin":
-            self._roll_overlay.roll("coin", _coin_result(body), on_finish=self._on_dice_revealed)
-        else:
-            self._roll_overlay.roll("dice", _dice_result(body), on_finish=self._on_dice_revealed)
-
-    def _maybe_confetti(self):
-        """消息完整揭晓后，若含 confetti 块则放一次撒花。"""
-        if self._confetti_played:
-            return
-        if _CONFETTI_RE.search(self._assistant_text or ""):
-            self._confetti_played = True
-            self._confetti_overlay.burst()
-
-    def _on_dice_revealed(self):
-        """随机动画结束：揭晓结果及其之后的内容。
-
-        注意：流式可能已结束(_on_done 把 _assistant_row 置空)，所以用单独存的 _dice_row。
-        """
-        self._dice_reveal = True
-        row = self._dice_row or self._assistant_row
-        if row is not None:
-            # 流式已结束(行已落库) → final=True 渲染内联结果；否则仍带光标，待 _on_done 收尾
-            row.set_text(self._assistant_text, final=not self._streaming)
-        self._dice_row = None
-        self._maybe_confetti()
-        if self._autoscroll:
-            self._scroll_to_bottom()
-
     def _on_chunk(self, gen: int, piece: str):
         if gen != self._gen or self._assistant_row is None:
             return
         self._assistant_text += piece
-        # 出现完整 掷骰/抛硬币 块时进入「先动画后揭晓」模式
-        if not self._dice_rolled and _ROLL_RE.search(self._assistant_text):
-            self._dice_reveal = False
-        self._apply_stream_text(False)
-        if self._autoscroll and self._dice_reveal:
+        self._assistant_row.set_text(self._assistant_text + " ▍", final=False)
+        if self._autoscroll:
             self._scroll_to_bottom()
 
     def _on_done(self, gen: int):
         if gen != self._gen:
             return
-        self._apply_stream_text(True)
+        if self._assistant_row is not None:
+            self._assistant_row.set_text(self._assistant_text, final=True)
         cur = self._cur()
         if cur is not None:
             cur["messages"].append({"role": "assistant", "content": self._assistant_text})
             _save_store(self.store)
         self._set_streaming(False)
         self._update_action_visibility()
-        if self._dice_reveal:              # 未在等动画揭晓时，此刻消息已完整 → 可撒花
-            self._maybe_confetti()
-        if self._autoscroll and self._dice_reveal:
+        if self._autoscroll:
             self._scroll_to_bottom()
 
     def _on_error(self, gen: int, msg: str):
@@ -2183,10 +1492,6 @@ class AIChatWindow(OpenHamWindowBase):
             g.move(self.card.width() - g.width() - 4,
                    self.card.height() - g.height() - 4)
             g.raise_()
-        for name in ("_roll_overlay", "_wheel_overlay", "_confetti_overlay"):
-            ov = getattr(self, name, None)
-            if ov is not None and ov.isVisible():
-                ov.setGeometry(self._chat_area.rect())
 
     # ── 外部入口 ──────────────────────────────────────────────────────
     def open(self):
