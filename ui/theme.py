@@ -203,12 +203,18 @@ def tooltip_qss() -> str:
 # 的原生背景会发黑。菜单靠「出现即套浅色样式」搞定；但 QToolTip 全程【复用同一个
 # QTipLabel】、每次 showText 又拿自己的(深色)静态调色板重设，快速移动时复用的提示又黑、
 # 防不胜防。最稳的办法：直接拦掉系统 tooltip，自己用一个完全可控的浅色 QLabel 当提示。
-def _kill_native_shadow(widget):
-    """去掉 Windows 给弹出窗加的那圈很重的原生阴影/圆角，跟主窗口同款处理——
-    这样透明圆角窗就只剩干净的圆角+细描边，和 OpenHam 其它窗口风格一致(扁平无重影)。"""
+def _round_mask(widget, r):
+    """给【不透明】窗口套一个圆角遮罩，得到圆角——遮罩外的像素被裁掉(显示后面的内容，
+    永不发黑)。这是关键：不用透明窗(本机透明区会合成成黑)，所以圆角且绝不发黑。"""
     try:
-        from utils.window_effects import disable_native_window_effects
-        disable_native_window_effects(int(widget.winId()))
+        from PyQt6.QtGui import QRegion, QPainterPath
+        from PyQt6.QtCore import QRectF
+        w, h = widget.width(), widget.height()
+        if w <= 0 or h <= 0:
+            return
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0, 0, w, h), r, r)
+        widget.setMask(QRegion(path.toFillPolygon().toPolygon()))
     except Exception:
         pass
 
@@ -229,12 +235,13 @@ def _install_popup_fix(app):
         def _ensure_tip(self):
             if self._tip is None:
                 lbl = QLabel(None)
+                # 不透明窗(绝不发黑) + 圆角遮罩。不用 WA_TranslucentBackground。
                 lbl.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint
                                    | Qt.WindowType.NoDropShadowWindowHint)
-                lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+                lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
                 lbl.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
                 lbl.setStyleSheet(
-                    f"QLabel {{ background: {CARD}; color: {TEXT}; border: 1px solid {BORDER};"
+                    f"QLabel {{ background: {CARD}; color: {TEXT}; border: 1px solid {BORDER_IN};"
                     f" border-radius: 8px; padding: 6px 10px; font-size: 12px; }}")
                 self._tip = lbl
             return self._tip
@@ -244,9 +251,9 @@ def _install_popup_fix(app):
             t.setText(text)
             t.adjustSize()
             t.move(gpos + QPoint(12, 18))
+            _round_mask(t, 8)
             t.show()
             t.raise_()
-            _kill_native_shadow(t)          # 去掉那圈很重的原生阴影
             self._hide_timer.start(6000)
 
         def _hide_tip(self):
@@ -271,18 +278,13 @@ def _install_popup_fix(app):
                       QEvent.Type.WindowDeactivate, QEvent.Type.FocusOut,
                       QEvent.Type.KeyPress):
                 self._hide_tip()
-            elif et == QEvent.Type.Polish or et == QEvent.Type.Show:
+            elif et == QEvent.Type.Polish or et == QEvent.Type.Show or et == QEvent.Type.Resize:
                 if isinstance(obj, QMenu) or obj.metaObject().className() == "QMenu":
                     if not obj.property("_oh_styled"):
                         obj.setProperty("_oh_styled", True)
-                        try:                 # 透明窗 → 圆角生效
-                            obj.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-                            obj.setWindowFlag(Qt.WindowType.NoDropShadowWindowHint, True)
-                        except Exception:
-                            pass
-                        obj.setStyleSheet(menu_qss())
-                    if et == QEvent.Type.Show:
-                        _kill_native_shadow(obj)   # 去掉那圈很重的方形原生阴影
+                        obj.setStyleSheet(menu_qss())   # 不透明白底，绝不发黑
+                    if et == QEvent.Type.Show or et == QEvent.Type.Resize:
+                        _round_mask(obj, 12)            # 圆角遮罩(裁掉方角，无重阴影)
             return False
 
     fix = _PopupFix(app)
