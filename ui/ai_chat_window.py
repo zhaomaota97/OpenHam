@@ -549,7 +549,7 @@ class _MessageRow(QWidget):
     def _copy_menu(self):
         if self.host is None:
             return
-        menu = QMenu(self)
+        menu = theme.style_menu(QMenu(self))
         a1 = menu.addAction("复制为 Markdown")
         a2 = menu.addAction("复制为纯文本")
         chosen = menu.exec(self.copy_btn.mapToGlobal(
@@ -905,7 +905,7 @@ class AIChatWindow(OpenHamWindowBase):
         return rail
 
     def _add_menu(self, anchor):
-        menu = QMenu(self)
+        menu = theme.style_menu(QMenu(self))
         a_bot = menu.addAction(icons.qicon("robot"), "新建 Bot")
         a_grp = menu.addAction(icons.qicon("users"), "新建团队")
         chosen = menu.exec(anchor.mapToGlobal(anchor.rect().bottomLeft()))
@@ -1236,7 +1236,7 @@ class AIChatWindow(OpenHamWindowBase):
     def _bot_menu(self, bot_id: str, anchor: QWidget, pos):
         bot = self._bot_by_id(bot_id)
         is_grp = self._is_team(bot)
-        menu = QMenu(self)
+        menu = theme.style_menu(QMenu(self))
         act_edit = menu.addAction(icons.qicon("edit"), "编辑团队" if is_grp else "编辑 Bot")
         act_del = menu.addAction(icons.qicon("delete"), "解散团队" if is_grp else "删除 Bot")
         is_def = bool(self.bots) and bot_id == self.bots[0]["id"]
@@ -1355,7 +1355,7 @@ class AIChatWindow(OpenHamWindowBase):
         if item is None or not item.data(Qt.ItemDataRole.UserRole):
             return
         sid = item.data(Qt.ItemDataRole.UserRole)
-        menu = QMenu(self)
+        menu = theme.style_menu(QMenu(self))
         act_del = menu.addAction(icons.qicon("delete"), "删除会话")
         if menu.exec(self.session_list.mapToGlobal(pos)) == act_del:
             self._delete_session(sid)

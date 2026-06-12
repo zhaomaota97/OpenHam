@@ -190,7 +190,8 @@ def main():
     tray.setToolTip(f"OpenHam  ({hotkey_str})")
     hotkey_label = _format_hotkey_label(hotkey_str)
 
-    tray_menu = QMenu()   # 样式继承全局 theme.app_qss()
+    tray_menu = QMenu()
+    tray_menu.setStyleSheet(theme.menu_qss())   # 统一浅色，杜绝背景发黑
     action_title = tray_menu.addAction("OpenHam 0.1.0")
     action_title.setEnabled(False)
     action_show = tray_menu.addAction("打开主窗口")

@@ -164,3 +164,29 @@ def app_qss() -> str:
     }}
     QMessageBox QPushButton:default:hover, QInputDialog QPushButton:default:hover {{ background: {ACCENT_HOV}; }}
     """
+
+
+def menu_qss() -> str:
+    """QMenu 专用样式。直接设到具体 QMenu 上，可压过父控件 bare 样式的级联，
+    根治「右键/hover 菜单背景发黑」——QMenu(parent) 会继承 parent 的样式表，
+    若 parent 用了无选择器的 `background:transparent` 之类，会漏进菜单导致变黑。"""
+    return f"""
+    QMenu {{
+        background: {CARD}; color: {TEXT};
+        border: 1px solid {BORDER}; border-radius: 10px; padding: 6px;
+    }}
+    QMenu::item {{
+        padding: 7px 16px; border-radius: 6px; margin: 1px 4px;
+        background: transparent; color: {TEXT};
+    }}
+    QMenu::item:selected {{ background: {SUBTLE}; color: {TEXT}; }}
+    QMenu::item:disabled {{ color: {TEXT3}; background: transparent; }}
+    QMenu::separator {{ height: 1px; background: {BORDER}; margin: 5px 10px; }}
+    QMenu::icon {{ padding-left: 8px; }}
+    """
+
+
+def style_menu(menu):
+    """给 QMenu 套上统一浅色样式并返回它。所有 QMenu(parent) 都该过一遍这个。"""
+    menu.setStyleSheet(menu_qss())
+    return menu

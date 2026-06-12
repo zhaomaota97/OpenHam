@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtGui import QColor
 import ctypes
 from ui import icons
+from ui import theme
 
 MAX_LENGTH = 200  # AI 模式下允许输入更长的内容
 _SHADOW    = 24          # 阴影溢出留边
@@ -666,7 +667,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         from PyQt6.QtWidgets import QMenu
         from PyQt6.QtGui import QAction
         
-        menu = QMenu(self)
+        menu = theme.style_menu(QMenu(self))
         menu.setStyleSheet("""
             QMenu {
                 background-color: #f5f5f7; color: #1d1d1f;
