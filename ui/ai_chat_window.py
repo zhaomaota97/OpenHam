@@ -130,10 +130,13 @@ def _make_bot(name: str, system: str, capabilities=None, sessions=None) -> dict:
             "sessions": [_norm_session(s) for s in (sessions or [])]}
 
 
-def _make_group(name: str, members) -> dict:
-    """群聊：和 bot 一样存在 bots 列表里，用 is_group 区分；members 为成员 bot id。"""
-    return {"id": uuid.uuid4().hex, "name": name or "群聊", "is_group": True,
-            "members": list(members or []), "created": time.time(), "sessions": []}
+def _make_team(name: str, members, desc: str = "") -> dict:
+    """团队：和 bot 一样存在 bots 列表里，用 is_team 区分。
+    members 为成员（专家）bot id；desc 是团队目标，供编排器拆解任务时参考。
+    团队本身扮演「编排器」：用户只和编排器对话，编排器拆任务给成员、再汇总交付。"""
+    return {"id": uuid.uuid4().hex, "name": name or "团队", "is_team": True,
+            "desc": desc or "", "members": list(members or []),
+            "created": time.time(), "sessions": []}
 
 
 def _load_store() -> dict:
@@ -347,26 +350,35 @@ class _BotDialog(QDialog):
                 self.sys_in.toPlainText().strip(), caps)
 
 
-class _GroupDialog(QDialog):
-    """新建 / 编辑群聊：群名 + 勾选成员 bot。"""
+class _TeamDialog(QDialog):
+    """新建 / 编辑团队：团队名 + 目标说明 + 勾选成员（专家 bot）。"""
 
-    def __init__(self, parent=None, name="", members=None, candidates=None):
+    def __init__(self, parent=None, name="", members=None, candidates=None, desc=""):
         super().__init__(parent)
-        self.setWindowTitle("群聊")
-        self.setMinimumWidth(380)
+        self.setWindowTitle("团队")
+        self.setMinimumWidth(400)
         self.setStyleSheet(f"QDialog {{ background: {theme.CARD}; }}")
         from PyQt6.QtWidgets import QCheckBox
         lay = QVBoxLayout(self)
         lay.setContentsMargins(18, 16, 18, 14)
         lay.setSpacing(8)
-        lab = QLabel("群名")
+        lab = QLabel("团队名")
         lab.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px; font-weight: 600;")
         lay.addWidget(lab)
         self.name_in = QLineEdit(name)
-        self.name_in.setPlaceholderText("例如：智囊团、辩论场、点评团…")
+        self.name_in.setPlaceholderText("例如：分析报告团队、产品评审团…")
         lay.addWidget(self.name_in)
-        lay.addSpacing(4)
-        lab2 = QLabel("选择成员（2 个及以上）")
+        lay.addSpacing(2)
+        lab_d = QLabel("团队目标 / 编排说明（可留空）")
+        lab_d.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px; font-weight: 600;")
+        lay.addWidget(lab_d)
+        self.desc_in = QPlainTextEdit(desc)
+        self.desc_in.setPlaceholderText("例如：负责产出专业的行业分析报告——由编排器把用户需求"
+                                        "拆给各专家、再汇总成稿。")
+        self.desc_in.setFixedHeight(70)
+        lay.addWidget(self.desc_in)
+        lay.addSpacing(2)
+        lab2 = QLabel("成员专家（2 个及以上；每个 bot 的人设即其专长）")
         lab2.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px; font-weight: 600;")
         lay.addWidget(lab2)
         members = set(members or [])
@@ -401,7 +413,7 @@ class _GroupDialog(QDialog):
 
     def values(self):
         ids = [cb._bot_id for cb in self._boxes if cb.isChecked()]
-        return self.name_in.text().strip(), ids
+        return (self.name_in.text().strip(), self.desc_in.toPlainText().strip(), ids)
 
 
 class _MessageRow(QWidget):
@@ -745,8 +757,9 @@ class _ChatSignals(QObject):
     chunk = pyqtSignal(int, str)
     done = pyqtSignal(int)
     error = pyqtSignal(int, str)
-    group_plan = pyqtSignal(int, object)      # gen, [成员id 按发言顺序]
-    member_reply = pyqtSignal(int, str, str)  # gen, 成员id, 完整台词
+    team_plan = pyqtSignal(int, object)       # gen, {"summary":..,"steps":[{bot,task}]}
+    team_step = pyqtSignal(int, int, str)     # gen, 步骤序号, 成员交付内容
+    team_final = pyqtSignal(int, str)         # gen, 编排器最终交付
 
 
 class AIChatWindow(OpenHamWindowBase):
@@ -772,12 +785,15 @@ class AIChatWindow(OpenHamWindowBase):
         self._assistant_row = None
         self._assistant_text = ""
         self._filter = ""
-        # 群聊：编排器选出本轮发言成员 → 并行生成 → 各自「打字中」占位再填入
-        self._group_active = False
-        self._group_plan = []          # 本轮发言成员 id（顺序）
-        self._group_pending = set()    # 还没回完的成员 id
-        self._group_results = {}       # 成员 id -> 台词
-        self._typing_rows = {}         # 成员 id -> 占位消息行
+        # 团队：编排器拆任务 → 成员按流程依次交付 → 编排器汇总交付给用户
+        self._team_active = False
+        self._team = None            # 当前团队 dict
+        self._team_task = ""         # 用户这次的需求
+        self._team_plan = []         # [{"bot":id,"task":str}]
+        self._team_idx = 0
+        self._team_deliv = []        # [(成员名, 交付内容)]
+        self._team_msgs = []         # 本轮要落库的消息（含编排过程）
+        self._typing_row = None      # 当前「工作中…」占位行
         self._typing_phase = 0
         self._typing_timer = QTimer(self)
         self._typing_timer.timeout.connect(self._animate_typing)
@@ -786,8 +802,9 @@ class AIChatWindow(OpenHamWindowBase):
         self._sig.chunk.connect(self._on_chunk)
         self._sig.done.connect(self._on_done)
         self._sig.error.connect(self._on_error)
-        self._sig.group_plan.connect(self._on_group_plan)
-        self._sig.member_reply.connect(self._on_member_reply)
+        self._sig.team_plan.connect(self._on_team_plan)
+        self._sig.team_step.connect(self._on_team_step)
+        self._sig.team_final.connect(self._on_team_final)
 
         self._build_ui()
         self._add_sidebar_toggle()
@@ -878,7 +895,7 @@ class AIChatWindow(OpenHamWindowBase):
         add.setIconSize(QSize(18, 18))
         add.setFixedSize(44, 44)
         add.setCursor(Qt.CursorShape.PointingHandCursor)
-        add.setToolTip("新建 Bot / 群聊")
+        add.setToolTip("新建 Bot / 团队")
         add.setStyleSheet(
             f"QPushButton {{ background: transparent; border: 1px dashed {theme.BORDER_IN};"
             f" border-radius: 12px; }}"
@@ -890,12 +907,12 @@ class AIChatWindow(OpenHamWindowBase):
     def _add_menu(self, anchor):
         menu = QMenu(self)
         a_bot = menu.addAction(icons.qicon("robot"), "新建 Bot")
-        a_grp = menu.addAction(icons.qicon("users"), "新建群聊")
+        a_grp = menu.addAction(icons.qicon("users"), "新建团队")
         chosen = menu.exec(anchor.mapToGlobal(anchor.rect().bottomLeft()))
         if chosen == a_bot:
             self._create_bot()
         elif chosen == a_grp:
-            self._create_group()
+            self._create_team()
 
     def _build_sidebar(self) -> QWidget:
         side = QWidget()
@@ -1035,8 +1052,8 @@ class AIChatWindow(OpenHamWindowBase):
         return self.bots[0]
 
     @staticmethod
-    def _is_group(b):
-        return bool(b and b.get("is_group"))
+    def _is_team(b):
+        return bool(b and (b.get("is_team") or b.get("is_group")))
 
     def _bot_by_id(self, bid):
         return next((b for b in self.bots if b["id"] == bid), None)
@@ -1050,12 +1067,12 @@ class AIChatWindow(OpenHamWindowBase):
         out = []
         for mid in group.get("members", []):
             b = self._bot_by_id(mid)
-            if b and not self._is_group(b):
+            if b and not self._is_team(b):
                 out.append(b)
         return out
 
-    def _group_avatar(self, group, px):
-        """群聊头像：把最多 4 个成员的小头像拼成一格。"""
+    def _team_avatar(self, group, px):
+        """团队头像：把最多 4 个成员的小头像拼成一格。"""
         members = self._members(group)[:4]
         s = int(px * _SS)
         pm = QPixmap(s, s)
@@ -1095,9 +1112,9 @@ class AIChatWindow(OpenHamWindowBase):
                 w.deleteLater()
 
     def _bot_avatar(self, bot, px):
-        """默认 bot（Hamster，bots[0]）用 logo 头像；群聊用拼图头像；其余用字母头像。"""
-        if self._is_group(bot):
-            return self._group_avatar(bot, px)
+        """默认 bot（Hamster，bots[0]）用 logo 头像；团队用拼图头像；其余用字母头像。"""
+        if self._is_team(bot):
+            return self._team_avatar(bot, px)
         if self.bots and bot["id"] == self.bots[0]["id"]:
             return _brand_pixmap(px)
         return _letter_avatar(bot["name"], px)
@@ -1109,9 +1126,9 @@ class AIChatWindow(OpenHamWindowBase):
         btn.setIconSize(QSize(40, 40))
         btn.setFixedSize(52, 52)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        if self._is_group(bot):
+        if self._is_team(bot):
             mnames = "、".join(m["name"] for m in self._members(bot)) or "空群"
-            btn.setToolTip(f"群聊：{bot['name']}（{mnames}）")
+            btn.setToolTip(f"团队：{bot['name']}（{mnames}）")
         else:
             btn.setToolTip(bot["name"])
         # 选中=柔和浅底（无描边/无指示条），克制优雅
@@ -1141,7 +1158,7 @@ class AIChatWindow(OpenHamWindowBase):
         if bot_id == self.cur_bot_id:
             return
         self._gen += 1
-        self._cancel_group()
+        self._cancel_team()
         self._set_streaming(False)
         self.cur_bot_id = bot_id
         self.store["current_bot"] = bot_id
@@ -1173,17 +1190,17 @@ class AIChatWindow(OpenHamWindowBase):
         self._refresh_session_list()
         self._load_current()
 
-    def _create_group(self):
-        candidates = [b for b in self.bots if not self._is_group(b)]
-        dlg = _GroupDialog(self, candidates=candidates)
+    def _create_team(self):
+        candidates = [b for b in self.bots if not self._is_team(b)]
+        dlg = _TeamDialog(self, candidates=candidates)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        name, ids = dlg.values()
+        name, desc, ids = dlg.values()
         if len(ids) < 2:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.information(self, "群聊", "请至少选择 2 个成员。")
+            QMessageBox.information(self, "团队", "请至少选择 2 个成员。")
             return
-        grp = _make_group(name or "群聊", ids)
+        grp = _make_team(name or "团队", ids, desc)
         self.bots.append(grp)
         self.cur_bot_id = grp["id"]
         self.store["current_bot"] = grp["id"]
@@ -1193,20 +1210,22 @@ class AIChatWindow(OpenHamWindowBase):
         self._refresh_session_list()
         self._load_current()
 
-    def _edit_group(self, gid):
+    def _edit_team(self, gid):
         grp = self._bot_by_id(gid)
         if not grp:
             return
-        candidates = [b for b in self.bots if not self._is_group(b)]
-        dlg = _GroupDialog(self, grp["name"], grp.get("members"), candidates)
+        candidates = [b for b in self.bots if not self._is_team(b)]
+        dlg = _TeamDialog(self, grp["name"], grp.get("members"), candidates,
+                          grp.get("desc", ""))
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        name, ids = dlg.values()
+        name, desc, ids = dlg.values()
         if len(ids) < 2:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.information(self, "群聊", "请至少选择 2 个成员。")
+            QMessageBox.information(self, "团队", "请至少选择 2 个成员。")
             return
         grp["name"] = name or grp["name"]
+        grp["desc"] = desc
         grp["members"] = ids
         _save_store(self.store)
         self._refresh_bots()
@@ -1216,16 +1235,16 @@ class AIChatWindow(OpenHamWindowBase):
 
     def _bot_menu(self, bot_id: str, anchor: QWidget, pos):
         bot = self._bot_by_id(bot_id)
-        is_grp = self._is_group(bot)
+        is_grp = self._is_team(bot)
         menu = QMenu(self)
-        act_edit = menu.addAction(icons.qicon("edit"), "编辑群聊" if is_grp else "编辑 Bot")
-        act_del = menu.addAction(icons.qicon("delete"), "解散群聊" if is_grp else "删除 Bot")
+        act_edit = menu.addAction(icons.qicon("edit"), "编辑团队" if is_grp else "编辑 Bot")
+        act_del = menu.addAction(icons.qicon("delete"), "解散团队" if is_grp else "删除 Bot")
         is_def = bool(self.bots) and bot_id == self.bots[0]["id"]
         if is_def or len(self.bots) <= 1:   # 默认 Hamster 不可删
             act_del.setEnabled(False)
         chosen = menu.exec(anchor.mapToGlobal(pos))
         if chosen == act_edit:
-            self._edit_group(bot_id) if is_grp else self._edit_bot(bot_id)
+            self._edit_team(bot_id) if is_grp else self._edit_bot(bot_id)
         elif chosen == act_del:
             self._delete_bot(bot_id)
 
@@ -1251,11 +1270,11 @@ class AIChatWindow(OpenHamWindowBase):
         if len(self.bots) <= 1 or bot_id == self.bots[0]["id"]:   # 默认 Hamster 不可删
             return
         self.bots = [b for b in self.bots if b["id"] != bot_id]
-        # 从群聊成员里剔除被删 bot；成员不足 2 的群自动解散
-        for g in [b for b in self.bots if self._is_group(b)]:
+        # 从团队成员里剔除被删 bot；成员不足 2 的群自动解散
+        for g in [b for b in self.bots if self._is_team(b)]:
             g["members"] = [m for m in g.get("members", []) if m != bot_id]
         self.bots = [b for b in self.bots
-                     if not (self._is_group(b) and len(b.get("members", [])) < 2)]
+                     if not (self._is_team(b) and len(b.get("members", [])) < 2)]
         self.store["bots"] = self.bots
         if not any(b["id"] == self.cur_bot_id for b in self.bots):
             self._gen += 1
@@ -1362,7 +1381,7 @@ class AIChatWindow(OpenHamWindowBase):
 
     def _add_message(self, role: str, text: str, final: bool = False,
                      bot=None) -> _MessageRow:
-        # 群聊里每条助手消息按「说话的成员」显示头像/名字；否则用当前 bot
+        # 团队里每条助手消息按「说话的成员」显示头像/名字；否则用当前 bot
         b = bot or self._cur_bot()
         msg = _MessageRow(role, bot_name=b["name"],
                           bot_avatar=self._bot_avatar(b, 22), host=self)
@@ -1383,7 +1402,7 @@ class AIChatWindow(OpenHamWindowBase):
         if cur is None or not cur["messages"]:
             self._show_empty_hint()
         if cur is not None:
-            is_grp = self._is_group(self._cur_bot())
+            is_grp = self._is_team(self._cur_bot())
             for m in cur["messages"]:
                 spk = (self._bot_by_id(m.get("bot"))
                        if is_grp and m["role"] == "assistant" else None)
@@ -1402,10 +1421,10 @@ class AIChatWindow(OpenHamWindowBase):
         logo.setPixmap(self._bot_avatar(bot, 56))
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         bl.addWidget(logo)
-        if self._is_group(bot):
+        if self._is_team(bot):
             mnames = "、".join(m["name"] for m in self._members(bot)) or "（无成员）"
-            htext = f"群聊「{bot['name']}」：{mnames}"
-            stext = "发一条消息，成员们会依次回应"
+            htext = f"团队「{bot['name']}」：{mnames}"
+            stext = "把需求交给团队，编排器会拆给成员、再汇总交付"
         else:
             htext = f"我是「{bot['name']}」，有什么可以帮你的？"
             stext = "在下方输入开始对话"
@@ -1469,10 +1488,10 @@ class AIChatWindow(OpenHamWindowBase):
         cur = self._cur()
         if cur is None:
             return
-        if self._is_group(self._cur_bot()):
-            self._run_group_completion()
+        if self._is_team(self._cur_bot()):
+            self._run_team_completion()
             return
-        self._group_active = False         # 普通单 bot 回答
+        self._team_active = False          # 普通单 bot 回答
         self._autoscroll = True            # 新一轮生成：恢复自动滚到底
         self._assistant_text = ""
         self._assistant_row = self._add_message("assistant", "▍")
@@ -1511,168 +1530,207 @@ class AIChatWindow(OpenHamWindowBase):
 
         threading.Thread(target=work, daemon=True).start()
 
-    # ── 群聊：成员依次发言 ────────────────────────────────────────────
-    def _run_group_completion(self):
-        """编排器决定本轮谁开口 → 选中的成员并行生成 → 各自「打字中」占位再填台词。"""
+    # ── 团队：编排器拆任务 → 成员按流程交付 → 编排器汇总 ────────────────
+    def _run_team_completion(self):
         cur = self._cur()
-        members = self._members(self._cur_bot())
-        if cur is None or not members:
-            if cur is not None and not members:
-                self._add_message("assistant", "（这个群还没有成员，去右键群头像编辑添加吧）",
-                                  final=True)
+        team = self._cur_bot()
+        members = self._members(team)
+        if cur is None:
             return
+        if not members:
+            self._add_message("assistant", "（这个团队还没有成员，右键团队头像编辑、添加专家吧）",
+                              final=True, bot=team)
+            return
+        task = next((m["content"] for m in reversed(cur["messages"])
+                     if m["role"] == "user"), "")
         self._autoscroll = True
-        self._group_active = True
+        self._team_active = True
+        self._team = team
+        self._team_task = task
+        self._team_plan, self._team_idx, self._team_deliv, self._team_msgs = [], 0, [], []
         self._set_streaming(True)
         self._gen += 1
         gen = self._gen
-        group = self._cur_bot()
-        msgs = list(cur["messages"])
-
-        def work():
-            ids = self._orchestrate(group, members, msgs)
-            if gen == self._gen:
-                self._sig.group_plan.emit(gen, ids)
-
-        threading.Thread(target=work, daemon=True).start()
-
-    def _orchestrate(self, group, members, messages):
-        """让模型决定这条消息后哪些成员会开口；返回成员 id 列表（可空/可多个）。"""
-        roster = "\n".join(
-            f"- {m['name']}：{(m.get('system') or '随和的群友')[:40]}" for m in members)
-        lines = []
-        for m in messages[-12:]:
-            who = "我" if m["role"] == "user" else (self._bot_name(m.get("bot")) or "成员")
-            lines.append(f"{who}：{m['content']}")
-        transcript = "\n".join(lines) if lines else "（刚开始）"
-        sysp = ("你是群聊编排器。根据成员设定和最新对话，判断这条消息发出后，"
-                "群里【谁会自然地开口回应】。不是每个人都要说话——只挑真正相关、想接话的人，"
-                "通常 1-2 个，偶尔更多或没人。只输出 JSON 数组（成员名字，按发言先后），"
-                "例如 [\"产品经理\",\"设计师\"] 或 []，不要别的内容。")
-        prompt = f"群成员：\n{roster}\n\n最近对话：\n{transcript}\n\n谁会接着开口？只回 JSON 数组。"
-        name2id = {m["name"]: m["id"] for m in members}
-        try:
-            raw = call_deepseek_sync(prompt, None, sysp, max_tokens=120)
-            mt = re.search(r"\[.*?\]", raw, re.DOTALL)
-            names = json.loads(mt.group()) if mt else []
-            ids, seen = [], set()
-            for nm in names:
-                mid = name2id.get(str(nm).strip())
-                if mid and mid not in seen:
-                    seen.add(mid)
-                    ids.append(mid)
-            return ids[:len(members)]
-        except Exception:
-            return [members[0]["id"]]   # 兜底：至少一个人接话
-
-    def _on_group_plan(self, gen, ids):
-        if gen != self._gen:
-            return
-        if not ids:                      # 没人接话，安静收场
-            self._end_group()
-            return
-        self._group_plan = list(ids)
-        self._group_pending = set(ids)
-        self._group_results = {}
-        self._typing_rows = {}
-        base = list(self._cur()["messages"])     # 本轮所有成员看同一份上下文（并行）
-        group = self._cur_bot()
-        for mid in ids:                  # 先按顺序铺占位「打字中」行
-            member = self._bot_by_id(mid)
-            row = self._add_message("assistant", "•", final=False, bot=member)
-            self._typing_rows[mid] = row
+        self._typing_row = self._add_message("assistant", "•", final=False, bot=team)
         if not self._typing_timer.isActive():
             self._typing_timer.start(380)
-        if self._autoscroll:
-            self._scroll_to_bottom()
-        for mid in ids:                  # 并行生成
-            member = self._bot_by_id(mid)
-            history = self._build_group_history(group, member, base)
-            self._spawn_member(gen, mid, history)
+        self._scroll_to_bottom()
+        history_msgs = list(cur["messages"])
 
-    def _spawn_member(self, gen, mid, history):
         def work():
-            try:
-                text = "".join(call_chat_stream(history, max_tokens=400)).strip()
-            except Exception as e:
-                text = f"（没接上话：{e}）"
+            plan = self._plan_task(team, members, task, history_msgs)
             if gen == self._gen:
-                self._sig.member_reply.emit(gen, mid, text or "……")
+                self._sig.team_plan.emit(gen, plan)
         threading.Thread(target=work, daemon=True).start()
 
-    def _on_member_reply(self, gen, mid, text):
+    def _plan_task(self, team, members, task, messages):
+        roster = "\n".join(
+            f"- {m['name']}：{(m.get('system') or '通用助手').strip()[:60]}" for m in members)
+        ctx = ""
+        prev = messages[:-1]
+        if prev:
+            tail = []
+            for mm in prev[-6:]:
+                who = "用户" if mm["role"] == "user" else (self._bot_name(mm.get("bot")) or "团队")
+                tail.append(f"{who}：{mm['content'][:200]}")
+            ctx = "\n之前的对话：\n" + "\n".join(tail) + "\n"
+        sysp = (f"你是团队「{team['name']}」的编排器（队长）。"
+                + (f"团队目标：{team.get('desc')}。" if team.get("desc") else "")
+                + "用户把需求交给你，你要把它拆解成有序的工作步骤，分配给合适的成员专家，"
+                "下游成员能用到上游成员的产出。只输出 JSON："
+                '{"summary":"一句话告诉用户你的安排","steps":[{"member":"成员名","task":"交给这个成员做的具体事"}]}。'
+                "steps 按执行顺序，可只用部分成员；若只是寒暄或无需分工，steps 给空数组、"
+                "在 summary 里直接回应用户。务必只输出 JSON。")
+        prompt = (f"团队成员（可调用的专家）：\n{roster}\n{ctx}\n用户需求：{task}\n\n请给出编排。只回 JSON。")
+        name2id = {m["name"]: m["id"] for m in members}
+        out = {"summary": "", "steps": []}
+        try:
+            raw = call_deepseek_sync(prompt, None, sysp, max_tokens=600)
+            mt = re.search(r"\{.*\}", raw, re.DOTALL)
+            d = json.loads(re.sub(r",\s*([}\]])", r"\1", mt.group())) if mt else {}
+            out["summary"] = str(d.get("summary", "")).strip()
+            for st in (d.get("steps") or []):
+                mid = name2id.get(str(st.get("member", "")).strip())
+                if mid:
+                    out["steps"].append({"bot": mid, "task": str(st.get("task", "")).strip()})
+        except Exception:
+            out["steps"] = [{"bot": m["id"], "task": task} for m in members]
+        return out
+
+    def _on_team_plan(self, gen, plan):
         if gen != self._gen:
             return
-        self._group_results[mid] = text
-        row = self._typing_rows.get(mid)
-        if row is not None:
-            row.set_text(text, final=True)
-        self._group_pending.discard(mid)
+        summary = plan.get("summary") or "好的，我来安排。"
+        steps = plan.get("steps") or []
+        team = self._team
+        if self._typing_row is not None:
+            self._typing_row.set_text(summary, final=True)
+            self._typing_row = None
+        self._team_msgs.append({"role": "assistant", "content": summary, "bot": team["id"]})
+        self._team_plan, self._team_idx = steps, 0
         if self._autoscroll:
             self._scroll_to_bottom()
-        if not self._group_pending:
-            self._finish_group_round()
+        if not steps:
+            self._finish_team()
+            return
+        self._run_team_step()
 
-    def _finish_group_round(self):
-        """本轮成员都回完（或被中止）：按发言顺序把台词落库。"""
+    def _run_team_step(self):
+        if self._team_idx >= len(self._team_plan):
+            self._run_team_aggregate()
+            return
+        step = self._team_plan[self._team_idx]
+        member = self._bot_by_id(step["bot"])
+        if member is None:
+            self._team_idx += 1
+            self._run_team_step()
+            return
+        idx = self._team_idx
+        self._typing_row = self._add_message("assistant", "•", final=False, bot=member)
+        if not self._typing_timer.isActive():
+            self._typing_timer.start(380)
+        self._scroll_to_bottom()
+        history = self._build_member_prompt(member, step["task"])
+        self._gen += 1
+        gen = self._gen
+
+        def work():
+            try:
+                text = "".join(call_chat_stream(history, max_tokens=1500)).strip()
+            except Exception as e:
+                text = f"（{member['name']} 没能完成：{e}）"
+            if gen == self._gen:
+                self._sig.team_step.emit(gen, idx, text or "（无产出）")
+        threading.Thread(target=work, daemon=True).start()
+
+    def _build_member_prompt(self, member, task):
+        team = self._team
+        sysp = (f"你是团队「{team['name']}」里的成员「{member['name']}」。"
+                + (f"你的专长/人设：{member.get('system').strip()} " if member.get("system") else "")
+                + "请专注完成编排器交给你的子任务，产出可直接交付给下游/编排器的内容，"
+                "专业、具体、有条理，不要寒暄客套，不要复述任务。")
+        parts = [f"整体需求：{self._team_task}"]
+        if self._team_deliv:
+            up = "\n\n".join(f"【{nm} 的交付】\n{ct}" for nm, ct in self._team_deliv)
+            parts.append("上游成员已完成：\n" + up)
+        parts.append(f"你这一步要做的：{task}\n\n请给出你的交付内容：")
+        return [{"role": "system", "content": sysp},
+                {"role": "user", "content": "\n\n".join(parts)}]
+
+    def _on_team_step(self, gen, idx, text):
+        if gen != self._gen:
+            return
+        member = self._bot_by_id(self._team_plan[idx]["bot"])
+        if self._typing_row is not None:
+            self._typing_row.set_text(text, final=True)
+            self._typing_row = None
+        self._team_deliv.append((member["name"] if member else "成员", text))
+        self._team_msgs.append({"role": "assistant", "content": text,
+                                "bot": member["id"] if member else None})
+        if self._autoscroll:
+            self._scroll_to_bottom()
+        self._team_idx += 1
+        self._run_team_step()
+
+    def _run_team_aggregate(self):
+        team = self._team
+        self._typing_row = self._add_message("assistant", "•", final=False, bot=team)
+        if not self._typing_timer.isActive():
+            self._typing_timer.start(380)
+        self._scroll_to_bottom()
+        deliv = "\n\n".join(f"【{nm}】\n{ct}" for nm, ct in self._team_deliv)
+        sysp = (f"你是团队「{team['name']}」的编排器（队长）。把各成员的交付物汇总、整理、"
+                "调整成给用户的最终成果：连贯、完整、直接可用，去掉重复与过程痕迹，"
+                "可适当润色补全但忠于成员产出。")
+        prompt = f"用户需求：{self._team_task}\n\n各成员交付：\n{deliv}\n\n请输出交付给用户的最终成果。"
+        self._gen += 1
+        gen = self._gen
+
+        def work():
+            try:
+                text = call_deepseek_sync(prompt, None, sysp, max_tokens=4096).strip()
+            except Exception as e:
+                text = f"（汇总失败：{e}）"
+            if gen == self._gen:
+                self._sig.team_final.emit(gen, text or "（无内容）")
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_team_final(self, gen, text):
+        if gen != self._gen:
+            return
+        team = self._team
+        if self._typing_row is not None:
+            self._typing_row.set_text(text, final=True)
+            self._typing_row = None
+        self._team_msgs.append({"role": "assistant", "content": text, "bot": team["id"]})
+        self._finish_team()
+
+    def _finish_team(self):
+        """把本轮所有消息（编排+各交付+汇总）落库，结束。"""
         self._typing_timer.stop()
+        self._typing_row = None
         cur = self._cur()
         if cur is not None:
-            for mid in self._group_plan:
-                if mid in self._group_results:
-                    cur["messages"].append({"role": "assistant",
-                                            "content": self._group_results[mid], "bot": mid})
+            cur["messages"].extend(self._team_msgs)
             _save_store(self.store)
-        self._group_active = False
-        self._group_plan, self._group_pending = [], set()
-        self._group_results, self._typing_rows = {}, {}
+        self._team_active = False
+        self._team_plan, self._team_deliv, self._team_msgs = [], [], []
         self._set_streaming(False)
-        self._load_current()            # 重建：占位行换成落库消息、固定最新按钮
+        self._load_current()
         self._update_action_visibility()
 
-    def _end_group(self):
+    def _cancel_team(self):
+        """切换 bot/会话时丢弃进行中的团队任务（不落库）。"""
         self._typing_timer.stop()
-        self._group_active = False
-        self._group_plan, self._group_pending = [], set()
-        self._group_results, self._typing_rows = {}, {}
-        self._set_streaming(False)
-        self._update_action_visibility()
-
-    def _cancel_group(self):
-        """切换 bot/会话时丢弃进行中的群聊轮次（不落库）。"""
-        self._typing_timer.stop()
-        self._group_active = False
-        self._group_plan, self._group_pending = [], set()
-        self._group_results, self._typing_rows = {}, {}
+        self._typing_row = None
+        self._team_active = False
+        self._team_plan, self._team_deliv, self._team_msgs = [], [], []
 
     def _animate_typing(self):
         self._typing_phase = (self._typing_phase + 1) % 3
         dots = ["•", "• •", "• • •"][self._typing_phase]
-        for mid, row in self._typing_rows.items():
-            if mid in self._group_pending and row is not None:
-                row.set_text(dots, final=False)
-
-    def _build_group_history(self, group, member, messages):
-        members = self._members(group)
-        others = [m["name"] for m in members if m["id"] != member["id"]]
-        sysp = f"现在是一个多人群聊。你叫「{member['name']}」。"
-        base = (member.get("system") or "").strip()
-        if base:
-            sysp += f"你的人设：{base} "
-        if others:
-            sysp += f"群里其他成员有：{'、'.join(others)}。"
-        sysp += ("请只以「" + member["name"] + "」的身份发言，像群聊里那样简短、口语、自然地说一两句，"
-                 "可以回应或接别人的话，但不要替别人发言，也不要在开头写自己的名字或冒号。")
-        lines = []
-        for m in messages:
-            if m["role"] == "user":
-                lines.append(f"我：{m['content']}")
-            else:
-                nm = self._bot_name(m.get("bot")) or "某成员"
-                lines.append(f"{nm}：{m['content']}")
-        transcript = "\n".join(lines) if lines else "（群聊刚刚开始）"
-        user = f"【群聊记录】\n{transcript}\n\n现在轮到你（{member['name']}）发言："
-        return [{"role": "system", "content": sysp}, {"role": "user", "content": user}]
+        if self._team_active and self._typing_row is not None:
+            self._typing_row.set_text(dots, final=False)
 
     # ── 消息操作：复制 / 重新生成 / 编辑 ──────────────────────────────
     def _copy_markdown(self, row):
@@ -1777,8 +1835,8 @@ class AIChatWindow(OpenHamWindowBase):
         if not self._streaming:
             return
         self._gen += 1                     # 让在跑的流/成员被丢弃
-        if self._group_active:
-            self._finish_group_round()     # 把已到的成员发言落库、清理打字行
+        if self._team_active:
+            self._finish_team()            # 把已完成的编排/交付落库、清理打字行
             return
         cur = self._cur()
         if cur is not None and self._assistant_text.strip():
