@@ -130,6 +130,12 @@ def _make_bot(name: str, system: str, capabilities=None, sessions=None) -> dict:
             "sessions": [_norm_session(s) for s in (sessions or [])]}
 
 
+def _make_group(name: str, members) -> dict:
+    """群聊：和 bot 一样存在 bots 列表里，用 is_group 区分；members 为成员 bot id。"""
+    return {"id": uuid.uuid4().hex, "name": name or "群聊", "is_group": True,
+            "members": list(members or []), "created": time.time(), "sessions": []}
+
+
 def _load_store() -> dict:
     """返回 {"bots": [...], "current_bot": id}。兼容旧的「顶层 sessions」格式。"""
     p = _data_path()
@@ -339,6 +345,63 @@ class _BotDialog(QDialog):
             caps.append(CAP_ASK)
         return (self.name_in.text().strip(),
                 self.sys_in.toPlainText().strip(), caps)
+
+
+class _GroupDialog(QDialog):
+    """新建 / 编辑群聊：群名 + 勾选成员 bot。"""
+
+    def __init__(self, parent=None, name="", members=None, candidates=None):
+        super().__init__(parent)
+        self.setWindowTitle("群聊")
+        self.setMinimumWidth(380)
+        self.setStyleSheet(f"QDialog {{ background: {theme.CARD}; }}")
+        from PyQt6.QtWidgets import QCheckBox
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 16, 18, 14)
+        lay.setSpacing(8)
+        lab = QLabel("群名")
+        lab.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px; font-weight: 600;")
+        lay.addWidget(lab)
+        self.name_in = QLineEdit(name)
+        self.name_in.setPlaceholderText("例如：智囊团、辩论场、点评团…")
+        lay.addWidget(self.name_in)
+        lay.addSpacing(4)
+        lab2 = QLabel("选择成员（2 个及以上）")
+        lab2.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px; font-weight: 600;")
+        lay.addWidget(lab2)
+        members = set(members or [])
+        self._boxes = []
+        host = QWidget()
+        hv = QVBoxLayout(host)
+        hv.setContentsMargins(0, 0, 0, 0)
+        hv.setSpacing(4)
+        for b in (candidates or []):
+            cb = QCheckBox(b["name"])
+            cb.setChecked(b["id"] in members)
+            cb.setCursor(Qt.CursorShape.PointingHandCursor)
+            cb.setStyleSheet(_checkbox_style())
+            cb._bot_id = b["id"]
+            self._boxes.append(cb)
+            hv.addWidget(cb)
+        hv.addStretch(1)
+        sc = QScrollArea()
+        sc.setWidgetResizable(True)
+        sc.setFrameShape(QFrame.Shape.NoFrame)
+        sc.setMaximumHeight(220)
+        sc.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        sc.setWidget(host)
+        lay.addWidget(sc)
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText("保存")
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        lay.addWidget(btns)
+
+    def values(self):
+        ids = [cb._bot_id for cb in self._boxes if cb.isChecked()]
+        return self.name_in.text().strip(), ids
 
 
 class _MessageRow(QWidget):
@@ -707,6 +770,10 @@ class AIChatWindow(OpenHamWindowBase):
         self._assistant_row = None
         self._assistant_text = ""
         self._filter = ""
+        # 群聊：当前轮里待发言的成员队列
+        self._group_active = False
+        self._group_queue = []
+        self._group_speaker = None
 
         self._sig = _ChatSignals()
         self._sig.chunk.connect(self._on_chunk)
@@ -802,14 +869,24 @@ class AIChatWindow(OpenHamWindowBase):
         add.setIconSize(QSize(18, 18))
         add.setFixedSize(44, 44)
         add.setCursor(Qt.CursorShape.PointingHandCursor)
-        add.setToolTip("新建 Bot")
+        add.setToolTip("新建 Bot / 群聊")
         add.setStyleSheet(
             f"QPushButton {{ background: transparent; border: 1px dashed {theme.BORDER_IN};"
             f" border-radius: 12px; }}"
             f"QPushButton:hover {{ background: {theme.HOVER}; }}")
-        add.clicked.connect(self._create_bot)
+        add.clicked.connect(lambda: self._add_menu(add))
         v.addWidget(add, 0, Qt.AlignmentFlag.AlignHCenter)
         return rail
+
+    def _add_menu(self, anchor):
+        menu = QMenu(self)
+        a_bot = menu.addAction(icons.qicon("robot"), "新建 Bot")
+        a_grp = menu.addAction(icons.qicon("users"), "新建群聊")
+        chosen = menu.exec(anchor.mapToGlobal(anchor.rect().bottomLeft()))
+        if chosen == a_bot:
+            self._create_bot()
+        elif chosen == a_grp:
+            self._create_group()
 
     def _build_sidebar(self) -> QWidget:
         side = QWidget()
@@ -948,6 +1025,58 @@ class AIChatWindow(OpenHamWindowBase):
                 return b
         return self.bots[0]
 
+    @staticmethod
+    def _is_group(b):
+        return bool(b and b.get("is_group"))
+
+    def _bot_by_id(self, bid):
+        return next((b for b in self.bots if b["id"] == bid), None)
+
+    def _bot_name(self, bid):
+        b = self._bot_by_id(bid)
+        return b["name"] if b else None
+
+    def _members(self, group):
+        """群成员（解析为真实 bot 字典，过滤已删除/非法成员）。"""
+        out = []
+        for mid in group.get("members", []):
+            b = self._bot_by_id(mid)
+            if b and not self._is_group(b):
+                out.append(b)
+        return out
+
+    def _group_avatar(self, group, px):
+        """群聊头像：把最多 4 个成员的小头像拼成一格。"""
+        members = self._members(group)[:4]
+        s = int(px * _SS)
+        pm = QPixmap(s, s)
+        pm.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(theme.INDIGO_SOFT))
+        p.drawRoundedRect(QRectF(0, 0, s, s), s * 0.3, s * 0.3)
+        n = len(members)
+        if n == 0:
+            p.setBrush(QColor(theme.INDIGO))
+            p.drawEllipse(QRectF(s * 0.3, s * 0.3, s * 0.4, s * 0.4))
+        elif n == 1:
+            p.drawPixmap(QRectF(s * 0.18, s * 0.18, s * 0.64, s * 0.64).toRect(),
+                         self._bot_avatar(members[0], px))
+        else:
+            half = s * 0.46
+            gap = s * 0.04
+            # 2 个并排；3-4 个 2x2
+            spots = ([(gap, s * 0.27), (s - half - gap, s * 0.27)] if n == 2 else
+                     [(gap, gap), (s - half - gap, gap),
+                      (gap, s - half - gap), (s - half - gap, s - half - gap)])
+            for m, (ox, oy) in zip(members, spots):
+                p.drawPixmap(QRectF(ox, oy, half, half).toRect(),
+                             self._bot_avatar(m, px))
+        p.end()
+        pm.setDevicePixelRatio(_SS)
+        return pm
+
     def _clear_layout(self, layout):
         while layout.count():
             it = layout.takeAt(0)
@@ -957,7 +1086,9 @@ class AIChatWindow(OpenHamWindowBase):
                 w.deleteLater()
 
     def _bot_avatar(self, bot, px):
-        """默认 bot（Hamster，bots[0]）用 logo 头像；其余用字母头像。"""
+        """默认 bot（Hamster，bots[0]）用 logo 头像；群聊用拼图头像；其余用字母头像。"""
+        if self._is_group(bot):
+            return self._group_avatar(bot, px)
         if self.bots and bot["id"] == self.bots[0]["id"]:
             return _brand_pixmap(px)
         return _letter_avatar(bot["name"], px)
@@ -969,7 +1100,11 @@ class AIChatWindow(OpenHamWindowBase):
         btn.setIconSize(QSize(40, 40))
         btn.setFixedSize(52, 52)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setToolTip(bot["name"])
+        if self._is_group(bot):
+            mnames = "、".join(m["name"] for m in self._members(bot)) or "空群"
+            btn.setToolTip(f"群聊：{bot['name']}（{mnames}）")
+        else:
+            btn.setToolTip(bot["name"])
         # 选中=柔和浅底（无描边/无指示条），克制优雅
         btn.setStyleSheet(
             f"QPushButton {{ background: {theme.SELECT if active else 'transparent'};"
@@ -997,6 +1132,8 @@ class AIChatWindow(OpenHamWindowBase):
         if bot_id == self.cur_bot_id:
             return
         self._gen += 1
+        self._group_active = False
+        self._group_queue = []
         self._set_streaming(False)
         self.cur_bot_id = bot_id
         self.store["current_bot"] = bot_id
@@ -1028,16 +1165,59 @@ class AIChatWindow(OpenHamWindowBase):
         self._refresh_session_list()
         self._load_current()
 
+    def _create_group(self):
+        candidates = [b for b in self.bots if not self._is_group(b)]
+        dlg = _GroupDialog(self, candidates=candidates)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        name, ids = dlg.values()
+        if len(ids) < 2:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "群聊", "请至少选择 2 个成员。")
+            return
+        grp = _make_group(name or "群聊", ids)
+        self.bots.append(grp)
+        self.cur_bot_id = grp["id"]
+        self.store["current_bot"] = grp["id"]
+        self.cur_id = None
+        _save_store(self.store)
+        self._refresh_bots()
+        self._refresh_session_list()
+        self._load_current()
+
+    def _edit_group(self, gid):
+        grp = self._bot_by_id(gid)
+        if not grp:
+            return
+        candidates = [b for b in self.bots if not self._is_group(b)]
+        dlg = _GroupDialog(self, grp["name"], grp.get("members"), candidates)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        name, ids = dlg.values()
+        if len(ids) < 2:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "群聊", "请至少选择 2 个成员。")
+            return
+        grp["name"] = name or grp["name"]
+        grp["members"] = ids
+        _save_store(self.store)
+        self._refresh_bots()
+        if gid == self.cur_bot_id:
+            self.bot_title.setText(grp["name"])
+            self._load_current()
+
     def _bot_menu(self, bot_id: str, anchor: QWidget, pos):
+        bot = self._bot_by_id(bot_id)
+        is_grp = self._is_group(bot)
         menu = QMenu(self)
-        act_edit = menu.addAction(icons.qicon("edit"), "编辑 Bot")
-        act_del = menu.addAction(icons.qicon("delete"), "删除 Bot")
+        act_edit = menu.addAction(icons.qicon("edit"), "编辑群聊" if is_grp else "编辑 Bot")
+        act_del = menu.addAction(icons.qicon("delete"), "解散群聊" if is_grp else "删除 Bot")
         is_def = bool(self.bots) and bot_id == self.bots[0]["id"]
         if is_def or len(self.bots) <= 1:   # 默认 Hamster 不可删
             act_del.setEnabled(False)
         chosen = menu.exec(anchor.mapToGlobal(pos))
         if chosen == act_edit:
-            self._edit_bot(bot_id)
+            self._edit_group(bot_id) if is_grp else self._edit_bot(bot_id)
         elif chosen == act_del:
             self._delete_bot(bot_id)
 
@@ -1063,8 +1243,13 @@ class AIChatWindow(OpenHamWindowBase):
         if len(self.bots) <= 1 or bot_id == self.bots[0]["id"]:   # 默认 Hamster 不可删
             return
         self.bots = [b for b in self.bots if b["id"] != bot_id]
+        # 从群聊成员里剔除被删 bot；成员不足 2 的群自动解散
+        for g in [b for b in self.bots if self._is_group(b)]:
+            g["members"] = [m for m in g.get("members", []) if m != bot_id]
+        self.bots = [b for b in self.bots
+                     if not (self._is_group(b) and len(b.get("members", [])) < 2)]
         self.store["bots"] = self.bots
-        if self.cur_bot_id == bot_id:
+        if not any(b["id"] == self.cur_bot_id for b in self.bots):
             self._gen += 1
             self._set_streaming(False)
             self.cur_bot_id = self.bots[0]["id"]
@@ -1167,10 +1352,12 @@ class AIChatWindow(OpenHamWindowBase):
         self._rows = []
         self._msgs = []
 
-    def _add_message(self, role: str, text: str, final: bool = False) -> _MessageRow:
-        bot = self._cur_bot()
-        msg = _MessageRow(role, bot_name=bot["name"],
-                          bot_avatar=self._bot_avatar(bot, 22), host=self)
+    def _add_message(self, role: str, text: str, final: bool = False,
+                     bot=None) -> _MessageRow:
+        # 群聊里每条助手消息按「说话的成员」显示头像/名字；否则用当前 bot
+        b = bot or self._cur_bot()
+        msg = _MessageRow(role, bot_name=b["name"],
+                          bot_avatar=self._bot_avatar(b, 22), host=self)
         self.msg_layout.insertWidget(self.msg_layout.count() - 1, msg)
         self._rows.append(msg)
         self._msgs.append(msg)
@@ -1188,8 +1375,11 @@ class AIChatWindow(OpenHamWindowBase):
         if cur is None or not cur["messages"]:
             self._show_empty_hint()
         if cur is not None:
+            is_grp = self._is_group(self._cur_bot())
             for m in cur["messages"]:
-                self._add_message(m["role"], m["content"], final=True)
+                spk = (self._bot_by_id(m.get("bot"))
+                       if is_grp and m["role"] == "assistant" else None)
+                self._add_message(m["role"], m["content"], final=True, bot=spk)
         self._update_action_visibility()
         self._scroll_to_bottom()
 
@@ -1204,12 +1394,20 @@ class AIChatWindow(OpenHamWindowBase):
         logo.setPixmap(self._bot_avatar(bot, 56))
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         bl.addWidget(logo)
-        hint = QLabel(f"我是「{bot['name']}」，有什么可以帮你的？")
+        if self._is_group(bot):
+            mnames = "、".join(m["name"] for m in self._members(bot)) or "（无成员）"
+            htext = f"群聊「{bot['name']}」：{mnames}"
+            stext = "发一条消息，成员们会依次回应"
+        else:
+            htext = f"我是「{bot['name']}」，有什么可以帮你的？"
+            stext = "在下方输入开始对话"
+        hint = QLabel(htext)
+        hint.setWordWrap(True)
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint.setStyleSheet(f"color: {theme.TEXT2}; font-size: 16px;"
                            " font-weight: 600; background: transparent;")
         bl.addWidget(hint)
-        sub = QLabel("在下方输入开始对话")
+        sub = QLabel(stext)
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(f"color: {theme.TEXT3}; font-size: 13px; background: transparent;")
         bl.addWidget(sub)
@@ -1263,6 +1461,10 @@ class AIChatWindow(OpenHamWindowBase):
         cur = self._cur()
         if cur is None:
             return
+        if self._is_group(self._cur_bot()):
+            self._run_group_completion()
+            return
+        self._group_active = False         # 普通单 bot 回答
         self._autoscroll = True            # 新一轮生成：恢复自动滚到底
         self._assistant_text = ""
         self._assistant_row = self._add_message("assistant", "▍")
@@ -1300,6 +1502,75 @@ class AIChatWindow(OpenHamWindowBase):
                     self._sig.error.emit(gen, str(e))
 
         threading.Thread(target=work, daemon=True).start()
+
+    # ── 群聊：成员依次发言 ────────────────────────────────────────────
+    def _run_group_completion(self):
+        cur = self._cur()
+        members = self._members(self._cur_bot())
+        if cur is None or not members:
+            if cur is not None and not members:
+                self._add_message("assistant", "（这个群还没有成员，去右键群头像编辑添加吧）",
+                                  final=True)
+            return
+        self._autoscroll = True
+        self._group_active = True
+        self._group_queue = list(members)
+        self._group_step()
+
+    def _group_step(self):
+        """让队首成员发言；其 _on_done 会接着叫下一个。"""
+        if not self._group_queue:
+            self._group_active = False
+            self._group_speaker = None
+            self._set_streaming(False)
+            self._update_action_visibility()
+            return
+        member = self._group_queue.pop(0)
+        self._group_speaker = member
+        self._assistant_text = ""
+        self._assistant_row = self._add_message("assistant", "▍", bot=member)
+        if self._autoscroll:
+            self._scroll_to_bottom()
+        history = self._build_group_history(self._cur_bot(), member, self._cur()["messages"])
+        self._gen += 1
+        gen = self._gen
+        self._set_streaming(True)
+
+        def work():
+            try:
+                for piece in call_chat_stream(history):
+                    if gen != self._gen:
+                        return
+                    self._sig.chunk.emit(gen, piece)
+                if gen == self._gen:
+                    self._sig.done.emit(gen)
+            except Exception as e:
+                if gen == self._gen:
+                    self._sig.error.emit(gen, str(e))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _build_group_history(self, group, member, messages):
+        members = self._members(group)
+        others = [m["name"] for m in members if m["id"] != member["id"]]
+        sysp = f"现在是一个多人群聊。你叫「{member['name']}」。"
+        base = (member.get("system") or "").strip()
+        if base:
+            sysp += f"你的人设：{base} "
+        if others:
+            sysp += f"群里其他成员有：{'、'.join(others)}。"
+        sysp += ("请只以「" + member["name"] + "」的身份发言，像群聊里那样简短、口语、自然地说一两句，"
+                 "可以回应或接别人的话，但不要替别人发言，也不要在开头写自己的名字或冒号。")
+        lines = []
+        for m in messages:
+            if m["role"] == "user":
+                lines.append(f"我：{m['content']}")
+            else:
+                nm = self._bot_name(m.get("bot")) or "某成员"
+                lines.append(f"{nm}：{m['content']}")
+        transcript = "\n".join(lines) if lines else "（群聊刚刚开始）"
+        user = f"【群聊记录】\n{transcript}\n\n现在轮到你（{member['name']}）发言："
+        return [{"role": "system", "content": sysp}, {"role": "user", "content": user}]
 
     # ── 消息操作：复制 / 重新生成 / 编辑 ──────────────────────────────
     def _copy_markdown(self, row):
@@ -1379,12 +1650,18 @@ class AIChatWindow(OpenHamWindowBase):
             self._assistant_row.set_text(self._assistant_text, final=True)
         cur = self._cur()
         if cur is not None:
-            cur["messages"].append({"role": "assistant", "content": self._assistant_text})
+            m = {"role": "assistant", "content": self._assistant_text}
+            if self._group_active and self._group_speaker:
+                m["bot"] = self._group_speaker["id"]
+            cur["messages"].append(m)
             _save_store(self.store)
-        self._set_streaming(False)
         self._update_action_visibility()
         if self._autoscroll:
             self._scroll_to_bottom()
+        if self._group_active:
+            self._group_step()         # 叫下一个成员发言（保持 streaming）
+        else:
+            self._set_streaming(False)
 
     def _on_error(self, gen: int, msg: str):
         if gen != self._gen:
@@ -1394,10 +1671,16 @@ class AIChatWindow(OpenHamWindowBase):
             self._assistant_row.set_text(self._assistant_text)
         cur = self._cur()
         if cur is not None:
-            cur["messages"].append({"role": "assistant", "content": self._assistant_text})
+            m = {"role": "assistant", "content": self._assistant_text}
+            if self._group_active and self._group_speaker:
+                m["bot"] = self._group_speaker["id"]
+            cur["messages"].append(m)
             _save_store(self.store)
-        self._set_streaming(False)
         self._update_action_visibility()
+        if self._group_active:
+            self._group_step()
+        else:
+            self._set_streaming(False)
 
     def _stop(self):
         """中止当前流式生成：保留已生成的部分并落库。"""
@@ -1406,8 +1689,14 @@ class AIChatWindow(OpenHamWindowBase):
         self._gen += 1                     # 让在跑的流被丢弃
         cur = self._cur()
         if cur is not None and self._assistant_text.strip():
-            cur["messages"].append({"role": "assistant", "content": self._assistant_text})
+            m = {"role": "assistant", "content": self._assistant_text}
+            if self._group_active and self._group_speaker:
+                m["bot"] = self._group_speaker["id"]
+            cur["messages"].append(m)
             _save_store(self.store)
+        self._group_active = False         # 中止整轮群聊
+        self._group_queue = []
+        self._group_speaker = None
         self._set_streaming(False)
         self._load_current()               # 重建：去掉光标/空助手行，固定最新回答按钮
         self._update_action_visibility()
