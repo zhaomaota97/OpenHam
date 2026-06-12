@@ -531,7 +531,25 @@ class _WorldCanvas(QWidget):
         self.moving = False
         self._held = []
         self._timer.start(16)
-        self.setFocus()
+        QTimer.singleShot(0, self.grab_kb)
+
+    def grab_kb(self):
+        """无边框窗口下焦点常落不到画布——直接抓取键盘，确保按键一定能控制角色。"""
+        try:
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
+            self.grabKeyboard()
+        except Exception:
+            pass
+
+    def release_kb(self):
+        try:
+            self.releaseKeyboard()
+        except Exception:
+            pass
+
+    def mousePressEvent(self, e):
+        self.grab_kb()                 # 点一下世界也能重新接管键盘
+        super().mousePressEvent(e)
 
     def set_paused(self, on):
         self._paused = on
@@ -1039,7 +1057,7 @@ class TextGameWindow(OpenHamWindowBase):
         self._stack.setCurrentIndex(2)
         self.canvas.load(world["start"])
         self.layout_overlays()
-        QTimer.singleShot(0, self.canvas.setFocus)        # 确保画布拿到键盘焦点
+        QTimer.singleShot(30, self.canvas.grab_kb)        # 确保画布抓到键盘
         self.canvas.toast("↑↓←→ / WASD 移动 · 空格 交互")
         if world.get("intro"):
             QTimer.singleShot(120, lambda: self._show_dialog(world["name"], world["intro"]))
@@ -1113,7 +1131,12 @@ class TextGameWindow(OpenHamWindowBase):
 
     def _game_over(self):
         self._show_dialog("游戏结束", "你的冒险到此为止……")
-        QTimer.singleShot(1600, lambda: self._stack.setCurrentIndex(0))
+
+        def back():
+            self.canvas.release_kb()
+            self._stack.setCurrentIndex(0)
+            self._theme_input.setFocus()
+        QTimer.singleShot(1600, back)
 
     # ── 对话 ──────────────────────────────────────────────────────────
     def dialog_open(self):
@@ -1199,4 +1222,9 @@ class TextGameWindow(OpenHamWindowBase):
         except Exception:
             pass
         if self._stack.currentIndex() == 2:
-            self.canvas.setFocus()
+            QTimer.singleShot(0, self.canvas.grab_kb)
+
+    def hideEvent(self, e):
+        if hasattr(self, "canvas"):
+            self.canvas.release_kb()
+        super().hideEvent(e)
