@@ -204,17 +204,26 @@ def tooltip_qss() -> str:
 # QTipLabel】、每次 showText 又拿自己的(深色)静态调色板重设，快速移动时复用的提示又黑、
 # 防不胜防。最稳的办法：直接拦掉系统 tooltip，自己用一个完全可控的浅色 QLabel 当提示。
 def _round_mask(widget, r):
-    """给【不透明】窗口套一个圆角遮罩，得到圆角——遮罩外的像素被裁掉(显示后面的内容，
-    永不发黑)。这是关键：不用透明窗(本机透明区会合成成黑)，所以圆角且绝不发黑。"""
+    """给【不透明】窗口套圆角遮罩，得到圆角——遮罩外像素被裁掉(显示后面内容，永不发黑)。
+    用透明窗本机会发黑，所以走遮罩。**按 devicePixelRatio 在物理分辨率上画遮罩**，
+    否则高分屏(缩放)下遮罩被放大 → 边缘又糊又锯齿。"""
     try:
-        from PyQt6.QtGui import QRegion, QPainterPath
-        from PyQt6.QtCore import QRectF
+        from PyQt6.QtGui import QBitmap, QPainter
+        from PyQt6.QtCore import Qt as _Qt, QRectF
         w, h = widget.width(), widget.height()
         if w <= 0 or h <= 0:
             return
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, w, h), r, r)
-        widget.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        dpr = widget.devicePixelRatioF() or 1.0
+        bm = QBitmap(max(1, round(w * dpr)), max(1, round(h * dpr)))
+        bm.setDevicePixelRatio(dpr)
+        bm.fill(_Qt.GlobalColor.color0)                    # 0=裁掉
+        p = QPainter(bm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setBrush(_Qt.GlobalColor.color1)                 # 1=保留
+        p.setPen(_Qt.PenStyle.NoPen)
+        p.drawRoundedRect(QRectF(0, 0, w, h), r, r)
+        p.end()
+        widget.setMask(bm)
     except Exception:
         pass
 
