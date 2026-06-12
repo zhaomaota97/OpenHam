@@ -190,3 +190,54 @@ def style_menu(menu):
     """给 QMenu 套上统一浅色样式并返回它。所有 QMenu(parent) 都该过一遍这个。"""
     menu.setStyleSheet(menu_qss())
     return menu
+
+
+def tooltip_qss() -> str:
+    """QToolTip / 内部 QTipLabel 的浅色样式（直接设到实例上，压过级联）。"""
+    return (f"background: {CARD}; color: {TEXT}; border: 1px solid {BORDER};"
+            f" border-radius: 6px; padding: 5px 8px; font-size: 12px;")
+
+
+# ── 全局兜底：所有弹出层（菜单 / 提示）强制浅色 ──────────────────────────
+# 根因：无边框 + 半透明主窗口下，QMenu / QToolTip(QTipLabel) 会继承父控件的
+# bare 样式（background:transparent），漏进来后在半透明窗上合成成黑色——连
+# 文本框/浏览器的「系统右键菜单」也黑。逐个设样式管不全（系统菜单是 Qt 内部建的）。
+# 这里用一个 App 级事件过滤器：任何 QMenu / QTipLabel 一出现就给它套上不透明浅色样式。
+def _install_popup_fix(app):
+    from PyQt6.QtCore import QObject, QEvent, QTimer
+    from PyQt6.QtWidgets import QMenu
+
+    def _fix_tip(tip):
+        # QToolTip 每次 showText 会重设 QTipLabel 的样式/调色板，所以要在它设完之后
+        # （事件循环下一拍）再覆盖，并关掉半透明，确保不透明浅底、不发黑。
+        try:
+            from PyQt6.QtCore import Qt as _Qt
+            tip.setAttribute(_Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            tip.setStyleSheet(tooltip_qss())
+        except Exception:
+            pass
+
+    class _PopupStyler(QObject):
+        def eventFilter(self, obj, event):
+            t = event.type()
+            if t == QEvent.Type.Polish or t == QEvent.Type.Show:
+                cls = obj.metaObject().className()
+                if cls == "QMenu" or isinstance(obj, QMenu):
+                    if not obj.property("_oh_styled"):
+                        obj.setProperty("_oh_styled", True)
+                        obj.setStyleSheet(menu_qss())
+                elif cls == "QTipLabel":
+                    _fix_tip(obj)                      # 立即设一次
+                    QTimer.singleShot(0, lambda o=obj: _fix_tip(o))   # 再覆盖一次
+            return False
+
+    styler = _PopupStyler(app)
+    app.installEventFilter(styler)
+    app._oh_popup_styler = styler   # 持引用，防止被回收
+    return styler
+
+
+def apply(app):
+    """统一入口：设全局样式表 + 安装弹出层兜底。main.py 调用一次即可。"""
+    app.setStyleSheet(app_qss())
+    _install_popup_fix(app)

@@ -161,8 +161,8 @@ def main():
                 app._qt_translators.append(_t)   # 保持引用，避免被回收
     except Exception as _e:
         log.warning("加载 Qt 中文翻译失败：%s", _e)
-    # 全局浅色主题：右键菜单、提示、滚动条、对话框等标准控件统一「精致白」
-    app.setStyleSheet(theme.app_qss())
+    # 全局浅色主题 + 弹出层兜底（菜单/系统右键菜单/Tooltip 一律强制浅色，杜绝发黑）
+    theme.apply(app)
 
     window = InputWindow()
     # ── 浮层组件 ──
