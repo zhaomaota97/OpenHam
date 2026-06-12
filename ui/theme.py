@@ -167,13 +167,12 @@ def app_qss() -> str:
 
 
 def menu_qss() -> str:
-    """QMenu 专用样式。直接设到具体 QMenu 上，可压过父控件 bare 样式的级联，
-    根治「右键/hover 菜单背景发黑」——QMenu(parent) 会继承 parent 的样式表，
-    若 parent 用了无选择器的 `background:transparent` 之类，会漏进菜单导致变黑。"""
+    """QMenu 浅色样式：白底、圆角、细描边、item 选中浅灰。配合 WA_TranslucentBackground
+    使圆角平滑生效；颜色由全局浅色 ColorScheme/Palette 保证不发黑。"""
     return f"""
     QMenu {{
         background: {CARD}; color: {TEXT};
-        border: 1px solid {BORDER}; border-radius: 12px; padding: 6px;
+        border: 1px solid {BORDER}; border-radius: 10px; padding: 6px;
     }}
     QMenu::item {{
         padding: 7px 16px; border-radius: 6px; margin: 1px 4px;
@@ -187,47 +186,21 @@ def menu_qss() -> str:
 
 
 def style_menu(menu):
-    """给 QMenu 套上统一浅色样式并返回它。所有 QMenu(parent) 都该过一遍这个。"""
+    """给 QMenu 套统一浅色 + 透明圆角(平滑、无重阴影)。所有 QMenu(parent) 都该过一遍。"""
+    try:
+        from PyQt6.QtCore import Qt as _Qt
+        menu.setAttribute(_Qt.WidgetAttribute.WA_TranslucentBackground, True)
+    except Exception:
+        pass
     menu.setStyleSheet(menu_qss())
     return menu
 
 
-def tooltip_qss() -> str:
-    """QToolTip / 内部 QTipLabel 的浅色样式（直接设到实例上，压过级联）。"""
-    return (f"background: {CARD}; color: {TEXT}; border: 1px solid {BORDER};"
-            f" border-radius: 6px; padding: 5px 8px; font-size: 12px;")
-
-
-# ── 全局兜底：菜单浅色 + 用自绘 tooltip 取代系统 tooltip ─────────────────
-# 根因：无边框 + 半透明主窗口 + 系统深色模式下，QMenu / 系统右键菜单 / Tooltip(QTipLabel)
-# 的原生背景会发黑。菜单靠「出现即套浅色样式」搞定；但 QToolTip 全程【复用同一个
-# QTipLabel】、每次 showText 又拿自己的(深色)静态调色板重设，快速移动时复用的提示又黑、
-# 防不胜防。最稳的办法：直接拦掉系统 tooltip，自己用一个完全可控的浅色 QLabel 当提示。
-def _round_mask(widget, r):
-    """给【不透明】窗口套圆角遮罩，得到圆角——遮罩外像素被裁掉(显示后面内容，永不发黑)。
-    用透明窗本机会发黑，所以走遮罩。**按 devicePixelRatio 在物理分辨率上画遮罩**，
-    否则高分屏(缩放)下遮罩被放大 → 边缘又糊又锯齿。"""
-    try:
-        from PyQt6.QtGui import QBitmap, QPainter
-        from PyQt6.QtCore import Qt as _Qt, QRectF
-        w, h = widget.width(), widget.height()
-        if w <= 0 or h <= 0:
-            return
-        dpr = widget.devicePixelRatioF() or 1.0
-        bm = QBitmap(max(1, round(w * dpr)), max(1, round(h * dpr)))
-        bm.setDevicePixelRatio(dpr)
-        bm.fill(_Qt.GlobalColor.color0)                    # 0=裁掉
-        p = QPainter(bm)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        p.setBrush(_Qt.GlobalColor.color1)                 # 1=保留
-        p.setPen(_Qt.PenStyle.NoPen)
-        p.drawRoundedRect(QRectF(0, 0, w, h), r, r)
-        p.end()
-        widget.setMask(bm)
-    except Exception:
-        pass
-
-
+# ── 全局兜底：菜单/Tooltip 走 Qt 标准做法 = 透明窗 + QSS 圆角(平滑) ─────────
+# 关键教训：圆角平滑只能靠 WA_TranslucentBackground(透明窗+QSS border-radius)，遮罩会锯齿；
+# 而本机之前透明窗发黑【不是透明本身的错，是误调了 disable_native_window_effects(DWMNCRP_DISABLED)
+# 破坏了分层窗合成】——只要不去碰原生 NC 渲染，透明圆角窗就正常(主窗口同款，平滑且无重阴影)。
+# tooltip 仍自绘(系统 QToolTip 复用 QTipLabel 深色反复回黑，防不胜防)，但用透明圆角 QLabel。
 def _install_popup_fix(app):
     from PyQt6.QtCore import QObject, QEvent, QTimer, Qt, QPoint
     from PyQt6.QtGui import QCursor
@@ -244,10 +217,10 @@ def _install_popup_fix(app):
         def _ensure_tip(self):
             if self._tip is None:
                 lbl = QLabel(None)
-                # 不透明窗(绝不发黑) + 圆角遮罩。不用 WA_TranslucentBackground。
+                # 透明圆角窗(平滑、不发黑)；绝不对它调 disable_native_window_effects。
                 lbl.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint
                                    | Qt.WindowType.NoDropShadowWindowHint)
-                lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+                lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
                 lbl.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
                 lbl.setStyleSheet(
                     f"QLabel {{ background: {CARD}; color: {TEXT}; border: 1px solid {BORDER_IN};"
@@ -260,7 +233,6 @@ def _install_popup_fix(app):
             t.setText(text)
             t.adjustSize()
             t.move(gpos + QPoint(12, 18))
-            _round_mask(t, 8)
             t.show()
             t.raise_()
             self._hide_timer.start(6000)
@@ -287,13 +259,15 @@ def _install_popup_fix(app):
                       QEvent.Type.WindowDeactivate, QEvent.Type.FocusOut,
                       QEvent.Type.KeyPress):
                 self._hide_tip()
-            elif et == QEvent.Type.Polish or et == QEvent.Type.Show or et == QEvent.Type.Resize:
+            elif et == QEvent.Type.Polish or et == QEvent.Type.Show:
                 if isinstance(obj, QMenu) or obj.metaObject().className() == "QMenu":
                     if not obj.property("_oh_styled"):
                         obj.setProperty("_oh_styled", True)
-                        obj.setStyleSheet(menu_qss())   # 不透明白底，绝不发黑
-                    if et == QEvent.Type.Show or et == QEvent.Type.Resize:
-                        _round_mask(obj, 12)            # 圆角遮罩(裁掉方角，无重阴影)
+                        try:               # 透明窗 → QSS 圆角平滑生效(不发黑、无遮罩锯齿)
+                            obj.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+                        except Exception:
+                            pass
+                        obj.setStyleSheet(menu_qss())
             return False
 
     fix = _PopupFix(app)
