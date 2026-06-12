@@ -131,13 +131,5 @@
   "plugins.ai_chat.execute_ai_chat": {
     "enabled": true,
     "triggers": []
-  },
-  "plugins.text_game.execute_text_game": {
-    "enabled": true,
-    "triggers": [
-      "文字游戏",
-      "文字冒险",
-      "冒险"
-    ]
   }
 }

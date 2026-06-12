@@ -258,20 +258,6 @@ def main():
             _settings = next((a for a in _acts if a.text().startswith("设置")), None)
             tray_menu.insertAction(_settings, chat_act) if _settings else tray_menu.addAction(chat_act)
 
-    # 文字游戏插件启用时（注册了 open_text_game），在「聊天」之后、「设置」之前加「文字游戏」项。
-    if "open_text_game" in plugin_api._handlers:
-        game_act = QAction("文字游戏", tray_menu)
-        game_act.triggered.connect(lambda: plugin_api.call("open_text_game"))
-        _acts = tray_menu.actions()
-        _chat = next((a for a in _acts if a.text() == "聊天"), None)
-        if _chat is not None:                          # 插在「聊天」之后
-            _i = _acts.index(_chat)
-            _after = _acts[_i + 1] if _i + 1 < len(_acts) else None
-            tray_menu.insertAction(_after, game_act) if _after else tray_menu.addAction(game_act)
-        else:
-            _settings = next((a for a in _acts if a.text().startswith("设置")), None)
-            tray_menu.insertAction(_settings, game_act) if _settings else tray_menu.addAction(game_act)
-
     action_show.triggered.connect(window.show_window)
     action_script_config.triggered.connect(script_overlay.open)
     action_plugin_config.triggered.connect(plugin_manager_overlay.show_window)

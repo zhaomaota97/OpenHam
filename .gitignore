@@ -19,9 +19,6 @@ my_games/
 # AI 对话插件的会话历史（用户数据）
 ai_chat/
 
-# 文字游戏（AI 小镇）的存档：村民记忆/好感等（用户数据）
-text_game/
-
 # 便携 Python 运行时的第三方依赖（用户自行安装）
 runtime/Lib/site-packages/
 # runtime 目录下的 Scripts（pip 等工具生成）

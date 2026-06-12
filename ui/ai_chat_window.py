@@ -36,7 +36,6 @@ from core.ai_client import call_chat_stream, _CHAT_SYS
 
 
 # ── Bot 能力：交互控件（choices 快捷回复 / ask 澄清提问）──
-# （文字游戏已拆为独立插件 plugins/text_game，聊天不再内置游戏能力）
 CAP_CHOICES = "choices"
 CAP_ASK = "ask"
 
