@@ -280,5 +280,12 @@ def apply(app):
         app.setPalette(_light_palette())
     except Exception:
         pass
+    # QToolTip 复用同一个内部 label，每次 showText 会重设它的【静态调色板】(深色模式下是黑的)，
+    # 所以快速在控件间移动时复用的 tooltip 又变黑。直接把 QToolTip 的静态调色板设成浅色，根治。
+    try:
+        from PyQt6.QtWidgets import QToolTip
+        QToolTip.setPalette(_light_palette())
+    except Exception:
+        pass
     app.setStyleSheet(app_qss())
     _install_popup_fix(app)
