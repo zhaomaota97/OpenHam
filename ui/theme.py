@@ -173,7 +173,7 @@ def menu_qss() -> str:
     return f"""
     QMenu {{
         background: {CARD}; color: {TEXT};
-        border: 1px solid {BORDER_IN}; border-radius: 11px; padding: 6px;
+        border: 1px solid {BORDER}; border-radius: 12px; padding: 6px;
     }}
     QMenu::item {{
         padding: 7px 16px; border-radius: 6px; margin: 1px 4px;
@@ -203,6 +203,16 @@ def tooltip_qss() -> str:
 # 的原生背景会发黑。菜单靠「出现即套浅色样式」搞定；但 QToolTip 全程【复用同一个
 # QTipLabel】、每次 showText 又拿自己的(深色)静态调色板重设，快速移动时复用的提示又黑、
 # 防不胜防。最稳的办法：直接拦掉系统 tooltip，自己用一个完全可控的浅色 QLabel 当提示。
+def _kill_native_shadow(widget):
+    """去掉 Windows 给弹出窗加的那圈很重的原生阴影/圆角，跟主窗口同款处理——
+    这样透明圆角窗就只剩干净的圆角+细描边，和 OpenHam 其它窗口风格一致(扁平无重影)。"""
+    try:
+        from utils.window_effects import disable_native_window_effects
+        disable_native_window_effects(int(widget.winId()))
+    except Exception:
+        pass
+
+
 def _install_popup_fix(app):
     from PyQt6.QtCore import QObject, QEvent, QTimer, Qt, QPoint
     from PyQt6.QtGui import QCursor
@@ -219,7 +229,6 @@ def _install_popup_fix(app):
         def _ensure_tip(self):
             if self._tip is None:
                 lbl = QLabel(None)
-                # 透明窗 + 圆角背景：圆角才能真正生效（不透明方窗会露出直角）
                 lbl.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint
                                    | Qt.WindowType.NoDropShadowWindowHint)
                 lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -237,6 +246,7 @@ def _install_popup_fix(app):
             t.move(gpos + QPoint(12, 18))
             t.show()
             t.raise_()
+            _kill_native_shadow(t)          # 去掉那圈很重的原生阴影
             self._hide_timer.start(6000)
 
         def _hide_tip(self):
@@ -265,12 +275,14 @@ def _install_popup_fix(app):
                 if isinstance(obj, QMenu) or obj.metaObject().className() == "QMenu":
                     if not obj.property("_oh_styled"):
                         obj.setProperty("_oh_styled", True)
-                        # 透明窗 → 圆角生效、且去掉 Windows 那圈很重的方形原生阴影
-                        try:
+                        try:                 # 透明窗 → 圆角生效
                             obj.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+                            obj.setWindowFlag(Qt.WindowType.NoDropShadowWindowHint, True)
                         except Exception:
                             pass
                         obj.setStyleSheet(menu_qss())
+                    if et == QEvent.Type.Show:
+                        _kill_native_shadow(obj)   # 去掉那圈很重的方形原生阴影
             return False
 
     fix = _PopupFix(app)
