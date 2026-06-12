@@ -173,7 +173,7 @@ def menu_qss() -> str:
     return f"""
     QMenu {{
         background: {CARD}; color: {TEXT};
-        border: 1px solid {BORDER}; border-radius: 10px; padding: 6px;
+        border: 1px solid {BORDER_IN}; border-radius: 11px; padding: 6px;
     }}
     QMenu::item {{
         padding: 7px 16px; border-radius: 6px; margin: 1px 4px;
@@ -219,12 +219,14 @@ def _install_popup_fix(app):
         def _ensure_tip(self):
             if self._tip is None:
                 lbl = QLabel(None)
-                lbl.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
-                lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+                # 透明窗 + 圆角背景：圆角才能真正生效（不透明方窗会露出直角）
+                lbl.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint
+                                   | Qt.WindowType.NoDropShadowWindowHint)
+                lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
                 lbl.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
                 lbl.setStyleSheet(
                     f"QLabel {{ background: {CARD}; color: {TEXT}; border: 1px solid {BORDER};"
-                    f" border-radius: 6px; padding: 5px 9px; font-size: 12px; }}")
+                    f" border-radius: 8px; padding: 6px 10px; font-size: 12px; }}")
                 self._tip = lbl
             return self._tip
 
@@ -263,6 +265,11 @@ def _install_popup_fix(app):
                 if isinstance(obj, QMenu) or obj.metaObject().className() == "QMenu":
                     if not obj.property("_oh_styled"):
                         obj.setProperty("_oh_styled", True)
+                        # 透明窗 → 圆角生效、且去掉 Windows 那圈很重的方形原生阴影
+                        try:
+                            obj.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+                        except Exception:
+                            pass
                         obj.setStyleSheet(menu_qss())
             return False
 
