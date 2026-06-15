@@ -180,6 +180,8 @@ class OpenHamWindowBase(QWidget):
         tb.addWidget(self.close_btn)
 
         self.card_layout.addWidget(self.title_bar)
+        # 双击标题栏：最大化 / 还原（所有继承本基类的窗口统一具备）
+        self.title_bar.installEventFilter(self)
 
         # ── 内容区（子类填充） ─────────────────────────────────────
         self.content_layout = QVBoxLayout()
@@ -207,6 +209,15 @@ class OpenHamWindowBase(QWidget):
         _set_topmost_native(int(self.winId()), self.is_pinned)
         self.pin_btn.setIcon(icons.qicon("pinned" if self.is_pinned else "pin",
                                          color=theme.ACCENT if self.is_pinned else theme.TEXT2))
+
+    def eventFilter(self, obj, event):
+        """双击标题栏最大化/还原。子类如重写 eventFilter，请记得 super().eventFilter(...)。"""
+        from PyQt6.QtCore import QEvent
+        if obj is getattr(self, "title_bar", None) and \
+                event.type() == QEvent.Type.MouseButtonDblClick:
+            self.toggle_max()
+            return True
+        return super().eventFilter(obj, event)
 
     def toggle_max(self):
         """最大化 / 还原（无边框窗口同样适用）。"""
