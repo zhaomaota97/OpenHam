@@ -20,7 +20,7 @@ import uuid
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QPlainTextEdit, QListWidget, QListWidgetItem, QScrollArea, QFrame,
-    QDialog, QDialogButtonBox, QComboBox, QCheckBox, QDateEdit, QMenu,
+    QDialog, QMenu, QCalendarWidget,
     QInputDialog, QAbstractItemView, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal, QDate
@@ -146,127 +146,248 @@ class _DragList(QListWidget):
 
 
 # ── 任务详情编辑对话框 ──────────────────────────────────────────────
+# 全程不用任何【系统弹出层】(QComboBox 下拉 / QDateEdit 日历弹窗 / QDialogButtonBox 蓝按钮 /
+# QCheckBox 蓝勾)——本机透明合成会让这些弹层发黑、原生高亮发蓝。改为：内嵌日历(普通控件)、
+# 清单切换走已修好的 theme.style_menu 菜单、圆圈自绘勾选、按钮全自定义浅色样式。
 class _TaskDialog(QDialog):
     def __init__(self, parent, task: dict, lists, cur_list_id):
         super().__init__(parent)
         self.setWindowTitle("任务详情")
-        self.setMinimumWidth(440)
+        self.setMinimumWidth(480)
         self.setStyleSheet(f"QDialog {{ background: {theme.CARD}; }}")
         self._task = task
         self._subs = [dict(s) for s in task.get("subtasks", [])]
         self._deleted = False
+        self._lists = lists
         self._target_list = cur_list_id
+        self._due = task.get("due")
 
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(18, 16, 18, 14)
-        lay.setSpacing(10)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 22, 24, 18)
+        root.setSpacing(0)
 
+        # 标题（无边框大输入）
         self.title_in = QLineEdit(task.get("title", ""))
         self.title_in.setPlaceholderText("任务标题")
-        self.title_in.setStyleSheet(self._in_qss(15, True))
-        lay.addWidget(self.title_in)
+        self.title_in.setStyleSheet(
+            f"QLineEdit {{ background: transparent; border: none;"
+            f" border-bottom: 2px solid {theme.BORDER}; padding: 4px 2px 8px 2px;"
+            f" color: {theme.TEXT}; font-size: 18px; font-weight: 600; }}"
+            f"QLineEdit:focus {{ border-bottom: 2px solid {theme.INDIGO}; }}")
+        root.addWidget(self.title_in)
+        root.addSpacing(16)
 
+        # 备注
         self.notes_in = QPlainTextEdit(task.get("notes", ""))
-        self.notes_in.setPlaceholderText("添加备注")
-        self.notes_in.setFixedHeight(80)
+        self.notes_in.setPlaceholderText("添加详情 / 备注")
+        self.notes_in.setFixedHeight(72)
         self.notes_in.setStyleSheet(
             f"QPlainTextEdit {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER};"
-            f" border-radius: {theme.R_IN}px; padding: 7px 9px; color: {theme.TEXT};"
-            f" font-size: 13px; }}")
-        lay.addWidget(self.notes_in)
+            f" border-radius: {theme.R_IN}px; padding: 8px 10px; color: {theme.TEXT};"
+            f" font-size: 14px; }}"
+            f"QPlainTextEdit:focus {{ border-color: {theme.BORDER_IN}; }}")
+        root.addWidget(self.notes_in)
+        root.addSpacing(16)
 
-        # 日期
+        # 日期：快捷胶囊 + 可展开内嵌日历（非弹窗，杜绝发黑）
         drow = QHBoxLayout()
         drow.setSpacing(8)
-        self.date_chk = QCheckBox("到期日期")
-        self.date_chk.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px;")
-        self.date_edit = QDateEdit()
-        self.date_edit.setCalendarPopup(True)
-        self.date_edit.setDisplayFormat("yyyy-MM-dd")
-        self.date_edit.setStyleSheet(
-            f"QDateEdit {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER};"
-            f" border-radius: {theme.R_IN}px; padding: 5px 8px; color: {theme.TEXT};"
-            f" font-size: 13px; }}")
-        due = task.get("due")
-        if due:
-            try:
-                y, m, d = (int(x) for x in due.split("-"))
-                self.date_edit.setDate(QDate(y, m, d))
-                self.date_chk.setChecked(True)
-            except Exception:
-                self.date_edit.setDate(QDate.currentDate())
-        else:
-            self.date_edit.setDate(QDate.currentDate())
-            self.date_edit.setEnabled(False)
-        self.date_chk.toggled.connect(self.date_edit.setEnabled)
-        drow.addWidget(self.date_chk)
-        drow.addWidget(self.date_edit, 1)
-        lay.addLayout(drow)
+        dcap = QLabel("日期")
+        dcap.setStyleSheet(f"color: {theme.TEXT2}; font-size: 13px; font-weight: 600;")
+        drow.addWidget(dcap)
+        self.date_lbl = QLabel()
+        self.date_lbl.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px;")
+        drow.addWidget(self.date_lbl)
+        drow.addStretch(1)
+        root.addLayout(drow)
+        root.addSpacing(8)
 
-        # 所属清单
+        chips = QHBoxLayout()
+        chips.setSpacing(7)
+        chips.addWidget(self._chip("今天", lambda: self._set_due(QDate.currentDate())))
+        chips.addWidget(self._chip("明天", lambda: self._set_due(QDate.currentDate().addDays(1))))
+        chips.addWidget(self._chip("本周末", lambda: self._set_due(self._weekend())))
+        self._cal_chip = self._chip("选择日期", self._toggle_cal)
+        chips.addWidget(self._cal_chip)
+        self._clear_chip = self._chip("清除", lambda: self._set_due(None), danger=True)
+        chips.addWidget(self._clear_chip)
+        chips.addStretch(1)
+        root.addLayout(chips)
+
+        self.cal = QCalendarWidget()
+        self.cal.setVisible(False)
+        self.cal.setGridVisible(False)
+        self.cal.setNavigationBarVisible(True)
+        self.cal.setHorizontalHeaderFormat(QCalendarWidget.HorizontalHeaderFormat.SingleLetterDayNames)
+        self.cal.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+        self.cal.setStyleSheet(self._cal_qss())
+        self.cal.clicked.connect(self._set_due)
+        root.addSpacing(8)
+        root.addWidget(self.cal)
+        root.addSpacing(16)
+
+        # 清单切换（>1 个时；走浅色菜单，无下拉黑底）
         if len(lists) > 1:
             lrow = QHBoxLayout()
             lrow.setSpacing(8)
-            lab = QLabel("清单")
-            lab.setStyleSheet(f"color: {theme.TEXT2}; font-size: 13px;")
-            self.list_box = QComboBox()
-            self.list_box.setStyleSheet(
-                f"QComboBox {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER};"
-                f" border-radius: {theme.R_IN}px; padding: 5px 8px; color: {theme.TEXT};"
-                f" font-size: 13px; }}")
-            for l in lists:
-                self.list_box.addItem(l["name"], l["id"])
-                if l["id"] == cur_list_id:
-                    self.list_box.setCurrentIndex(self.list_box.count() - 1)
-            lrow.addWidget(lab)
-            lrow.addWidget(self.list_box, 1)
-            lay.addLayout(lrow)
-        else:
-            self.list_box = None
+            lcap = QLabel("清单")
+            lcap.setStyleSheet(f"color: {theme.TEXT2}; font-size: 13px; font-weight: 600;")
+            lrow.addWidget(lcap)
+            self.list_btn = QPushButton()
+            self.list_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.list_btn.setStyleSheet(
+                f"QPushButton {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER};"
+                f" border-radius: {theme.R_BTN}px; padding: 6px 12px; color: {theme.TEXT};"
+                f" font-size: 13px; text-align: left; }}"
+                f"QPushButton:hover {{ border-color: {theme.BORDER_IN}; }}")
+            self.list_btn.clicked.connect(self._pick_list)
+            self._sync_list_btn()
+            lrow.addWidget(self.list_btn, 1)
+            root.addLayout(lrow)
+            root.addSpacing(16)
 
         # 子任务
         sub_head = QLabel("子任务")
-        sub_head.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px; font-weight: 600;")
-        lay.addWidget(sub_head)
+        sub_head.setStyleSheet(f"color: {theme.TEXT2}; font-size: 13px; font-weight: 600;")
+        root.addWidget(sub_head)
+        root.addSpacing(6)
         self._sub_host = QWidget()
         self._sub_v = QVBoxLayout(self._sub_host)
         self._sub_v.setContentsMargins(0, 0, 0, 0)
-        self._sub_v.setSpacing(4)
-        lay.addWidget(self._sub_host)
+        self._sub_v.setSpacing(2)
+        root.addWidget(self._sub_host)
         self._render_subs()
 
-        addrow = QHBoxLayout()
-        addrow.setSpacing(8)
         self._sub_in = QLineEdit()
         self._sub_in.setPlaceholderText("添加子任务，回车确认")
-        self._sub_in.setStyleSheet(self._in_qss(13, False))
+        self._sub_in.setStyleSheet(
+            f"QLineEdit {{ background: transparent; border: none;"
+            f" border-bottom: 1px solid {theme.BORDER}; padding: 6px 2px; color: {theme.TEXT};"
+            f" font-size: 14px; }}"
+            f"QLineEdit:focus {{ border-bottom: 1px solid {theme.INDIGO}; }}")
         self._sub_in.returnPressed.connect(self._add_sub)
-        addrow.addWidget(self._sub_in, 1)
-        lay.addLayout(addrow)
+        root.addWidget(self._sub_in)
+        root.addSpacing(20)
 
-        # 底部按钮
+        # 底部按钮（全自定义，无系统蓝）
         btns = QHBoxLayout()
+        btns.setSpacing(10)
         dele = QPushButton("删除任务")
         dele.setCursor(Qt.CursorShape.PointingHandCursor)
         dele.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {theme.DANGER}; border: none;"
-            f" font-size: 13px; padding: 6px 4px; }} QPushButton:hover {{ text-decoration: underline; }}")
+            f" font-size: 14px; padding: 8px 4px; }}"
+            f"QPushButton:hover {{ text-decoration: underline; }}")
         dele.clicked.connect(self._do_delete)
         btns.addWidget(dele)
         btns.addStretch(1)
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        bb.button(QDialogButtonBox.StandardButton.Ok).setText("完成")
-        bb.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        btns.addWidget(bb)
-        lay.addLayout(btns)
+        cancel = QPushButton("取消")
+        cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {theme.TEXT2};"
+            f" border: 1px solid {theme.BORDER_IN}; border-radius: {theme.R_BTN}px;"
+            f" padding: 8px 18px; font-size: 14px; }}"
+            f"QPushButton:hover {{ background: {theme.SUBTLE}; color: {theme.TEXT}; }}")
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(cancel)
+        ok = QPushButton("完成")
+        ok.setCursor(Qt.CursorShape.PointingHandCursor)
+        ok.setStyleSheet(
+            f"QPushButton {{ background: {theme.ACCENT}; color: #fff; border: none;"
+            f" border-radius: {theme.R_BTN}px; padding: 8px 22px; font-size: 14px; font-weight: 600; }}"
+            f"QPushButton:hover {{ background: {theme.ACCENT_HOV}; }}")
+        ok.setDefault(True)
+        ok.clicked.connect(self.accept)
+        btns.addWidget(ok)
+        root.addLayout(btns)
 
-    def _in_qss(self, size, bold):
-        return (f"QLineEdit {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER};"
-                f" border-radius: {theme.R_IN}px; padding: 7px 9px; color: {theme.TEXT};"
-                f" font-size: {size}px; font-weight: {'600' if bold else '400'}; }}")
+        self._refresh_date_ui()
 
+    # ── 小部件工厂 ──────────────────────────────────────────────────
+    def _chip(self, text, cb, danger=False):
+        b = QPushButton(text)
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        hover = ("#fdecec" if danger else theme.ACCENT_SOFT)
+        col = (theme.DANGER if danger else theme.TEXT2)
+        b.setStyleSheet(
+            f"QPushButton {{ background: {theme.SUBTLE}; color: {col}; border: none;"
+            f" border-radius: 14px; padding: 6px 14px; font-size: 13px; }}"
+            f"QPushButton:hover {{ background: {hover}; }}")
+        b.clicked.connect(cb)
+        return b
+
+    def _cal_qss(self):
+        return f"""
+        QCalendarWidget QWidget {{ background: {theme.CARD}; color: {theme.TEXT};
+            alternate-background-color: {theme.CARD}; }}
+        QCalendarWidget QToolButton {{ background: transparent; color: {theme.TEXT};
+            font-size: 14px; font-weight: 600; padding: 4px 10px; border-radius: 6px; }}
+        QCalendarWidget QToolButton:hover {{ background: {theme.SUBTLE}; }}
+        QCalendarWidget QToolButton::menu-indicator {{ image: none; }}
+        QCalendarWidget #qt_calendar_navigationbar {{ background: {theme.CARD};
+            border-bottom: 1px solid {theme.BORDER}; }}
+        QCalendarWidget #qt_calendar_prevmonth, QCalendarWidget #qt_calendar_nextmonth {{
+            qproperty-icon: none; font-size: 18px; }}
+        QCalendarWidget QSpinBox {{ background: {theme.SUBTLE}; color: {theme.TEXT};
+            border: 1px solid {theme.BORDER}; border-radius: 6px; }}
+        QCalendarWidget QAbstractItemView:enabled {{ color: {theme.TEXT};
+            background: {theme.CARD}; selection-background-color: {theme.INDIGO};
+            selection-color: #fff; outline: none; }}
+        QCalendarWidget QAbstractItemView:disabled {{ color: {theme.TEXT3}; }}
+        QCalendarWidget QTableView {{ border: none; }}
+        """
+
+    # ── 日期 ────────────────────────────────────────────────────────
+    def _weekend(self):
+        qd = QDate.currentDate()
+        # 本周六：Qt 里 dayOfWeek 周一=1…周日=7，周六=6（今天是周六则取今天）
+        return qd.addDays((6 - qd.dayOfWeek()) % 7)
+
+    def _set_due(self, qd):
+        if qd is None:
+            self._due = None
+        else:
+            self._due = f"{qd.year():04d}-{qd.month():02d}-{qd.day():02d}"
+            self.cal.setSelectedDate(qd)
+        self._refresh_date_ui()
+
+    def _toggle_cal(self):
+        self.cal.setVisible(not self.cal.isVisible())
+        if self.cal.isVisible() and self._due:
+            try:
+                y, m, d = (int(x) for x in self._due.split("-"))
+                self.cal.setSelectedDate(QDate(y, m, d))
+            except Exception:
+                pass
+
+    def _refresh_date_ui(self):
+        if self._due:
+            txt, overdue = _fmt_due(self._due)
+            self.date_lbl.setText(txt or self._due)
+            self.date_lbl.setStyleSheet(
+                f"color: {theme.DANGER if overdue else theme.TEXT}; font-size: 13px; font-weight: 600;")
+            self._clear_chip.setVisible(True)
+        else:
+            self.date_lbl.setText("未设置")
+            self.date_lbl.setStyleSheet(f"color: {theme.TEXT3}; font-size: 13px;")
+            self._clear_chip.setVisible(False)
+
+    # ── 清单 ────────────────────────────────────────────────────────
+    def _sync_list_btn(self):
+        name = next((l["name"] for l in self._lists if l["id"] == self._target_list), "")
+        self.list_btn.setText(f"  {name}   ▾")
+
+    def _pick_list(self):
+        m = theme.style_menu(QMenu(self))
+        for l in self._lists:
+            a = m.addAction(l["name"])
+            a.setData(l["id"])
+        act = m.exec(self.list_btn.mapToGlobal(self.list_btn.rect().bottomLeft()))
+        if act is not None:
+            self._target_list = act.data()
+            self._sync_list_btn()
+
+    # ── 子任务 ──────────────────────────────────────────────────────
     def _render_subs(self):
         while self._sub_v.count():
             it = self._sub_v.takeAt(0)
@@ -275,26 +396,41 @@ class _TaskDialog(QDialog):
                 w.setParent(None)
                 w.deleteLater()
         for s in self._subs:
-            row = QHBoxLayout()
-            row.setSpacing(6)
-            cb = QCheckBox()
-            cb.setChecked(s["done"])
-            cb.toggled.connect(lambda v, ss=s: ss.update(done=v))
+            host = QWidget()
+            row = QHBoxLayout(host)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(10)
+            cb = QPushButton()
+            cb.setIcon(icons.qicon("check_done" if s["done"] else "circle_o",
+                                   color=theme.SUCCESS if s["done"] else theme.BORDER_IN))
+            cb.setIconSize(QSize(17, 17))
+            cb.setFixedSize(22, 22)
+            cb.setCursor(Qt.CursorShape.PointingHandCursor)
+            cb.setStyleSheet("QPushButton { background: transparent; border: none; }")
+            cb.clicked.connect(lambda _, ss=s: self._toggle_sub(ss))
+            row.addWidget(cb)
             lab = QLabel(s["title"])
-            lab.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px;")
-            rm = QPushButton("✕")
-            rm.setFixedSize(20, 20)
+            if s["done"]:
+                lab.setStyleSheet(f"color: {theme.TEXT3}; font-size: 14px;"
+                                  " text-decoration: line-through;")
+            else:
+                lab.setStyleSheet(f"color: {theme.TEXT}; font-size: 14px;")
+            row.addWidget(lab, 1)
+            rm = QPushButton()
+            rm.setIcon(icons.qicon("close", color=theme.TEXT3))
+            rm.setIconSize(QSize(11, 11))
+            rm.setFixedSize(22, 22)
             rm.setCursor(Qt.CursorShape.PointingHandCursor)
             rm.setStyleSheet(
-                f"QPushButton {{ background: transparent; color: {theme.TEXT3}; border: none;"
-                f" font-size: 12px; }} QPushButton:hover {{ color: {theme.DANGER}; }}")
+                f"QPushButton {{ background: transparent; border: none; border-radius: 6px; }}"
+                f"QPushButton:hover {{ background: {theme.SUBTLE}; }}")
             rm.clicked.connect(lambda _, ss=s: self._del_sub(ss))
-            host = QWidget()
-            host.setLayout(row)
-            row.addWidget(cb)
-            row.addWidget(lab, 1)
             row.addWidget(rm)
             self._sub_v.addWidget(host)
+
+    def _toggle_sub(self, s):
+        s["done"] = not s["done"]
+        self._render_subs()
 
     def _add_sub(self):
         t = self._sub_in.text().strip()
@@ -318,14 +454,9 @@ class _TaskDialog(QDialog):
             return True, self._target_list
         self._task["title"] = self.title_in.text().strip()
         self._task["notes"] = self.notes_in.toPlainText().strip()
-        if self.date_chk.isChecked():
-            qd = self.date_edit.date()
-            self._task["due"] = f"{qd.year():04d}-{qd.month():02d}-{qd.day():02d}"
-        else:
-            self._task["due"] = None
+        self._task["due"] = self._due
         self._task["subtasks"] = self._subs
-        target = self.list_box.currentData() if self.list_box else self._target_list
-        return False, target
+        return False, self._target_list
 
 
 # ── 主窗口 ──────────────────────────────────────────────────────────
@@ -752,26 +883,42 @@ class TodoWindow(OpenHamWindowBase):
         for s in t.get("subtasks", []):
             col.addLayout(self._sub_row(t["id"], s))
 
-        # 行内添加子任务
+        # 行内添加子任务（友好交互：触发是带 + 图标的轻按钮，激活后变成对齐子任务的输入行）
         if self._adding_sub_for == t["id"]:
+            in_row = QHBoxLayout()
+            in_row.setContentsMargins(4, 2, 0, 1)
+            in_row.setSpacing(10)
+            dot = QLabel()
+            dot.setPixmap(icons.qicon("circle_o", color=theme.BORDER_IN).pixmap(QSize(16, 16)))
+            dot.setFixedWidth(22)
+            in_row.addWidget(dot)
             si = QLineEdit()
-            si.setPlaceholderText("子任务，回车确认")
+            si.setPlaceholderText("子任务（回车添加，Esc 取消）")
             si.setStyleSheet(
-                f"QLineEdit {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER_IN};"
-                f" border-radius: 8px; padding: 6px 10px; color: {theme.TEXT}; font-size: 13px; }}")
+                f"QLineEdit {{ background: transparent; border: none;"
+                f" border-bottom: 1px solid {theme.INDIGO}; padding: 2px 0 3px 0;"
+                f" color: {theme.TEXT}; font-size: 14px; }}")
             si.returnPressed.connect(lambda: self._commit_subtask(t["id"], si.text()))
             si.installEventFilter(self)
             self._sub_input = si
-            col.addSpacing(2)
-            col.addWidget(si)
+            in_row.addWidget(si, 1)
+            col.addLayout(in_row)
             QTimer.singleShot(0, si.setFocus)
         else:
-            add_sub = _ClickLabel("＋ 子任务")
+            add_sub = QPushButton("  添加子任务")
+            add_sub.setIcon(icons.qicon("add", color=theme.TEXT3))
+            add_sub.setIconSize(QSize(13, 13))
             add_sub.setCursor(Qt.CursorShape.PointingHandCursor)
-            add_sub.setStyleSheet(f"color: {theme.TEXT3}; font-size: 13px; background: transparent;"
-                                  " padding-top: 1px;")
+            add_sub.setStyleSheet(
+                f"QPushButton {{ background: transparent; color: {theme.TEXT3}; border: none;"
+                f" text-align: left; padding: 4px 8px; border-radius: 7px; font-size: 13px; }}"
+                f"QPushButton:hover {{ background: {theme.SUBTLE}; color: {theme.TEXT2}; }}")
             add_sub.clicked.connect(lambda: self._begin_subtask(t["id"]))
-            col.addWidget(add_sub)
+            sub_row = QHBoxLayout()
+            sub_row.setContentsMargins(0, 0, 0, 0)
+            sub_row.addWidget(add_sub)
+            sub_row.addStretch(1)
+            col.addLayout(sub_row)
 
         row.addLayout(col, 1)
         outer.addLayout(row)
@@ -821,10 +968,14 @@ class TodoWindow(OpenHamWindowBase):
         return row
 
     def eventFilter(self, obj, e):
-        # 行内子任务输入失焦即取消
+        # 行内子任务输入：Esc 取消、失焦即取消
         from PyQt6.QtCore import QEvent
-        if e.type() == QEvent.Type.FocusOut and self._adding_sub_for is not None:
-            QTimer.singleShot(0, self._cancel_subtask)
+        if self._adding_sub_for is not None:
+            if e.type() == QEvent.Type.KeyPress and e.key() == Qt.Key.Key_Escape:
+                QTimer.singleShot(0, self._cancel_subtask)
+                return True
+            if e.type() == QEvent.Type.FocusOut:
+                QTimer.singleShot(0, self._cancel_subtask)
         return super().eventFilter(obj, e)
 
     # ── 任务操作 ────────────────────────────────────────────────────
