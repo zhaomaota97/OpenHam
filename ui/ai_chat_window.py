@@ -444,6 +444,7 @@ class _MessageRow(QWidget):
                 f" border-radius: 14px; padding: 10px 14px; font-size: 15px;"
                 f" selection-background-color: {theme.SEL_TEXT_BG};"
                 f" selection-color: {theme.SEL_TEXT_FG}; }}")
+            self.bubble.installEventFilter(self)   # 开始新选择时清掉其它消息选区
             self.actions = self._build_actions()
             rightw = QWidget()
             rightw.setStyleSheet("background: transparent;")
@@ -491,6 +492,7 @@ class _MessageRow(QWidget):
                 f" color: #1d1d1f; font-size: 15px;"
                 f" selection-background-color: {theme.SEL_TEXT_BG};"
                 f" selection-color: {theme.SEL_TEXT_FG}; }}")
+            self.browser.viewport().installEventFilter(self)   # 选区互斥
             self.browser.document().setDefaultStyleSheet(
                 "pre, code { background:#f3f3f5; font-family:Consolas,monospace; }"
                 "a { color:#6e56cf; }")
@@ -583,6 +585,13 @@ class _MessageRow(QWidget):
         if not self._pinned:
             self._set_buttons(False)
         super().leaveEvent(event)
+
+    def eventFilter(self, obj, event):
+        # 在某条消息里开始新选择时，清掉其它消息的旧选区（各消息是独立文本控件，不会自动互斥）
+        from PyQt6.QtCore import QEvent
+        if event.type() == QEvent.Type.MouseButtonPress and self.host is not None:
+            self.host._clear_text_selections(obj)
+        return False
 
     def set_text(self, text: str, final: bool = False):
         self._raw = text
@@ -826,21 +835,29 @@ class AIChatWindow(OpenHamWindowBase):
         self._load_current()
 
     # ── 标题栏：折叠/展开会话面板 ─────────────────────────────────────
-    def _add_sidebar_toggle(self):
-        self.sidebar_btn = QPushButton()
-        self.sidebar_btn.setIcon(icons.qicon("panel", color=theme.TEXT2))
-        self.sidebar_btn.setFixedSize(28, 28)
-        self.sidebar_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.sidebar_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.sidebar_btn.setToolTip("折叠 / 展开会话面板")
-        self.sidebar_btn.setStyleSheet(
+    def _toggle_btn(self, tip):
+        btn = QPushButton()
+        btn.setIcon(icons.qicon("panel", color=theme.TEXT2))
+        btn.setFixedSize(28, 28)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn.setToolTip(tip)
+        btn.setStyleSheet(
             f"QPushButton {{ background: transparent; border: none; border-radius: 7px; }}"
             f"QPushButton:hover {{ background: {theme.HOVER}; }}")
-        self.sidebar_btn.clicked.connect(self._toggle_sidebar)
+        btn.clicked.connect(self._toggle_sidebar)
+        return btn
+
+    def _add_sidebar_toggle(self):
+        # 标题栏的按钮只在「面板已折叠」时出现，用来展开（折叠按钮在面板标题内，折叠后看不见）
+        self.sidebar_btn = self._toggle_btn("展开会话面板")
+        self.sidebar_btn.setVisible(False)
         self.header_tools_layout.addWidget(self.sidebar_btn)
 
     def _toggle_sidebar(self):
-        self._sidebar.setVisible(not self._sidebar.isVisible())
+        show = not self._sidebar.isVisible()
+        self._sidebar.setVisible(show)
+        self.sidebar_btn.setVisible(not show)   # 折叠后才显示标题栏的展开按钮
         QTimer.singleShot(0, lambda: [m.set_width(self._content_width()) for m in self._msgs])
 
     # ── 界面骨架 ──────────────────────────────────────────────────────
@@ -933,7 +950,14 @@ class AIChatWindow(OpenHamWindowBase):
         self.bot_title.setStyleSheet(
             f"color: {theme.TEXT}; font-size: 15px; font-weight: 700;"
             " background: transparent;")
-        v.addWidget(self.bot_title)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(6)
+        title_row.addWidget(self.bot_title)
+        title_row.addStretch(1)
+        self.collapse_btn = self._toggle_btn("折叠会话面板")   # 会话面板标题右侧的折叠按钮
+        title_row.addWidget(self.collapse_btn)
+        v.addLayout(title_row)
 
         self.search = QLineEdit()
         self.search.setPlaceholderText("搜索会话")
@@ -1386,6 +1410,19 @@ class AIChatWindow(OpenHamWindowBase):
             w.deleteLater()
         self._rows = []
         self._msgs = []
+
+    def _clear_text_selections(self, except_obj=None):
+        """在某条消息里开始新选择时，清掉其它消息的旧选区（实现跨消息单一选区）。"""
+        for r in self._msgs:
+            br = getattr(r, "browser", None)
+            if br is not None and br.viewport() is not except_obj:
+                c = br.textCursor()
+                if c.hasSelection():
+                    c.clearSelection()
+                    br.setTextCursor(c)
+            bub = getattr(r, "bubble", None)
+            if bub is not None and bub is not except_obj and bub.hasSelectedText():
+                bub.setSelection(0, 0)
 
     def _add_message(self, role: str, text: str, final: bool = False,
                      bot=None) -> _MessageRow:
