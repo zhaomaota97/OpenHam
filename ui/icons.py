@@ -94,6 +94,7 @@ _MAP = {
     "minimize": ("fa5s.window-minimize", MUTED),
     "robot": ("fa5s.robot", PURPLE),
     "panel": ("fa5s.columns", MUTED),
+    "brain": ("fa5s.brain", PURPLE),
     "back": ("fa5s.arrow-left", MUTED),
     "forward": ("fa5s.arrow-right", MUTED),
     "up": ("fa5s.arrow-up", MUTED),

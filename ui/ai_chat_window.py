@@ -40,6 +40,26 @@ from core import agent_tools
 CAP_CHOICES = "choices"
 CAP_ASK = "ask"
 CAP_TOOLS = "tools"      # 智能体：可执行命令/读写文件/联网等
+CAP_MEMORY = "memory"    # 记忆：读取全局用户记忆（个性化、不重复追问已知信息）
+
+# 从对话里提炼「关于用户本人」的长期记忆候选（确认后才入库）
+_MEM_EXTRACT_SYS = (
+    "你是用户长期记忆的提炼器。从给定对话里，找出值得【长期、跨对话】记住的、关于【用户本人】的"
+    "稳定事实或偏好：所在地、职业/身份、长期目标、习惯、明确喜好、重要背景等。"
+    "每条用一句简短客观的话陈述（如『用户在上海』『用户用 React 开发』『用户偏好简洁回答』）。"
+    "只要明确、稳定、对以后对话有用的；一次性/闲聊/临时内容不要；已知记忆里有的不要重复。"
+    "用 JSON 数组返回这些新事实（字符串），没有就返回 []。只输出 JSON。"
+)
+
+
+def _memory_block(notes):
+    """把全局记忆拼成注入 system 的文本块。"""
+    if not notes:
+        return ""
+    lines = "\n".join(f"- {t}" for t in notes[:60])
+    return ("【关于用户的已知信息（长期记忆）】\n" + lines + "\n"
+            "请据此个性化回答：已经知道的信息不要再追问（如已知所在地就别再问城市）；"
+            "记忆可能过时，若与用户当前所说明显冲突，以用户当前所说为准。")
 
 _CHOICES_RULE = (
     "【快捷回复能力·重要】每次回答的最后，都要再追加一个「快捷追问选项」块，"
@@ -240,7 +260,9 @@ def _load_store() -> dict:
         bots = [_make_bot("Hamster", "")]
     elif bots[0]["name"] == "默认助手":   # 旧默认助手改名为 Hamster
         bots[0]["name"] = "Hamster"
-    return {"bots": bots, "current_bot": data.get("current_bot")}
+    # 全局记忆：跨所有 bot 共享，[{id,text,created}]
+    memory = [m for m in data.get("memory", []) if isinstance(m, dict) and m.get("text")]
+    return {"bots": bots, "current_bot": data.get("current_bot"), "memory": memory}
 
 
 def _save_store(store: dict):
@@ -393,9 +415,11 @@ class _BotDialog(QDialog):
         self.cap_choices = QCheckBox("快捷回复按钮（AI 给出可点击的追问选项）")
         self.cap_ask = QCheckBox("澄清提问（AI 主动用单选/多选问清你的需求）")
         self.cap_tools = QCheckBox("智能体工具（可执行命令 / 读写文件 / 联网，⚠ 谨慎）")
+        self.cap_memory = QCheckBox("记忆（读取全局用户记忆，知道你的所在地/偏好等，不重复追问）")
         for cb, on in ((self.cap_choices, CAP_CHOICES in caps),
                        (self.cap_ask, CAP_ASK in caps),
-                       (self.cap_tools, CAP_TOOLS in caps)):
+                       (self.cap_tools, CAP_TOOLS in caps),
+                       (self.cap_memory, CAP_MEMORY in caps)):
             cb.setChecked(on)
             cb.setCursor(Qt.CursorShape.PointingHandCursor)
             cb.setStyleSheet(_checkbox_style())
@@ -422,6 +446,8 @@ class _BotDialog(QDialog):
             caps.append(CAP_ASK)
         if self.cap_tools.isChecked():
             caps.append(CAP_TOOLS)
+        if self.cap_memory.isChecked():
+            caps.append(CAP_MEMORY)
         return (self.name_in.text().strip(),
                 self.sys_in.toPlainText().strip(), caps)
 
@@ -490,6 +516,103 @@ class _TeamDialog(QDialog):
     def values(self):
         ids = [cb._bot_id for cb in self._boxes if cb.isChecked()]
         return (self.name_in.text().strip(), self.desc_in.toPlainText().strip(), ids)
+
+
+class _MemoryDialog(QDialog):
+    """全局记忆管理：查看 / 删除 / 手动添加。"""
+
+    def __init__(self, parent, memory):
+        super().__init__(parent)
+        self.setWindowTitle("全局记忆")
+        self.setMinimumWidth(420)
+        self.setStyleSheet(f"QDialog {{ background: {theme.CARD}; }}")
+        self._items = [dict(m) for m in (memory or [])]
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 16, 18, 14)
+        lay.setSpacing(8)
+        tip = QLabel("这些记忆对【所有带「记忆」能力的 Bot】生效——它们聊天时会知道这些信息。")
+        tip.setWordWrap(True)
+        tip.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px;")
+        lay.addWidget(tip)
+        self._list_host = QWidget()
+        self._lv = QVBoxLayout(self._list_host)
+        self._lv.setContentsMargins(0, 0, 0, 0)
+        self._lv.setSpacing(5)
+        self._lv.addStretch(1)
+        sc = QScrollArea()
+        sc.setWidgetResizable(True)
+        sc.setFrameShape(QFrame.Shape.NoFrame)
+        sc.setMinimumHeight(220)
+        sc.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        sc.setWidget(self._list_host)
+        lay.addWidget(sc, 1)
+        for m in self._items:
+            self._add_row(m)
+        add = QHBoxLayout()
+        add.setSpacing(8)
+        self._in = QLineEdit()
+        self._in.setPlaceholderText("手动添加一条记忆，如：用户在上海")
+        self._in.returnPressed.connect(self._add_manual)
+        add.addWidget(self._in, 1)
+        addb = QPushButton("添加")
+        addb.setObjectName("primary")
+        addb.clicked.connect(self._add_manual)
+        add.addWidget(addb)
+        lay.addLayout(add)
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        btns.button(QDialogButtonBox.StandardButton.Close).setText("完成")
+        btns.rejected.connect(self.accept)
+        btns.accepted.connect(self.accept)
+        lay.addWidget(btns)
+        self._empty = QLabel("（还没有记忆。聊天时确认入库，或在上方手动添加。）")
+        self._empty.setStyleSheet(f"color: {theme.TEXT3}; font-size: 12px;")
+        self._lv.insertWidget(0, self._empty)
+        self._empty.setVisible(not self._items)
+
+    def _add_row(self, m):
+        row = QFrame()
+        row.setObjectName("memItem")
+        row.setStyleSheet(
+            f"#memItem {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER};"
+            f" border-radius: 8px; }}")
+        h = QHBoxLayout(row)
+        h.setContentsMargins(10, 6, 8, 6)
+        h.setSpacing(8)
+        lab = QLabel(m["text"])
+        lab.setWordWrap(True)
+        lab.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px; background: transparent;"
+                          " border: none;")
+        h.addWidget(lab, 1)
+        rm = QPushButton()
+        rm.setIcon(icons.qicon("delete", color="#c87a6a"))
+        rm.setIconSize(QSize(13, 13))
+        rm.setFixedSize(24, 24)
+        rm.setCursor(Qt.CursorShape.PointingHandCursor)
+        rm.setStyleSheet("QPushButton { background: transparent; border: none; border-radius: 6px; }"
+                         f"QPushButton:hover {{ background: #fbeeec; }}")
+        rm.clicked.connect(lambda _, mm=m, rr=row: self._del(mm, rr))
+        h.addWidget(rm)
+        self._lv.insertWidget(self._lv.count() - 1, row)
+
+    def _del(self, m, row):
+        if m in self._items:
+            self._items.remove(m)
+        row.setParent(None)
+        row.deleteLater()
+        self._empty.setVisible(not self._items)
+
+    def _add_manual(self):
+        t = self._in.text().strip()
+        if not t:
+            return
+        m = {"id": uuid.uuid4().hex, "text": t, "created": time.time()}
+        self._items.append(m)
+        self._add_row(m)
+        self._in.clear()
+        self._empty.setVisible(False)
+
+    def result_memory(self):
+        return self._items
 
 
 class _MessageRow(QWidget):
@@ -916,6 +1039,7 @@ class _ChatSignals(QObject):
     team_step = pyqtSignal(int, int, str)     # gen, 步骤序号, 成员交付内容
     team_final = pyqtSignal(int, str)         # gen, 编排器最终交付
     tool_done = pyqtSignal(int, str)          # gen, 工具执行结果
+    mem_candidates = pyqtSignal(object)       # 提炼出的记忆候选 [str]
 
 
 class AIChatWindow(OpenHamWindowBase):
@@ -960,6 +1084,10 @@ class AIChatWindow(OpenHamWindowBase):
         self._cur_tool = None        # 正在执行的工具
         self._tool_row = None        # 「执行中…」结果行
         self._tool_bar = None        # 工具审批条
+        # 全局记忆
+        self.store.setdefault("memory", [])
+        self._mem_bar = None         # 记忆候选确认条
+        self._mem_ignored = set()    # 本次运行已忽略的候选文本
 
         self._sig = _ChatSignals()
         self._sig.chunk.connect(self._on_chunk)
@@ -969,6 +1097,7 @@ class AIChatWindow(OpenHamWindowBase):
         self._sig.team_step.connect(self._on_team_step)
         self._sig.team_final.connect(self._on_team_final)
         self._sig.tool_done.connect(self._on_tool_done)
+        self._sig.mem_candidates.connect(self._on_mem_candidates)
 
         self._build_ui()
         self._add_sidebar_toggle()
@@ -1000,10 +1129,29 @@ class AIChatWindow(OpenHamWindowBase):
         return btn
 
     def _add_sidebar_toggle(self):
+        # 全局记忆管理按钮
+        self.mem_btn = QPushButton()
+        self.mem_btn.setIcon(icons.qicon("brain", color=theme.TEXT2))
+        self.mem_btn.setIconSize(QSize(16, 16))
+        self.mem_btn.setFixedSize(28, 28)
+        self.mem_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mem_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.mem_btn.setToolTip("全局记忆（查看 / 删除 / 添加）")
+        self.mem_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; border-radius: 7px; }}"
+            f"QPushButton:hover {{ background: {theme.HOVER}; }}")
+        self.mem_btn.clicked.connect(self._open_memory)
+        self.header_tools_layout.addWidget(self.mem_btn)
         # 标题栏的按钮只在「面板已折叠」时出现，用来展开（折叠按钮在面板标题内，折叠后看不见）
         self.sidebar_btn = self._toggle_btn("展开会话面板")
         self.sidebar_btn.setVisible(False)
         self.header_tools_layout.addWidget(self.sidebar_btn)
+
+    def _open_memory(self):
+        dlg = _MemoryDialog(self, self.store.get("memory", []))
+        dlg.exec()
+        self.store["memory"] = dlg.result_memory()
+        _save_store(self.store)
 
     def _toggle_sidebar(self):
         show = not self._sidebar.isVisible()
@@ -1564,6 +1712,7 @@ class AIChatWindow(OpenHamWindowBase):
     # ── 消息渲染 ──────────────────────────────────────────────────────
     def _clear_messages(self):
         self._clear_tool_approval()
+        self._clear_mem_bar()
         for w in self._rows:
             w.setParent(None)
             w.deleteLater()
@@ -1673,6 +1822,7 @@ class AIChatWindow(OpenHamWindowBase):
         self._agent_iter = 0            # 新一轮用户消息：重置智能体工具步数
         self._pending_tool = None
         self._clear_tool_approval()
+        self._clear_mem_bar()
         cur["messages"].append({"role": "user", "content": text})
         urow = self._add_message("user", text)
         self._maybe_title(cur, text)
@@ -1710,6 +1860,10 @@ class AIChatWindow(OpenHamWindowBase):
         caps = bot.get("capabilities", [])
         sys_prompt = (bot.get("system") or "").strip()
         extras = []
+        if CAP_MEMORY in caps:                           # 读取全局记忆
+            blk = _memory_block([m["text"] for m in self.store.get("memory", [])])
+            if blk:
+                extras.append(blk)
         if CAP_TOOLS in caps:
             extras.append(_TOOLS_RULE)
         if CAP_ASK in caps:
@@ -1863,6 +2017,10 @@ class AIChatWindow(OpenHamWindowBase):
                 + (f"你的专长/人设：{member.get('system').strip()} " if member.get("system") else "")
                 + "请专注完成编排器交给你的子任务，产出可直接交付给下游/编排器的内容，"
                 "专业、具体、有条理，不要寒暄客套，不要复述任务。")
+        if CAP_MEMORY in member.get("capabilities", []):
+            blk = _memory_block([m["text"] for m in self.store.get("memory", [])])
+            if blk:
+                sysp += "\n\n" + blk
         if CAP_TOOLS in member.get("capabilities", []):
             sysp += "\n\n" + _TOOLS_RULE
         parts = [f"整体需求：{self._team_task}"]
@@ -1934,6 +2092,7 @@ class AIChatWindow(OpenHamWindowBase):
         self._set_streaming(False)
         self._load_current()
         self._update_action_visibility()
+        self._maybe_extract_memory()       # 团队对话也产生记忆候选
 
     def _cancel_team(self):
         """切换 bot/会话时丢弃进行中的团队任务（不落库）。"""
@@ -2049,6 +2208,109 @@ class AIChatWindow(OpenHamWindowBase):
         if tc and self._agent_iter >= self._MAX_AGENT_ITERS:
             self._add_message("tool", "（已达工具调用上限，停止自动执行；请直接给出结论或继续指示）")
         self._set_streaming(False)
+        self._maybe_extract_memory()       # 一轮真正结束后，提炼记忆候选
+
+    # ── 全局记忆：提炼 → 确认入库 → 供有记忆能力的 bot 读取 ─────────────
+    def _maybe_extract_memory(self):
+        """从最近对话里后台提炼「关于用户」的长期记忆候选。"""
+        cur = self._cur()
+        if cur is None:
+            return
+        msgs = [m for m in cur["messages"] if m.get("role") in ("user", "assistant")]
+        if not any(m["role"] == "user" for m in msgs):
+            return
+        tail = msgs[-6:]
+        convo = "\n".join(("用户：" if m["role"] == "user" else "助手：") + m["content"]
+                          for m in tail)
+        known = "；".join(m["text"] for m in self.store.get("memory", [])) or "（暂无）"
+        prompt = f"已知记忆：{known}\n\n最近对话：\n{convo}\n\n请提炼新的长期记忆（JSON 数组）。"
+
+        def work():
+            try:
+                raw = call_deepseek_sync(prompt, None, _MEM_EXTRACT_SYS, max_tokens=300)
+                mt = re.search(r"\[.*?\]", raw, re.DOTALL)
+                cands = json.loads(mt.group()) if mt else []
+                cands = [str(c).strip() for c in cands if str(c).strip()]
+            except Exception:
+                cands = []
+            self._sig.mem_candidates.emit(cands)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_mem_candidates(self, cands):
+        existing = {m["text"] for m in self.store.get("memory", [])}
+        fresh = [c for c in cands if c not in existing and c not in self._mem_ignored][:4]
+        if fresh:
+            self._show_mem_candidates(fresh)
+
+    def _show_mem_candidates(self, cands):
+        """记忆候选确认条：每条「记住 / 忽略」，确认后才入库。"""
+        self._clear_mem_bar()
+        bar = QFrame()
+        bar.setObjectName("memBar")
+        bar.setStyleSheet(
+            f"#memBar {{ background: #f4f1fb; border: 1px solid #e2dcf6;"
+            f" border-radius: 12px; }}")
+        v = QVBoxLayout(bar)
+        v.setContentsMargins(14, 10, 14, 12)
+        v.setSpacing(7)
+        head = QLabel("💡 要记住这些信息吗？（确认后所有「带记忆能力」的 Bot 都能用到）")
+        head.setStyleSheet(f"color: {theme.TEXT}; font-size: 12px; font-weight: 700;"
+                           " background: transparent; border: none;")
+        v.addWidget(head)
+        for text in cands:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            lab = QLabel("· " + text)
+            lab.setWordWrap(True)
+            lab.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px; background: transparent;"
+                              " border: none;")
+            row.addWidget(lab, 1)
+            keep = QPushButton("记住")
+            keep.setCursor(Qt.CursorShape.PointingHandCursor)
+            keep.setStyleSheet(
+                f"QPushButton {{ background: {theme.INDIGO}; color: #fff; border: none;"
+                f" border-radius: 7px; padding: 4px 12px; font-size: 12px; font-weight: 600; }}")
+            keep.clicked.connect(lambda _, t=text, r=row: self._remember(t, r))
+            drop = QPushButton("忽略")
+            drop.setCursor(Qt.CursorShape.PointingHandCursor)
+            drop.setStyleSheet(
+                f"QPushButton {{ background: transparent; color: {theme.TEXT3}; border: none;"
+                f" font-size: 12px; }} QPushButton:hover {{ color: {theme.TEXT2}; }}")
+            drop.clicked.connect(lambda _, t=text, r=row: self._ignore_mem(t, r))
+            row.addWidget(keep)
+            row.addWidget(drop)
+            v.addLayout(row)
+        self._mem_bar = bar
+        self.msg_layout.insertWidget(self.msg_layout.count() - 1, bar)
+        self._scroll_to_bottom()
+
+    def _clear_mem_bar(self):
+        bar = getattr(self, "_mem_bar", None)
+        if bar is not None:
+            bar.setParent(None)
+            bar.deleteLater()
+            self._mem_bar = None
+
+    def _remove_mem_row(self, row):
+        while row.count():
+            it = row.takeAt(0)
+            w = it.widget()
+            if w:
+                w.setParent(None)
+                w.deleteLater()
+        if self._mem_bar is not None and self._mem_bar.layout().count() <= 1:
+            self._clear_mem_bar()
+
+    def _remember(self, text, row):
+        self.store["memory"].append({"id": uuid.uuid4().hex, "text": text,
+                                     "created": time.time()})
+        _save_store(self.store)
+        self._remove_mem_row(row)
+
+    def _ignore_mem(self, text, row):
+        self._mem_ignored.add(text)
+        self._remove_mem_row(row)
 
     # ── 智能体：工具执行循环 ──────────────────────────────────────────
     def _show_tool_approval(self, tc):
