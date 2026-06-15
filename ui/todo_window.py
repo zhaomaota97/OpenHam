@@ -603,10 +603,13 @@ class TodoWindow(OpenHamWindowBase):
         self.active_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.active_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.active_list.setSpacing(0)
+        # 不给整条任务卡片做 hover/选中底色：卡片是多行（含子任务），整块发灰很突兀；
+        # 勾选圈、标题、添加子任务各自有 hover 反馈，足够了。
         self.active_list.setStyleSheet(
             "QListWidget { background: transparent; border: none; outline: none; }"
             "QListWidget::item { border-radius: 10px; }"
-            f"QListWidget::item:hover {{ background: {theme.SUBTLE}; }}")
+            "QListWidget::item:hover { background: transparent; }"
+            "QListWidget::item:selected { background: transparent; }")
         self.active_list.reordered.connect(self._on_reorder)
         self.body_v.addWidget(self.active_list)
 
