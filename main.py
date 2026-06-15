@@ -259,6 +259,20 @@ def main():
             _settings = next((a for a in _acts if a.text().startswith("设置")), None)
             tray_menu.insertAction(_settings, chat_act) if _settings else tray_menu.addAction(chat_act)
 
+    # 任务插件启用时（注册了 open_todo），在「聊天」后、「设置」前加「任务」项。
+    if "open_todo" in plugin_api._handlers:
+        todo_act = QAction("任务", tray_menu)
+        todo_act.triggered.connect(lambda: plugin_api.call("open_todo"))
+        _acts = tray_menu.actions()
+        _chat = next((a for a in _acts if a.text() == "聊天"), None)
+        _anchor = _chat or next((a for a in _acts if a.text().startswith("设置")), None)
+        if _anchor is not None:
+            _i = _acts.index(_anchor)
+            _after = _acts[_i + 1] if (_chat and _i + 1 < len(_acts)) else _anchor
+            tray_menu.insertAction(_after, todo_act) if _after else tray_menu.addAction(todo_act)
+        else:
+            tray_menu.addAction(todo_act)
+
     action_show.triggered.connect(window.show_window)
     action_script_config.triggered.connect(script_overlay.open)
     action_plugin_config.triggered.connect(plugin_manager_overlay.show_window)

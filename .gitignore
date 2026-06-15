@@ -19,6 +19,9 @@ my_games/
 # AI 对话插件的会话历史（用户数据）
 ai_chat/
 
+# 任务插件的待办数据（用户数据）
+todo/
+
 # 便携 Python 运行时的第三方依赖（用户自行安装）
 runtime/Lib/site-packages/
 # runtime 目录下的 Scripts（pip 等工具生成）
