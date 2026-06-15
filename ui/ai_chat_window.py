@@ -1142,8 +1142,7 @@ class AIChatWindow(OpenHamWindowBase):
         # 全局记忆管理按钮
         self.mem_btn = QPushButton()
         self.mem_btn.setIcon(icons.qicon("memory", color=theme.TEXT2))
-        self.mem_btn.setIconSize(QSize(16, 16))
-        self.mem_btn.setFixedSize(28, 28)
+        self.mem_btn.setFixedSize(28, 28)   # 图标尺寸跟随基类标题栏按钮默认，保持一致
         self.mem_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.mem_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.mem_btn.setToolTip("全局记忆（查看 / 删除 / 添加）")
@@ -2272,7 +2271,7 @@ class AIChatWindow(OpenHamWindowBase):
         v = QVBoxLayout(bar)
         v.setContentsMargins(14, 10, 14, 12)
         v.setSpacing(7)
-        head = QLabel("已记住（带「记忆」能力的 Bot 以后都能用到；可在右上角记忆库查看/删除）")
+        head = QLabel("已记住")
         head.setStyleSheet("color: #2c7a4b; font-size: 12px; font-weight: 700;"
                            " background: transparent; border: none;")
         v.addWidget(head)
@@ -2294,7 +2293,8 @@ class AIChatWindow(OpenHamWindowBase):
             v.addLayout(row)
         self._mem_bar = bar
         self.msg_layout.insertWidget(self.msg_layout.count() - 1, bar)
-        self._scroll_to_bottom()
+        # 卡片含自动换行 QLabel，高度要等布局算完才确定；多推一拍再滚到底，否则滚不到位
+        QTimer.singleShot(0, self._scroll_to_bottom)
 
     def _clear_mem_bar(self):
         bar = getattr(self, "_mem_bar", None)
