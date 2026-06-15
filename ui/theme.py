@@ -46,6 +46,10 @@ WARN    = "#b25000"
 SEL_BG  = SELECT
 SEL_FG  = TEXT
 
+# 正文文本选中：柔和靛蓝高亮 + 深色字（仿 Monica，比默认近黑高亮柔和好看）
+SEL_TEXT_BG = "#cdd9f7"
+SEL_TEXT_FG = TEXT
+
 R_CARD = 14
 R_BTN  = 9
 R_IN   = 9

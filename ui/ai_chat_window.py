@@ -441,7 +441,9 @@ class _MessageRow(QWidget):
                 Qt.TextInteractionFlag.TextSelectableByMouse)
             self.bubble.setStyleSheet(
                 f"QLabel {{ background: {theme.SUBTLE}; color: {theme.TEXT};"
-                f" border-radius: 14px; padding: 10px 14px; font-size: 15px; }}")
+                f" border-radius: 14px; padding: 10px 14px; font-size: 15px;"
+                f" selection-background-color: {theme.SEL_TEXT_BG};"
+                f" selection-color: {theme.SEL_TEXT_FG}; }}")
             self.actions = self._build_actions()
             rightw = QWidget()
             rightw.setStyleSheet("background: transparent;")
@@ -485,8 +487,10 @@ class _MessageRow(QWidget):
             self.browser.setHorizontalScrollBarPolicy(
                 Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             self.browser.setStyleSheet(
-                "QTextBrowser { background: transparent; border: none;"
-                " color: #1d1d1f; font-size: 15px; }")
+                f"QTextBrowser {{ background: transparent; border: none;"
+                f" color: #1d1d1f; font-size: 15px;"
+                f" selection-background-color: {theme.SEL_TEXT_BG};"
+                f" selection-color: {theme.SEL_TEXT_FG}; }}")
             self.browser.document().setDefaultStyleSheet(
                 "pre, code { background:#f3f3f5; font-family:Consolas,monospace; }"
                 "a { color:#6e56cf; }")
