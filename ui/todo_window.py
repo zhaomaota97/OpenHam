@@ -331,7 +331,8 @@ class _TaskDialog(QDialog):
 # ── 主窗口 ──────────────────────────────────────────────────────────
 class TodoWindow(OpenHamWindowBase):
     def __init__(self):
-        super().__init__(title="任务", min_w=620, min_h=520)
+        super().__init__(title="任务", min_w=760, min_h=600)
+        self.resize(940, 720)
         self.data = _load()
         self._show_completed = False
         self._adding_sub_for = None    # 正在行内添加子任务的任务 id
@@ -360,21 +361,23 @@ class TodoWindow(OpenHamWindowBase):
     def _build_sidebar(self):
         side = QFrame()
         side.setObjectName("todoSide")
-        side.setFixedWidth(204)
+        side.setFixedWidth(232)
         side.setStyleSheet(
-            f"#todoSide {{ background: {theme.CARD}; border-right: 1px solid {theme.BORDER}; }}")
+            f"#todoSide {{ background: #fafafb; border-right: 1px solid {theme.BORDER}; }}")
         v = QVBoxLayout(side)
-        v.setContentsMargins(10, 14, 10, 12)
-        v.setSpacing(8)
+        v.setContentsMargins(14, 18, 14, 14)
+        v.setSpacing(10)
         cap = QLabel("清单")
-        cap.setStyleSheet(f"color: {theme.TEXT3}; font-size: 12px; font-weight: 700;"
-                          " padding-left: 6px;")
+        cap.setStyleSheet(f"color: {theme.TEXT3}; font-size: 11px; font-weight: 700;"
+                          " letter-spacing: 1px; padding-left: 8px;")
         v.addWidget(cap)
         self.lists_w = QListWidget()
         self.lists_w.setFrameShape(QFrame.Shape.NoFrame)
+        self.lists_w.setSpacing(2)
         self.lists_w.setStyleSheet(
             f"QListWidget {{ background: transparent; border: none; outline: none; }}"
-            f"QListWidget::item {{ color: {theme.TEXT}; padding: 8px 10px; border-radius: {theme.R_ITEM}px; }}"
+            f"QListWidget::item {{ color: {theme.TEXT}; padding: 9px 12px; border-radius: {theme.R_BTN}px;"
+            f" font-size: 14px; }}"
             f"QListWidget::item:hover {{ background: {theme.SUBTLE}; }}"
             f"QListWidget::item:selected {{ background: {theme.ACCENT_SOFT}; color: {theme.TEXT}; }}")
         self.lists_w.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -386,30 +389,45 @@ class TodoWindow(OpenHamWindowBase):
         add.setCursor(Qt.CursorShape.PointingHandCursor)
         add.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {theme.TEXT2}; border: none;"
-            f" text-align: left; padding: 8px 10px; border-radius: {theme.R_ITEM}px; font-size: 13px; }}"
-            f"QPushButton:hover {{ background: {theme.SUBTLE}; }}")
+            f" text-align: left; padding: 10px 12px; border-radius: {theme.R_BTN}px; font-size: 14px; }}"
+            f"QPushButton:hover {{ background: {theme.SUBTLE}; color: {theme.TEXT}; }}")
         add.clicked.connect(self._add_list)
         v.addWidget(add)
         return side
 
     def _build_main(self):
         wrap = QWidget()
-        v = QVBoxLayout(wrap)
-        v.setContentsMargins(22, 16, 18, 12)
-        v.setSpacing(12)
+        outer = QVBoxLayout(wrap)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # 内容居中成一栏（最大宽 ~700），两侧留白，更像 Tasks/Things 的清爽感
+        center = QHBoxLayout()
+        center.setContentsMargins(0, 0, 0, 0)
+        center.addStretch(1)
+        col = QWidget()
+        col.setMaximumWidth(720)
+        col.setMinimumWidth(400)
+        col.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        v = QVBoxLayout(col)
+        v.setContentsMargins(28, 22, 28, 14)
+        v.setSpacing(14)
+        center.addWidget(col, 50)      # 列占主导：填到 maxWidth 后多余空间才回流给两侧留白
+        center.addStretch(1)
+        outer.addLayout(center, 1)
 
         # 标题行
         top = QHBoxLayout()
         self.list_title = QLabel("")
-        self.list_title.setStyleSheet(f"color: {theme.TEXT}; font-size: 19px; font-weight: 700;")
+        self.list_title.setStyleSheet(f"color: {theme.TEXT}; font-size: 24px; font-weight: 700;")
         top.addWidget(self.list_title)
         top.addStretch(1)
         self.menu_btn = QPushButton()
         self.menu_btn.setIcon(icons.qicon("more_v", color=theme.TEXT2))
-        self.menu_btn.setFixedSize(30, 30)
+        self.menu_btn.setFixedSize(32, 32)
         self.menu_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.menu_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: none; border-radius: 7px; }}"
+            f"QPushButton {{ background: transparent; border: none; border-radius: 8px; }}"
             f"QPushButton:hover {{ background: {theme.SUBTLE}; }}")
         self.menu_btn.clicked.connect(self._open_list_menu)
         top.addWidget(self.menu_btn)
@@ -419,19 +437,20 @@ class TodoWindow(OpenHamWindowBase):
         addrow = QFrame()
         addrow.setObjectName("addRow")
         addrow.setStyleSheet(
-            f"#addRow {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER};"
-            f" border-radius: 10px; }}")
+            f"#addRow {{ background: {theme.CARD}; border: 1.5px solid {theme.BORDER_IN};"
+            f" border-radius: 12px; }}"
+            f"#addRow:hover {{ border-color: {theme.INDIGO}; }}")
         ah = QHBoxLayout(addrow)
-        ah.setContentsMargins(12, 4, 10, 4)
-        ah.setSpacing(8)
+        ah.setContentsMargins(16, 6, 12, 6)
+        ah.setSpacing(10)
         plus = QLabel()
-        plus.setPixmap(icons.qicon("add", color=theme.INDIGO).pixmap(QSize(16, 16)))
+        plus.setPixmap(icons.qicon("add", color=theme.INDIGO).pixmap(QSize(18, 18)))
         ah.addWidget(plus)
         self.add_in = QLineEdit()
         self.add_in.setPlaceholderText("添加任务")
         self.add_in.setStyleSheet(
             f"QLineEdit {{ background: transparent; border: none; color: {theme.TEXT};"
-            f" font-size: 14px; padding: 8px 0; }}")
+            f" font-size: 15px; padding: 10px 0; }}")
         self.add_in.returnPressed.connect(self._add_task)
         ah.addWidget(self.add_in, 1)
         v.addWidget(addrow)
@@ -444,7 +463,7 @@ class TodoWindow(OpenHamWindowBase):
         host = QWidget()
         self.body_v = QVBoxLayout(host)
         self.body_v.setContentsMargins(0, 0, 0, 0)
-        self.body_v.setSpacing(8)
+        self.body_v.setSpacing(6)
 
         self.active_list = _DragList()
         self.active_list.setFrameShape(QFrame.Shape.NoFrame)
@@ -452,16 +471,16 @@ class TodoWindow(OpenHamWindowBase):
         self.active_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.active_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.active_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.active_list.setSpacing(2)
+        self.active_list.setSpacing(0)
         self.active_list.setStyleSheet(
             "QListWidget { background: transparent; border: none; outline: none; }"
-            "QListWidget::item { border-radius: 9px; }"
+            "QListWidget::item { border-radius: 10px; }"
             f"QListWidget::item:hover {{ background: {theme.SUBTLE}; }}")
         self.active_list.reordered.connect(self._on_reorder)
         self.body_v.addWidget(self.active_list)
 
         self.empty_lbl = QLabel("还没有任务。在上面输入框里添加一条吧。")
-        self.empty_lbl.setStyleSheet(f"color: {theme.TEXT3}; font-size: 13px; padding: 8px 4px;")
+        self.empty_lbl.setStyleSheet(f"color: {theme.TEXT3}; font-size: 14px; padding: 14px 4px;")
         self.body_v.addWidget(self.empty_lbl)
 
         # 已完成分区
@@ -469,14 +488,14 @@ class TodoWindow(OpenHamWindowBase):
         self.comp_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.comp_btn.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {theme.TEXT2}; border: none;"
-            f" text-align: left; padding: 8px 4px; font-size: 13px; font-weight: 600; }}"
+            f" text-align: left; padding: 12px 4px 8px 4px; font-size: 13px; font-weight: 600; }}"
             f"QPushButton:hover {{ color: {theme.TEXT}; }}")
         self.comp_btn.clicked.connect(self._toggle_completed)
         self.body_v.addWidget(self.comp_btn)
         self.comp_host = QWidget()
         self.comp_v = QVBoxLayout(self.comp_host)
         self.comp_v.setContentsMargins(0, 0, 0, 0)
-        self.comp_v.setSpacing(2)
+        self.comp_v.setSpacing(0)
         self.body_v.addWidget(self.comp_host)
 
         self.body_v.addStretch(1)
@@ -613,11 +632,9 @@ class TodoWindow(OpenHamWindowBase):
             it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsDragEnabled)
             self.active_list.addItem(it)
             self.active_list.setItemWidget(it, card)
-        # 列表整体高度跟随内容（外层 QScrollArea 负责滚动）
-        n = self.active_list.count()
-        total = sum(self.active_list.item(i).sizeHint().height() for i in range(n))
-        total += self.active_list.spacing() * 2 * n + 8
-        self.active_list.setFixedHeight(total if n else 0)
+        # 标题自动换行的真实高度依赖实际宽度，待布局稳定后按真实宽度再校正一次
+        self._fix_card_heights()
+        QTimer.singleShot(0, self._fix_card_heights)
         self.empty_lbl.setVisible(not active and not done)
 
         # 已完成
@@ -653,29 +670,55 @@ class TodoWindow(OpenHamWindowBase):
             n = sum(1 for t in lst["tasks"] if not t["done"])
             it.setText(f"{lst['name']}" + (f"   {n}" if n else ""))
 
+    def _fix_card_heights(self):
+        """按列表的真实宽度重算每行高度（标题自动换行会改变行高），并设置列表总高。"""
+        al = self.active_list
+        w = al.viewport().width()
+        n = al.count()
+        if w > 0:
+            for i in range(n):
+                it = al.item(i)
+                card = al.itemWidget(it)
+                if card is None:
+                    continue
+                if card.hasHeightForWidth():
+                    h = max(card.minimumSizeHint().height(), card.heightForWidth(w))
+                else:
+                    h = card.sizeHint().height()
+                if h != card.minimumHeight():
+                    card.setMinimumHeight(h)
+                if abs(it.sizeHint().height() - h) > 0:
+                    it.setSizeHint(QSize(0, h))
+        total = sum(al.item(i).sizeHint().height() for i in range(n)) + 8
+        al.setFixedHeight(total if n else 0)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        QTimer.singleShot(0, self._fix_card_heights)
+
     def _task_card(self, t):
         card = QWidget()
         outer = QVBoxLayout(card)
-        outer.setContentsMargins(8, 6, 10, 6)
-        outer.setSpacing(3)
+        outer.setContentsMargins(12, 11, 14, 11)
+        outer.setSpacing(5)
 
         row = QHBoxLayout()
-        row.setSpacing(9)
+        row.setSpacing(12)
         cb = QPushButton()
-        cb.setIcon(icons.qicon("circle_o", color=theme.TEXT3))
-        cb.setIconSize(QSize(19, 19))
-        cb.setFixedSize(24, 24)
+        cb.setIcon(icons.qicon("circle_o", color=theme.BORDER_IN))
+        cb.setIconSize(QSize(21, 21))
+        cb.setFixedSize(26, 26)
         cb.setCursor(Qt.CursorShape.PointingHandCursor)
         cb.setStyleSheet("QPushButton { background: transparent; border: none; }")
         cb.clicked.connect(lambda: self._complete_task(t["id"], True))
         row.addWidget(cb, 0, Qt.AlignmentFlag.AlignTop)
 
         col = QVBoxLayout()
-        col.setSpacing(2)
+        col.setSpacing(3)
         title = _ClickLabel(t["title"] or "（无标题）")
         title.setWordWrap(True)
         title.setCursor(Qt.CursorShape.PointingHandCursor)
-        title.setStyleSheet(f"color: {theme.TEXT}; font-size: 14px; background: transparent;")
+        title.setStyleSheet(f"color: {theme.TEXT}; font-size: 15px; background: transparent;")
         title.clicked.connect(lambda: self._open_detail(t["id"]))
         col.addWidget(title)
 
@@ -685,17 +728,20 @@ class TodoWindow(OpenHamWindowBase):
         has_meta = False
         if t.get("notes"):
             n = t["notes"].strip().replace("\n", " ")
-            n = n if len(n) <= 40 else n[:40] + "…"
+            n = n if len(n) <= 44 else n[:44] + "…"
             nl = QLabel(n)
-            nl.setStyleSheet(f"color: {theme.TEXT3}; font-size: 12px; background: transparent;")
+            nl.setStyleSheet(f"color: {theme.TEXT3}; font-size: 13px; background: transparent;")
             meta.addWidget(nl)
             has_meta = True
         dtext, overdue = _fmt_due(t.get("due"))
         if dtext:
             dl = QLabel(dtext)
-            col_c = theme.DANGER if overdue else theme.TEXT2
-            dl.setStyleSheet(f"color: {col_c}; font-size: 12px; background: {theme.SUBTLE};"
-                             " border-radius: 6px; padding: 1px 7px;")
+            if overdue:
+                dl.setStyleSheet(f"color: {theme.DANGER}; font-size: 12px; background: #fdecec;"
+                                 " border-radius: 6px; padding: 2px 8px;")
+            else:
+                dl.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px; background: {theme.ACCENT_SOFT};"
+                                 " border-radius: 6px; padding: 2px 8px;")
             meta.addWidget(dl)
             has_meta = True
         if has_meta:
@@ -711,17 +757,19 @@ class TodoWindow(OpenHamWindowBase):
             si = QLineEdit()
             si.setPlaceholderText("子任务，回车确认")
             si.setStyleSheet(
-                f"QLineEdit {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER};"
-                f" border-radius: 7px; padding: 4px 8px; color: {theme.TEXT}; font-size: 12px; }}")
+                f"QLineEdit {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER_IN};"
+                f" border-radius: 8px; padding: 6px 10px; color: {theme.TEXT}; font-size: 13px; }}")
             si.returnPressed.connect(lambda: self._commit_subtask(t["id"], si.text()))
             si.installEventFilter(self)
             self._sub_input = si
+            col.addSpacing(2)
             col.addWidget(si)
             QTimer.singleShot(0, si.setFocus)
         else:
             add_sub = _ClickLabel("＋ 子任务")
             add_sub.setCursor(Qt.CursorShape.PointingHandCursor)
-            add_sub.setStyleSheet(f"color: {theme.TEXT3}; font-size: 12px; background: transparent;")
+            add_sub.setStyleSheet(f"color: {theme.TEXT3}; font-size: 13px; background: transparent;"
+                                  " padding-top: 1px;")
             add_sub.clicked.connect(lambda: self._begin_subtask(t["id"]))
             col.addWidget(add_sub)
 
@@ -731,42 +779,42 @@ class TodoWindow(OpenHamWindowBase):
 
     def _sub_row(self, task_id, s):
         row = QHBoxLayout()
-        row.setContentsMargins(6, 0, 0, 0)
-        row.setSpacing(8)
+        row.setContentsMargins(4, 1, 0, 1)
+        row.setSpacing(10)
         cb = QPushButton()
         cb.setIcon(icons.qicon("check_done" if s["done"] else "circle_o",
-                               color=theme.SUCCESS if s["done"] else theme.TEXT3))
-        cb.setIconSize(QSize(15, 15))
-        cb.setFixedSize(20, 20)
+                               color=theme.SUCCESS if s["done"] else theme.BORDER_IN))
+        cb.setIconSize(QSize(16, 16))
+        cb.setFixedSize(22, 22)
         cb.setCursor(Qt.CursorShape.PointingHandCursor)
         cb.setStyleSheet("QPushButton { background: transparent; border: none; }")
         cb.clicked.connect(lambda: self._toggle_sub(task_id, s["id"]))
         row.addWidget(cb)
         lab = QLabel(s["title"])
         if s["done"]:
-            lab.setStyleSheet(f"color: {theme.TEXT3}; font-size: 13px; text-decoration: line-through;"
+            lab.setStyleSheet(f"color: {theme.TEXT3}; font-size: 14px; text-decoration: line-through;"
                               " background: transparent;")
         else:
-            lab.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px; background: transparent;")
+            lab.setStyleSheet(f"color: {theme.TEXT}; font-size: 14px; background: transparent;")
         row.addWidget(lab, 1)
         return row
 
     def _completed_row(self, t):
         row = QFrame()
         h = QHBoxLayout(row)
-        h.setContentsMargins(8, 4, 10, 4)
-        h.setSpacing(9)
+        h.setContentsMargins(12, 8, 14, 8)
+        h.setSpacing(12)
         cb = QPushButton()
         cb.setIcon(icons.qicon("check_done", color=theme.SUCCESS))
-        cb.setIconSize(QSize(19, 19))
-        cb.setFixedSize(24, 24)
+        cb.setIconSize(QSize(21, 21))
+        cb.setFixedSize(26, 26)
         cb.setCursor(Qt.CursorShape.PointingHandCursor)
         cb.setStyleSheet("QPushButton { background: transparent; border: none; }")
         cb.clicked.connect(lambda: self._complete_task(t["id"], False))
         h.addWidget(cb)
         lab = _ClickLabel(t["title"] or "（无标题）")
         lab.setCursor(Qt.CursorShape.PointingHandCursor)
-        lab.setStyleSheet(f"color: {theme.TEXT3}; font-size: 14px; text-decoration: line-through;"
+        lab.setStyleSheet(f"color: {theme.TEXT3}; font-size: 15px; text-decoration: line-through;"
                           " background: transparent;")
         lab.clicked.connect(lambda: self._open_detail(t["id"]))
         h.addWidget(lab, 1)
