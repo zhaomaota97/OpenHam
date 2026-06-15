@@ -193,29 +193,85 @@ def style_menu(menu):
     return menu
 
 
-# ── 全局兜底：菜单浅色 ──────────────────────────────────────────────────
-# 本机(无边框+半透明主窗)对【透明弹出窗】合成会发黑——所以菜单/Tooltip 都用系统【原生
-# 不透明】控件，只靠强制浅色 ColorScheme + 浅色 Palette(含 QToolTip.setPalette) 保证不发黑，
-# 不再做任何透明/遮罩/改原生窗的花活(那些都会发黑或锯齿)。tooltip 直接用 Windows 原生的。
-# 这个事件过滤器只做一件事：菜单一出现就套浅色样式(压过个别父控件 bare 样式漏进来的级联)。
+# ── 全局兜底：菜单浅色 + 自绘 tooltip(主窗口同款结构，圆角不发黑) ───────────
+# 关键：本机【单个 WA_TranslucentBackground 控件自己用 QSS 画底色】会合成成黑(系统 tooltip
+# 圆角→Qt 切半透明→黑 也是同理)。但【半透明外壳里放一个不透明子卡片】就正常——这正是
+# OpenHamWindowBase 主窗口的结构(透明壳 + 不透明圆角 card)，本机一直好好的不发黑。
+# 所以自绘 tooltip 照搬这个结构：透明外壳(给圆角留透明角) + 内层不透明圆角 QLabel 卡片。
+# 菜单仍用系统原生不透明菜单(浅色由 ColorScheme/Palette 保证)，只在出现时套浅色样式。
 def _install_popup_fix(app):
-    from PyQt6.QtCore import QObject, QEvent
-    from PyQt6.QtWidgets import QMenu
+    from PyQt6.QtCore import QObject, QEvent, QTimer, Qt, QPoint
+    from PyQt6.QtGui import QCursor
+    from PyQt6.QtWidgets import QMenu, QLabel, QWidget, QVBoxLayout
 
-    class _MenuStyler(QObject):
+    class _PopupFix(QObject):
+        def __init__(self, parent):
+            super().__init__(parent)
+            self._tip = None
+            self._card = None
+            self._hide_timer = QTimer(self)
+            self._hide_timer.setSingleShot(True)
+            self._hide_timer.timeout.connect(self._hide_tip)
+
+        def _ensure_tip(self):
+            if self._tip is None:
+                shell = QWidget(None)              # 半透明外壳(只为圆角的透明角)
+                shell.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint
+                                     | Qt.WindowType.NoDropShadowWindowHint)
+                shell.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+                shell.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+                lay = QVBoxLayout(shell)
+                lay.setContentsMargins(0, 0, 0, 0)
+                card = QLabel()                    # 内层不透明圆角卡片(真正画底色，绝不黑)
+                card.setObjectName("ohTipCard")
+                card.setStyleSheet(
+                    f"#ohTipCard {{ background: {CARD}; color: {TEXT};"
+                    f" border: 1px solid {BORDER_IN}; border-radius: 8px;"
+                    f" padding: 6px 10px; font-size: 12px; }}")
+                lay.addWidget(card)
+                self._tip, self._card = shell, card
+            return self._tip
+
+        def _show_tip(self, text, gpos):
+            t = self._ensure_tip()
+            self._card.setText(text)
+            t.adjustSize()
+            t.move(gpos + QPoint(12, 18))
+            t.show()
+            t.raise_()
+            self._hide_timer.start(6000)
+
+        def _hide_tip(self):
+            if self._tip is not None and self._tip.isVisible():
+                self._tip.hide()
+
         def eventFilter(self, obj, event):
-            t = event.type()
-            if t == QEvent.Type.Polish or t == QEvent.Type.Show:
+            et = event.type()
+            if et == QEvent.Type.ToolTip:
+                text = obj.toolTip() if isinstance(obj, QWidget) else ""
+                if text:
+                    try:
+                        gpos = event.globalPos()
+                    except Exception:
+                        gpos = QCursor.pos()
+                    self._show_tip(text, gpos or QCursor.pos())
+                    return True
+                self._hide_tip()
+                return False
+            if et in (QEvent.Type.Leave, QEvent.Type.MouseButtonPress, QEvent.Type.Wheel,
+                      QEvent.Type.WindowDeactivate, QEvent.Type.FocusOut, QEvent.Type.KeyPress):
+                self._hide_tip()
+            elif et == QEvent.Type.Polish or et == QEvent.Type.Show:
                 if isinstance(obj, QMenu) or obj.metaObject().className() == "QMenu":
                     if not obj.property("_oh_styled"):
                         obj.setProperty("_oh_styled", True)
                         obj.setStyleSheet(menu_qss())
             return False
 
-    styler = _MenuStyler(app)
-    app.installEventFilter(styler)
-    app._oh_popup_styler = styler   # 持引用，防止被回收
-    return styler
+    fix = _PopupFix(app)
+    app.installEventFilter(fix)
+    app._oh_popup_styler = fix   # 持引用，防止被回收
+    return fix
 
 
 def _light_palette():
