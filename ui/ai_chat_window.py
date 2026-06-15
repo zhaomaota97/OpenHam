@@ -42,14 +42,25 @@ CAP_ASK = "ask"
 CAP_TOOLS = "tools"      # 智能体：可执行命令/读写文件/联网等
 CAP_MEMORY = "memory"    # 记忆：读取全局用户记忆（个性化、不重复追问已知信息）
 
-# 从对话里提炼「关于用户本人」的长期记忆候选（确认后才入库）
+# 用户明确说「记一下……」时，从其话里提炼出要记住的具体内容（直接入库，不再询问）
 _MEM_EXTRACT_SYS = (
-    "你是用户长期记忆的提炼器。从给定对话里，找出值得【长期、跨对话】记住的、关于【用户本人】的"
-    "稳定事实或偏好：所在地、职业/身份、长期目标、习惯、明确喜好、重要背景等。"
-    "每条用一句简短客观的话陈述（如『用户在上海』『用户用 React 开发』『用户偏好简洁回答』）。"
-    "只要明确、稳定、对以后对话有用的；一次性/闲聊/临时内容不要；已知记忆里有的不要重复。"
-    "用 JSON 数组返回这些新事实（字符串），没有就返回 []。只输出 JSON。"
+    "用户刚刚明确要求记住某些信息。请从最近对话里提炼出用户希望长期记住的【具体内容】，"
+    "每条用一句简短客观的话陈述（如『用户在上海』『用户的生日是 5 月 1 日』『用户用 React 开发』）。"
+    "通常就是用户这句话里点名要记的内容；若用户说『记住刚才那个』之类，则指上文提到的相应内容。"
+    "用 JSON 数组返回这些内容（字符串），已有记忆里有的不要重复，确实没有可记的就返回 []。只输出 JSON。"
 )
+
+# 用户主动要求记忆的触发词（只有命中才入库，不再每轮自动嗅探）
+_REMEMBER_TRIGGERS = (
+    "记一下", "记下来", "记下", "记住", "记录一下", "记录下", "帮我记", "请记住",
+    "请记一下", "记个", "记到记忆", "存一下", "存到记忆", "remember ", "记笔记",
+)
+
+
+def _wants_remember(text):
+    """判断用户这句话是否在主动要求记忆。"""
+    t = (text or "").strip().lower()
+    return any(k in t for k in _REMEMBER_TRIGGERS)
 
 
 def _memory_block(notes):
@@ -1086,8 +1097,7 @@ class AIChatWindow(OpenHamWindowBase):
         self._tool_bar = None        # 工具审批条
         # 全局记忆
         self.store.setdefault("memory", [])
-        self._mem_bar = None         # 记忆候选确认条
-        self._mem_ignored = set()    # 本次运行已忽略的候选文本
+        self._mem_bar = None         # 「已记住」提示条
 
         self._sig = _ChatSignals()
         self._sig.chunk.connect(self._on_chunk)
@@ -1131,7 +1141,7 @@ class AIChatWindow(OpenHamWindowBase):
     def _add_sidebar_toggle(self):
         # 全局记忆管理按钮
         self.mem_btn = QPushButton()
-        self.mem_btn.setIcon(icons.qicon("brain", color=theme.TEXT2))
+        self.mem_btn.setIcon(icons.qicon("memory", color=theme.TEXT2))
         self.mem_btn.setIconSize(QSize(16, 16))
         self.mem_btn.setFixedSize(28, 28)
         self.mem_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2210,20 +2220,21 @@ class AIChatWindow(OpenHamWindowBase):
         self._set_streaming(False)
         self._maybe_extract_memory()       # 一轮真正结束后，提炼记忆候选
 
-    # ── 全局记忆：提炼 → 确认入库 → 供有记忆能力的 bot 读取 ─────────────
+    # ── 全局记忆：用户说「记一下…」→ 直接入库 → 供有记忆能力的 bot 读取 ──────
     def _maybe_extract_memory(self):
-        """从最近对话里后台提炼「关于用户」的长期记忆候选。"""
+        """仅当用户这轮【主动要求记忆】时，从其话里提炼要记的内容并直接入库。"""
         cur = self._cur()
         if cur is None:
             return
         msgs = [m for m in cur["messages"] if m.get("role") in ("user", "assistant")]
-        if not any(m["role"] == "user" for m in msgs):
+        last_user = next((m for m in reversed(msgs) if m["role"] == "user"), None)
+        if last_user is None or not _wants_remember(last_user["content"]):
             return
         tail = msgs[-6:]
         convo = "\n".join(("用户：" if m["role"] == "user" else "助手：") + m["content"]
                           for m in tail)
         known = "；".join(m["text"] for m in self.store.get("memory", [])) or "（暂无）"
-        prompt = f"已知记忆：{known}\n\n最近对话：\n{convo}\n\n请提炼新的长期记忆（JSON 数组）。"
+        prompt = f"已有记忆：{known}\n\n最近对话：\n{convo}\n\n请提炼用户要记住的内容（JSON 数组）。"
 
         def work():
             try:
@@ -2238,48 +2249,48 @@ class AIChatWindow(OpenHamWindowBase):
         threading.Thread(target=work, daemon=True).start()
 
     def _on_mem_candidates(self, cands):
+        """直接入库（不再询问），底部给一条「已记住」提示，可撤销。"""
         existing = {m["text"] for m in self.store.get("memory", [])}
-        fresh = [c for c in cands if c not in existing and c not in self._mem_ignored][:4]
-        if fresh:
-            self._show_mem_candidates(fresh)
+        fresh = [c for c in cands if c not in existing][:6]
+        if not fresh:
+            return
+        saved = []
+        for t in fresh:
+            m = {"id": uuid.uuid4().hex, "text": t, "created": time.time()}
+            self.store.setdefault("memory", []).append(m)
+            saved.append(m)
+        _save_store(self.store)
+        self._show_mem_saved(saved)
 
-    def _show_mem_candidates(self, cands):
-        """记忆候选确认条：每条「记住 / 忽略」，确认后才入库。"""
+    def _show_mem_saved(self, items):
+        """已入库提示条：列出刚记下的内容，每条可「撤销」。"""
         self._clear_mem_bar()
         bar = QFrame()
         bar.setObjectName("memBar")
         bar.setStyleSheet(
-            f"#memBar {{ background: #f4f1fb; border: 1px solid #e2dcf6;"
-            f" border-radius: 12px; }}")
+            "#memBar { background: #eef6f0; border: 1px solid #d3e7d9; border-radius: 12px; }")
         v = QVBoxLayout(bar)
         v.setContentsMargins(14, 10, 14, 12)
         v.setSpacing(7)
-        head = QLabel("💡 要记住这些信息吗？（确认后所有「带记忆能力」的 Bot 都能用到）")
-        head.setStyleSheet(f"color: {theme.TEXT}; font-size: 12px; font-weight: 700;"
+        head = QLabel("已记住（带「记忆」能力的 Bot 以后都能用到；可在右上角记忆库查看/删除）")
+        head.setStyleSheet("color: #2c7a4b; font-size: 12px; font-weight: 700;"
                            " background: transparent; border: none;")
         v.addWidget(head)
-        for text in cands:
+        for m in items:
             row = QHBoxLayout()
             row.setSpacing(8)
-            lab = QLabel("· " + text)
+            lab = QLabel("· " + m["text"])
             lab.setWordWrap(True)
             lab.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px; background: transparent;"
                               " border: none;")
             row.addWidget(lab, 1)
-            keep = QPushButton("记住")
-            keep.setCursor(Qt.CursorShape.PointingHandCursor)
-            keep.setStyleSheet(
-                f"QPushButton {{ background: {theme.INDIGO}; color: #fff; border: none;"
-                f" border-radius: 7px; padding: 4px 12px; font-size: 12px; font-weight: 600; }}")
-            keep.clicked.connect(lambda _, t=text, r=row: self._remember(t, r))
-            drop = QPushButton("忽略")
-            drop.setCursor(Qt.CursorShape.PointingHandCursor)
-            drop.setStyleSheet(
+            undo = QPushButton("撤销")
+            undo.setCursor(Qt.CursorShape.PointingHandCursor)
+            undo.setStyleSheet(
                 f"QPushButton {{ background: transparent; color: {theme.TEXT3}; border: none;"
-                f" font-size: 12px; }} QPushButton:hover {{ color: {theme.TEXT2}; }}")
-            drop.clicked.connect(lambda _, t=text, r=row: self._ignore_mem(t, r))
-            row.addWidget(keep)
-            row.addWidget(drop)
+                f" font-size: 12px; }} QPushButton:hover {{ color: {theme.DANGER}; }}")
+            undo.clicked.connect(lambda _, mm=m, r=row: self._unsave_mem(mm, r))
+            row.addWidget(undo)
             v.addLayout(row)
         self._mem_bar = bar
         self.msg_layout.insertWidget(self.msg_layout.count() - 1, bar)
@@ -2302,14 +2313,11 @@ class AIChatWindow(OpenHamWindowBase):
         if self._mem_bar is not None and self._mem_bar.layout().count() <= 1:
             self._clear_mem_bar()
 
-    def _remember(self, text, row):
-        self.store["memory"].append({"id": uuid.uuid4().hex, "text": text,
-                                     "created": time.time()})
+    def _unsave_mem(self, m, row):
+        """撤销刚记下的一条（从全局记忆里删除）。"""
+        self.store["memory"] = [x for x in self.store.get("memory", [])
+                                if x.get("id") != m.get("id")]
         _save_store(self.store)
-        self._remove_mem_row(row)
-
-    def _ignore_mem(self, text, row):
-        self._mem_ignored.add(text)
         self._remove_mem_row(row)
 
     # ── 智能体：工具执行循环 ──────────────────────────────────────────
