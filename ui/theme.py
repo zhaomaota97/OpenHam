@@ -132,13 +132,15 @@ def app_qss() -> str:
     QTabBar::tab:hover:!selected {{ background: {SUBTLE}; }}
 
     /* ── 菜单 / 提示 ───────────────────────────────────── */
+    /* 注意：弹出层(QMenu/QToolTip)的 border-radius 会让 Qt 把窗口设成半透明以画圆角，
+       而本机半透明会发黑。所以这里【不给 border-radius】，保持不透明方角、浅底不发黑。 */
     QToolTip {{
         background: {CARD}; color: {TEXT};
-        border: 1px solid {BORDER}; border-radius: 6px; padding: 5px 8px;
+        border: 1px solid {BORDER}; padding: 5px 8px;
     }}
     QMenu {{
         background: {CARD}; color: {TEXT};
-        border: 1px solid {BORDER}; border-radius: 10px; padding: 6px;
+        border: 1px solid {BORDER}; padding: 6px;
     }}
     QMenu::item {{ padding: 7px 16px; border-radius: 6px; margin: 1px 4px; }}
     QMenu::item:selected {{ background: {SUBTLE}; color: {TEXT}; }}
@@ -172,7 +174,7 @@ def menu_qss() -> str:
     return f"""
     QMenu {{
         background: {CARD}; color: {TEXT};
-        border: 1px solid {BORDER}; border-radius: 8px; padding: 5px;
+        border: 1px solid {BORDER}; padding: 5px;
     }}
     QMenu::item {{
         padding: 7px 16px; border-radius: 6px; margin: 1px 4px;
