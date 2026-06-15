@@ -33,11 +33,13 @@ from ui.window_base import OpenHamWindowBase
 from ui import icons, theme
 from core import app_config
 from core.ai_client import call_chat_stream, call_deepseek_sync, _CHAT_SYS
+from core import agent_tools
 
 
 # ── Bot 能力：交互控件（choices 快捷回复 / ask 澄清提问）──
 CAP_CHOICES = "choices"
 CAP_ASK = "ask"
+CAP_TOOLS = "tools"      # 智能体：可执行命令/读写文件/联网等
 
 _CHOICES_RULE = (
     "【快捷回复能力·重要】每次回答的最后，都要再追加一个「快捷追问选项」块，"
@@ -55,8 +57,22 @@ _ASK_RULE = (
     "若该问题允许多选，在标签后加 multi：第一行写 ```openham:ask multi。\n"
     "选项 2–5 个、简短；一次只问最关键的一个问题；意图已经清楚时不要提问，直接作答。"
 )
-# 匹配交互控件围栏块（choices/ask，保留出现顺序），以及流式未闭合的尾块
-_KINDS = "choices|ask"
+_TOOLS_RULE = (
+    "【智能体工具能力】你能调用本机工具真正地执行任务（执行命令、读写文件、列目录、联网获取、查系统信息）。"
+    "当任务需要时，输出一个独立的围栏代码块，语言标签写 openham:tool，"
+    "第一行写「工具: 主参数」，其余行作为附加内容（仅 write 需要）：\n"
+    "· 执行命令(Windows)：```openham:tool\nshell: dir\n```\n"
+    "· 读取文件：```openham:tool\nread: C:\\路径\\文件.txt\n```\n"
+    "· 写入文件(第一行路径，其余行内容)：```openham:tool\nwrite: C:\\路径\\out.txt\n要写入的内容\n```\n"
+    "· 列出目录：```openham:tool\nlist: C:\\路径\n```\n"
+    "· 联网获取(网页/接口)：```openham:tool\nhttp: https://example.com\n```\n"
+    "· 系统信息：```openham:tool\nsysinfo:\n```\n"
+    "规则：一次只调用一个工具；调用后系统会把真实执行结果回给你，你据此继续，"
+    "可多轮调用，直到完成后给出**不含工具块**的最终答复。不要假设/编造结果，必须真的调用工具拿到。"
+    "命令要安全、最小化、避免破坏性操作（删除/格式化等先说明再谨慎执行）。"
+)
+# 匹配交互控件 / 工具围栏块（choices/ask/tool，保留出现顺序），以及流式未闭合的尾块
+_KINDS = "choices|ask|tool"
 _BLOCK_RE = re.compile(
     r"```[ \t]*openham:(" + _KINDS + r")([^\n]*)\r?\n(.*?)```",
     re.DOTALL | re.IGNORECASE)
@@ -83,8 +99,22 @@ def _parse_ask_body(body: str):
     return q, opts[:6]
 
 
+def _parse_tool_body(body: str):
+    """工具块体：第一行「工具: 主参数」，其余行作为内容（write 用）。"""
+    lines = (body or "").splitlines()
+    first = lines[0].strip() if lines else ""
+    content = "\n".join(lines[1:])
+    if ":" in first or "：" in first:
+        sep = "：" if ("：" in first and (":" not in first or first.index("：") < first.index(":"))) else ":"
+        name, _, arg = first.partition(sep)
+        name, arg = name.strip(), arg.strip()
+    else:
+        name, arg = first.strip(), ""
+    return agent_tools.normalize(name), arg, content
+
+
 def _parse_blocks(text: str):
-    """提取消息里的 choices / ask 控件块，返回 (去块后的 Markdown, 控件列表)。"""
+    """提取消息里的 choices / ask / tool 块，返回 (去块后的 Markdown, 控件列表)。"""
     blocks = []
     for mt in _BLOCK_RE.finditer(text or ""):
         kind = mt.group(1).lower()
@@ -95,6 +125,10 @@ def _parse_blocks(text: str):
             items = [x for x in items if x][:4]
             if items:
                 blocks.append({"type": "choices", "items": items})
+        elif kind == "tool":
+            tool, arg, content = _parse_tool_body(body)
+            if tool:
+                blocks.append({"type": "tool", "tool": tool, "arg": arg, "content": content})
         else:
             q, opts = _parse_ask_body(body)
             if opts:
@@ -103,6 +137,44 @@ def _parse_blocks(text: str):
     stripped = _BLOCK_RE.sub("", text or "")
     stripped = _BLOCK_TRAILING_RE.sub("", stripped)   # 流式未闭合时也先隐藏
     return stripped.strip(), blocks
+
+
+def _first_tool_call(text: str):
+    """返回消息里第一个 openham:tool 调用 {tool,arg,content}，没有则 None。"""
+    _, blocks = _parse_blocks(text or "")
+    for b in blocks:
+        if b["type"] == "tool":
+            return b
+    return None
+
+
+def _tool_head(tool, arg):
+    label = agent_tools.TOOL_LABELS.get(tool, tool or "工具")
+    return f"{label}" + (f" › {arg}" if arg else "")
+
+
+def _api_msg(m):
+    """存储消息 → 发给模型的 {role, content}。tool 角色转成 user(工具执行结果)。"""
+    if m.get("role") == "tool":
+        head = _tool_head(m.get("tool"), m.get("arg"))
+        return {"role": "user", "content": f"【{head} 的执行结果】\n{m.get('content', '')}"}
+    return {"role": m.get("role", "user"), "content": m.get("content", "")}
+
+
+def _run_agent_loop(history, max_iters=8):
+    """同步智能体循环（团队成员在工作线程里用）：调用模型→若有工具调用就执行→把结果回喂→
+    继续，直到无工具调用或到上限，返回最终交付文本（团队流水线里工具自动执行）。"""
+    msgs = list(history)
+    final = ""
+    for _ in range(max_iters):
+        final = "".join(call_chat_stream(msgs, max_tokens=1500)).strip()
+        tc = _first_tool_call(final)
+        if not tc:
+            return final
+        result = agent_tools.run_tool(tc["tool"], tc.get("arg", ""), tc.get("content", ""))
+        msgs.append({"role": "assistant", "content": final})
+        msgs.append({"role": "user", "content": f"【{_tool_head(tc['tool'], tc.get('arg'))} 的执行结果】\n{result}"})
+    return final
 
 
 def _base_dir() -> str:
@@ -320,8 +392,10 @@ class _BotDialog(QDialog):
         caps = capabilities or []
         self.cap_choices = QCheckBox("快捷回复按钮（AI 给出可点击的追问选项）")
         self.cap_ask = QCheckBox("澄清提问（AI 主动用单选/多选问清你的需求）")
+        self.cap_tools = QCheckBox("智能体工具（可执行命令 / 读写文件 / 联网，⚠ 谨慎）")
         for cb, on in ((self.cap_choices, CAP_CHOICES in caps),
-                       (self.cap_ask, CAP_ASK in caps)):
+                       (self.cap_ask, CAP_ASK in caps),
+                       (self.cap_tools, CAP_TOOLS in caps)):
             cb.setChecked(on)
             cb.setCursor(Qt.CursorShape.PointingHandCursor)
             cb.setStyleSheet(_checkbox_style())
@@ -346,6 +420,8 @@ class _BotDialog(QDialog):
             caps.append(CAP_CHOICES)
         if self.cap_ask.isChecked():
             caps.append(CAP_ASK)
+        if self.cap_tools.isChecked():
+            caps.append(CAP_TOOLS)
         return (self.name_in.text().strip(),
                 self.sys_in.toPlainText().strip(), caps)
 
@@ -455,6 +531,35 @@ class _MessageRow(QWidget):
             rv.addWidget(self.actions, 0, Qt.AlignmentFlag.AlignRight)
             outer.addStretch(1)
             outer.addWidget(rightw)
+        elif role == "tool":
+            self.browser = None
+            self.bubble = None
+            self.actions = None
+            col = QVBoxLayout()
+            col.setContentsMargins(30, 0, 0, 0)     # 与助手正文左缩进对齐
+            col.setSpacing(0)
+            card = QFrame()
+            card.setObjectName("toolRes")
+            card.setStyleSheet(
+                f"#toolRes {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER};"
+                f" border-radius: 10px; }}")
+            cv = QVBoxLayout(card)
+            cv.setContentsMargins(12, 8, 12, 10)
+            cv.setSpacing(4)
+            hdr = QLabel("⎿ 工具结果")
+            hdr.setStyleSheet(f"color: {theme.TEXT3}; font-size: 11px; font-weight: 600;"
+                              " background: transparent;")
+            cv.addWidget(hdr)
+            self.tool_out = QLabel("")
+            self.tool_out.setWordWrap(True)
+            self.tool_out.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            self.tool_out.setStyleSheet(
+                "QLabel { background: transparent; color: #2a2a2e;"
+                " font-family: Consolas, 'Courier New', monospace; font-size: 12px; }")
+            self.tool_out.installEventFilter(self)
+            cv.addWidget(self.tool_out)
+            col.addWidget(card)
+            outer.addLayout(col, 1)
         else:
             col = QVBoxLayout()
             col.setContentsMargins(0, 0, 0, 0)
@@ -510,7 +615,8 @@ class _MessageRow(QWidget):
             self.bubble = None
             outer.addLayout(col, 1)
 
-        self._set_buttons(False)   # 默认隐藏按钮（占位条仍在），hover/置顶时显示
+        if getattr(self, "actions", None) is not None:
+            self._set_buttons(False)   # 默认隐藏按钮（占位条仍在），hover/置顶时显示
 
     def _build_actions(self) -> QWidget:
         bar = QWidget()
@@ -566,6 +672,8 @@ class _MessageRow(QWidget):
             self.host._copy_plain(self)
 
     def _set_buttons(self, vis: bool):
+        if getattr(self, "actions", None) is None:   # tool 结果行无操作按钮
+            return
         self.copy_btn.setVisible(vis)
         if self.role == "assistant":
             self.regen_btn.setVisible(vis)
@@ -595,7 +703,9 @@ class _MessageRow(QWidget):
 
     def set_text(self, text: str, final: bool = False):
         self._raw = text
-        if self.role == "user":
+        if self.role == "tool":
+            self.tool_out.setText(text)
+        elif self.role == "user":
             self.bubble.setText(text)
         else:
             md, blocks = _parse_blocks(text)       # 去掉控件块再渲染 Markdown
@@ -618,10 +728,40 @@ class _MessageRow(QWidget):
         for b in blocks:
             if b["type"] == "choices":
                 self.blocks_layout.addWidget(self._make_choices_widget(b["items"]))
+            elif b["type"] == "tool":
+                self.blocks_layout.addWidget(self._make_tool_widget(b))
             else:
                 self.blocks_layout.addWidget(self._make_ask_widget(b))
         # choices 全部为空时容器可能为空
         self.blocks_host.setVisible(self.blocks_layout.count() > 0)
+
+    def _make_tool_widget(self, block) -> QWidget:
+        """智能体的工具调用卡片：图标 + 工具名 + 命令/参数（只读展示）。"""
+        card = QFrame()
+        card.setObjectName("toolCall")
+        card.setStyleSheet(
+            f"#toolCall {{ background: #f4f1fb; border: 1px solid #e2dcf6;"
+            f" border-radius: 10px; }}")
+        v = QVBoxLayout(card)
+        v.setContentsMargins(12, 8, 12, 10)
+        v.setSpacing(3)
+        label = agent_tools.TOOL_LABELS.get(block.get("tool"), block.get("tool", "工具"))
+        head = QLabel(f"🔧 {label}")
+        head.setStyleSheet(f"color: {theme.INDIGO}; font-size: 12px; font-weight: 700;"
+                           " background: transparent; border: none;")
+        v.addWidget(head)
+        arg = block.get("arg", "")
+        content = block.get("content", "")
+        body = arg + (("\n" + content) if (block.get("tool") == "write" and content) else "")
+        if body.strip():
+            cmd = QLabel(body)
+            cmd.setWordWrap(True)
+            cmd.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            cmd.setStyleSheet(
+                "QLabel { background: transparent; color: #3a3550; border: none;"
+                " font-family: Consolas, 'Courier New', monospace; font-size: 12px; }")
+            v.addWidget(cmd)
+        return card
 
     def _make_choices_widget(self, items) -> QWidget:
         w = QWidget()
@@ -755,6 +895,8 @@ class _MessageRow(QWidget):
     def set_width(self, content_px: int):
         if self.role == "user":
             self.bubble.setMaximumWidth(max(120, int(content_px * 0.72)))
+        elif self.role == "tool":
+            self.tool_out.setMaximumWidth(max(160, content_px - 30))
         else:
             self.browser.setFixedWidth(max(160, content_px))
             self._fit_height()
@@ -773,6 +915,7 @@ class _ChatSignals(QObject):
     team_plan = pyqtSignal(int, object)       # gen, {"summary":..,"steps":[{bot,task}]}
     team_step = pyqtSignal(int, int, str)     # gen, 步骤序号, 成员交付内容
     team_final = pyqtSignal(int, str)         # gen, 编排器最终交付
+    tool_done = pyqtSignal(int, str)          # gen, 工具执行结果
 
 
 class AIChatWindow(OpenHamWindowBase):
@@ -810,6 +953,13 @@ class AIChatWindow(OpenHamWindowBase):
         self._typing_phase = 0
         self._typing_timer = QTimer(self)
         self._typing_timer.timeout.connect(self._animate_typing)
+        # 智能体：工具调用循环
+        self._agent_auto = False     # 是否自动执行工具（否则逐条确认）
+        self._agent_iter = 0         # 本轮已执行的工具步数（防止无限循环）
+        self._pending_tool = None    # 待确认执行的工具调用
+        self._cur_tool = None        # 正在执行的工具
+        self._tool_row = None        # 「执行中…」结果行
+        self._tool_bar = None        # 工具审批条
 
         self._sig = _ChatSignals()
         self._sig.chunk.connect(self._on_chunk)
@@ -818,6 +968,7 @@ class AIChatWindow(OpenHamWindowBase):
         self._sig.team_plan.connect(self._on_team_plan)
         self._sig.team_step.connect(self._on_team_step)
         self._sig.team_final.connect(self._on_team_final)
+        self._sig.tool_done.connect(self._on_tool_done)
 
         self._build_ui()
         self._add_sidebar_toggle()
@@ -1059,6 +1210,13 @@ class AIChatWindow(OpenHamWindowBase):
             f"QLabel {{ color: {theme.TEXT2}; background: {theme.SUBTLE};"
             " border-radius: 9px; padding: 3px 10px; font-size: 12px; }}")
         bottom.addWidget(self.model_pill)
+        # 智能体「自动执行工具」开关（仅在当前 bot 有 tools 能力时显示）
+        self.agent_toggle = QPushButton("✋ 逐条确认")
+        self.agent_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.agent_toggle.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.agent_toggle.setToolTip("智能体执行工具的方式：逐条确认 / 自动执行")
+        self.agent_toggle.clicked.connect(self._toggle_agent_auto)
+        bottom.addWidget(self.agent_toggle)
         bottom.addStretch(1)
         self.send_btn = QPushButton()
         self.send_btn.setIcon(icons.qicon("send", color="#ffffff"))
@@ -1405,6 +1563,7 @@ class AIChatWindow(OpenHamWindowBase):
 
     # ── 消息渲染 ──────────────────────────────────────────────────────
     def _clear_messages(self):
+        self._clear_tool_approval()
         for w in self._rows:
             w.setParent(None)
             w.deleteLater()
@@ -1453,6 +1612,7 @@ class AIChatWindow(OpenHamWindowBase):
                        if is_grp and m["role"] == "assistant" else None)
                 self._add_message(m["role"], m["content"], final=True, bot=spk)
         self._update_action_visibility()
+        self._sync_agent_toggle()
         self._scroll_to_bottom()
 
     def _show_empty_hint(self):
@@ -1510,6 +1670,9 @@ class AIChatWindow(OpenHamWindowBase):
             self._clear_messages()
         self.input.clear()
 
+        self._agent_iter = 0            # 新一轮用户消息：重置智能体工具步数
+        self._pending_tool = None
+        self._clear_tool_approval()
         cur["messages"].append({"role": "user", "content": text})
         urow = self._add_message("user", text)
         self._maybe_title(cur, text)
@@ -1547,6 +1710,8 @@ class AIChatWindow(OpenHamWindowBase):
         caps = bot.get("capabilities", [])
         sys_prompt = (bot.get("system") or "").strip()
         extras = []
+        if CAP_TOOLS in caps:
+            extras.append(_TOOLS_RULE)
         if CAP_ASK in caps:
             extras.append(_ASK_RULE)
         if CAP_CHOICES in caps:
@@ -1555,8 +1720,7 @@ class AIChatWindow(OpenHamWindowBase):
             sys_prompt = (sys_prompt or _CHAT_SYS).strip() + "\n\n" + "\n\n".join(extras)
         if sys_prompt:
             history.append({"role": "system", "content": sys_prompt})
-        history += [{"role": m["role"], "content": m["content"]}
-                    for m in cur["messages"]]
+        history += [_api_msg(m) for m in cur["messages"]]
         self._gen += 1
         gen = self._gen
         self._set_streaming(True)
@@ -1679,9 +1843,14 @@ class AIChatWindow(OpenHamWindowBase):
         self._gen += 1
         gen = self._gen
 
+        use_tools = CAP_TOOLS in member.get("capabilities", [])
+
         def work():
             try:
-                text = "".join(call_chat_stream(history, max_tokens=1500)).strip()
+                if use_tools:                      # 成员是智能体：可执行命令/读写文件等
+                    text = _run_agent_loop(history).strip()
+                else:
+                    text = "".join(call_chat_stream(history, max_tokens=1500)).strip()
             except Exception as e:
                 text = f"（{member['name']} 没能完成：{e}）"
             if gen == self._gen:
@@ -1694,6 +1863,8 @@ class AIChatWindow(OpenHamWindowBase):
                 + (f"你的专长/人设：{member.get('system').strip()} " if member.get("system") else "")
                 + "请专注完成编排器交给你的子任务，产出可直接交付给下游/编排器的内容，"
                 "专业、具体、有条理，不要寒暄客套，不要复述任务。")
+        if CAP_TOOLS in member.get("capabilities", []):
+            sysp += "\n\n" + _TOOLS_RULE
         parts = [f"整体需求：{self._team_task}"]
         if self._team_deliv:
             up = "\n\n".join(f"【{nm} 的交付】\n{ct}" for nm, ct in self._team_deliv)
@@ -1848,6 +2019,8 @@ class AIChatWindow(OpenHamWindowBase):
         if self._autoscroll:
             self._scroll_to_bottom()
 
+    _MAX_AGENT_ITERS = 12
+
     def _on_done(self, gen: int):
         if gen != self._gen:
             return
@@ -1857,10 +2030,166 @@ class AIChatWindow(OpenHamWindowBase):
         if cur is not None:
             cur["messages"].append({"role": "assistant", "content": self._assistant_text})
             _save_store(self.store)
-        self._set_streaming(False)
         self._update_action_visibility()
         if self._autoscroll:
             self._scroll_to_bottom()
+        # 智能体：若本条回复里有工具调用，则执行→回喂→继续
+        bot = self._cur_bot()
+        tc = (_first_tool_call(self._assistant_text)
+              if CAP_TOOLS in bot.get("capabilities", []) else None)
+        if tc and self._agent_iter < self._MAX_AGENT_ITERS:
+            self._agent_iter += 1
+            if self._agent_auto:
+                self._exec_tool(tc)            # 自动执行（保持 streaming 忙碌态）
+            else:
+                self._pending_tool = tc        # 逐条确认：弹出审批条
+                self._set_streaming(False)
+                self._show_tool_approval(tc)
+            return
+        if tc and self._agent_iter >= self._MAX_AGENT_ITERS:
+            self._add_message("tool", "（已达工具调用上限，停止自动执行；请直接给出结论或继续指示）")
+        self._set_streaming(False)
+
+    # ── 智能体：工具执行循环 ──────────────────────────────────────────
+    def _show_tool_approval(self, tc):
+        """逐条确认模式：在消息区底部弹出审批条（运行 / 跳过 / 本轮全自动）。"""
+        self._clear_tool_approval()
+        bar = QFrame()
+        bar.setObjectName("toolApprove")
+        bar.setStyleSheet(
+            f"#toolApprove {{ background: {theme.INDIGO_SOFT}; border: 1px solid #d8d6fb;"
+            f" border-radius: 12px; }}")
+        v = QVBoxLayout(bar)
+        v.setContentsMargins(14, 10, 14, 12)
+        v.setSpacing(8)
+        head = QLabel(f"⚠ 智能体请求执行：{agent_tools.TOOL_LABELS.get(tc['tool'], tc['tool'])}")
+        head.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px; font-weight: 700;"
+                           " background: transparent; border: none;")
+        v.addWidget(head)
+        body = tc.get("arg", "") + (("\n" + tc["content"]) if (tc["tool"] == "write" and tc.get("content")) else "")
+        if body.strip():
+            cmd = QLabel(body)
+            cmd.setWordWrap(True)
+            cmd.setStyleSheet("QLabel { background: transparent; color: #3a3550; border: none;"
+                              " font-family: Consolas, monospace; font-size: 12px; }")
+            v.addWidget(cmd)
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        run = QPushButton("运行")
+        run.setObjectName("primary")
+        run.setCursor(Qt.CursorShape.PointingHandCursor)
+        run.setStyleSheet(
+            f"QPushButton {{ background: {theme.ACCENT}; color: #fff; border: none;"
+            f" border-radius: 8px; padding: 6px 16px; font-weight: 600; }}"
+            f" QPushButton:hover {{ background: {theme.ACCENT_HOV}; }}")
+        run.clicked.connect(self._approve_tool)
+        skip = QPushButton("跳过")
+        skip.setCursor(Qt.CursorShape.PointingHandCursor)
+        skip.clicked.connect(self._skip_tool)
+        auto = QPushButton("本轮全部自动")
+        auto.setCursor(Qt.CursorShape.PointingHandCursor)
+        auto.clicked.connect(self._approve_tool_auto)
+        row.addWidget(run)
+        row.addWidget(skip)
+        row.addStretch(1)
+        row.addWidget(auto)
+        v.addLayout(row)
+        self._tool_bar = bar
+        self.msg_layout.insertWidget(self.msg_layout.count() - 1, bar)
+        self._scroll_to_bottom()
+
+    def _clear_tool_approval(self):
+        bar = getattr(self, "_tool_bar", None)
+        if bar is not None:
+            bar.setParent(None)
+            bar.deleteLater()
+            self._tool_bar = None
+
+    def _approve_tool(self):
+        tc = self._pending_tool
+        self._pending_tool = None
+        self._clear_tool_approval()
+        if tc:
+            self._exec_tool(tc)
+
+    def _approve_tool_auto(self):
+        self._agent_auto = True
+        self._sync_agent_toggle()
+        self._approve_tool()
+
+    def _skip_tool(self):
+        tc = self._pending_tool
+        self._pending_tool = None
+        self._clear_tool_approval()
+        res = "（用户跳过了这个操作，请改用别的方式或直接给出结论）"
+        self._add_message("tool", res)
+        self._record_tool_and_continue(tc, res)
+
+    def _exec_tool(self, tc):
+        """后台执行工具，结果通过 tool_done 信号回到主线程。"""
+        self._set_streaming(True)
+        self._cur_tool = tc
+        self._tool_row = self._add_message("tool", "执行中…")
+        self._scroll_to_bottom()
+        self._gen += 1
+        gen = self._gen
+        tool, arg, content = tc.get("tool"), tc.get("arg", ""), tc.get("content", "")
+
+        def work():
+            try:
+                out = agent_tools.run_tool(tool, arg, content)
+            except Exception as e:
+                out = f"（执行异常：{e}）"
+            if gen == self._gen:
+                self._sig.tool_done.emit(gen, out)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_tool_done(self, gen, result):
+        if gen != self._gen:
+            return
+        row = getattr(self, "_tool_row", None)
+        if row is not None:
+            row.set_text(result)
+        self._tool_row = None
+        self._record_tool_and_continue(getattr(self, "_cur_tool", None), result)
+        self._cur_tool = None
+
+    def _record_tool_and_continue(self, tc, result):
+        """把工具结果落库为 tool 消息，让 AI 据此继续。"""
+        cur = self._cur()
+        if cur is not None:
+            cur["messages"].append({"role": "tool", "content": result,
+                                    "tool": (tc or {}).get("tool", "shell"),
+                                    "arg": (tc or {}).get("arg", "")})
+            _save_store(self.store)
+        if self._autoscroll:
+            self._scroll_to_bottom()
+        self._run_completion()                 # AI 据结果继续
+
+    def _toggle_agent_auto(self):
+        self._agent_auto = not self._agent_auto
+        self._sync_agent_toggle()
+
+    def _sync_agent_toggle(self):
+        """按当前 bot 是否有 tools 能力显示/隐藏开关，并刷新文案样式。"""
+        if not hasattr(self, "agent_toggle"):
+            return
+        bot = self._cur_bot()
+        has = (not self._is_team(bot)) and (CAP_TOOLS in bot.get("capabilities", []))
+        self.agent_toggle.setVisible(has)
+        if self._agent_auto:
+            self.agent_toggle.setText("⚡ 自动执行")
+            self.agent_toggle.setStyleSheet(
+                f"QPushButton {{ background: {theme.INDIGO_SOFT}; color: {theme.INDIGO};"
+                f" border: 1px solid #d8d6fb; border-radius: 9px; padding: 3px 10px;"
+                f" font-size: 12px; }} QPushButton:hover {{ background: #ece8fb; }}")
+        else:
+            self.agent_toggle.setText("✋ 逐条确认")
+            self.agent_toggle.setStyleSheet(
+                f"QPushButton {{ background: {theme.SUBTLE}; color: {theme.TEXT2};"
+                f" border: none; border-radius: 9px; padding: 3px 10px; font-size: 12px; }}"
+                f" QPushButton:hover {{ background: #ececef; }}")
 
     def _on_error(self, gen: int, msg: str):
         if gen != self._gen:
@@ -1879,7 +2208,10 @@ class AIChatWindow(OpenHamWindowBase):
         """中止当前生成：保留已生成的部分并落库。"""
         if not self._streaming:
             return
-        self._gen += 1                     # 让在跑的流/成员被丢弃
+        self._gen += 1                     # 让在跑的流/成员/工具被丢弃
+        self._pending_tool = None          # 中止智能体工具循环
+        self._cur_tool = None
+        self._clear_tool_approval()
         if self._team_active:
             self._finish_team()            # 把已完成的编排/交付落库、清理打字行
             return
