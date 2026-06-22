@@ -12,6 +12,23 @@ from PyQt6.QtCore import QObject, pyqtSignal, QTimer, Qt
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QAction, QKeySequence, QFont
 import keyboard as kb
 
+# ── 标准输出兜底：UTF-8 + pythonw 无控制台保护（必须尽早）──────────────
+# 两类启动坑：① 控制台是 cp1252 时 print 中文会抛 UnicodeEncodeError，早期发生会拖垮启动；
+# ② pythonw.exe(无控制台)下 sys.stdout/stderr 为 None，任何 print 都会崩。
+# 对策：None → 用 devnull 兜底；有则重配为 UTF-8(无法编码的字符替换而非报错)。
+for _name in ("stdout", "stderr"):
+    _s = getattr(sys, _name, None)
+    if _s is None:
+        try:
+            setattr(sys, _name, open(os.devnull, "w", encoding="utf-8"))
+        except Exception:
+            pass
+    else:
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 # ── 高 DPI 感知（必须在创建任何窗口之前）──────────────────────────────
 # 不声明 DPI 感知时，系统缩放(125%/150%)会把窗口当位图拉伸 → 文字发虚。
 # 这里声明 Per-Monitor V2，让 Qt 按真实像素渲染，文字才清晰。

@@ -1,8 +1,11 @@
 import os
 import json
+import logging
 import importlib.util
 from typing import Dict, Any, Callable, List, Optional
 from utils.paths import _base_dir
+
+_log = logging.getLogger("openham.plugins")
 
 PLUGIN_REGISTRY: Dict[str, Callable] = {}
 PLUGIN_MATCHERS: List[Dict[str, Any]] = []
@@ -150,14 +153,16 @@ def load_plugins():
                 try:
                     spec.loader.exec_module(module)
                 except Exception as e:
-                    print(f"[PluginManager] 挂载插件 {filename} 失败: {e}")
-                    
+                    # 单个插件加载失败绝不能拖垮整个启动；用 logger(UTF-8 文件)记录，
+                    # 不要用 print——含中文时会在 cp1252 控制台抛 UnicodeEncodeError 反而致命。
+                    _log.warning("挂载插件 %s 失败: %s", filename, e)
+
     # 执行所有的 setup 钩子
     for setup_func in PLUGIN_SETUPS:
         try:
             setup_func(plugin_api)
         except Exception as e:
-            print(f"[PluginManager] 执行插件 setup 失败: {e}")
+            _log.warning("执行插件 setup 失败: %s", e)
 
 def get_plugin_previews() -> Dict[str, str]:
     return PLUGIN_PREVIEWS

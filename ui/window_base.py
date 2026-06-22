@@ -3,11 +3,28 @@ import ctypes
 import ctypes.wintypes
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout,
                               QApplication, QHBoxLayout, QLabel, QPushButton, QSizeGrip)
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QObject, QEvent
 from PyQt6.QtGui import QIcon
 from utils.window_effects import disable_native_window_effects
 from ui import icons
 from ui import theme
+
+
+class _TitleBarDblClick(QObject):
+    """只负责「双击标题栏 → 最大化/还原」。用独立过滤器对象而非把窗口自身装成过滤器——
+    后者会让事件经过子类重写的 eventFilter，而那在基类构造期(子类控件尚未建好)就被触发，
+    导致 AttributeError 把整个程序拖崩(v1.0.57 的回归)。独立对象彻底隔离这条路径。"""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self._win = win
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.MouseButtonDblClick:
+            self._win.toggle_max()
+            return True
+        return False
+
 
 def _base_dir() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -180,8 +197,10 @@ class OpenHamWindowBase(QWidget):
         tb.addWidget(self.close_btn)
 
         self.card_layout.addWidget(self.title_bar)
-        # 双击标题栏：最大化 / 还原（所有继承本基类的窗口统一具备）
-        self.title_bar.installEventFilter(self)
+        # 双击标题栏：最大化 / 还原（所有继承本基类的窗口统一具备）。
+        # 用独立过滤器对象，绝不经过子类的 eventFilter（见 _TitleBarDblClick 注释）。
+        self._title_dbl_filter = _TitleBarDblClick(self)
+        self.title_bar.installEventFilter(self._title_dbl_filter)
 
         # ── 内容区（子类填充） ─────────────────────────────────────
         self.content_layout = QVBoxLayout()
@@ -209,15 +228,6 @@ class OpenHamWindowBase(QWidget):
         _set_topmost_native(int(self.winId()), self.is_pinned)
         self.pin_btn.setIcon(icons.qicon("pinned" if self.is_pinned else "pin",
                                          color=theme.ACCENT if self.is_pinned else theme.TEXT2))
-
-    def eventFilter(self, obj, event):
-        """双击标题栏最大化/还原。子类如重写 eventFilter，请记得 super().eventFilter(...)。"""
-        from PyQt6.QtCore import QEvent
-        if obj is getattr(self, "title_bar", None) and \
-                event.type() == QEvent.Type.MouseButtonDblClick:
-            self.toggle_max()
-            return True
-        return super().eventFilter(obj, event)
 
     def toggle_max(self):
         """最大化 / 还原（无边框窗口同样适用）。"""

@@ -2549,7 +2549,8 @@ class AIChatWindow(OpenHamWindowBase):
 
     def eventFilter(self, obj, event):
         from PyQt6.QtCore import QEvent
-        if obj is self.input and event.type() == QEvent.Type.KeyPress:
+        # getattr 兜底：构造早期(self.input 尚未建好)本过滤器可能被提前触发，防 AttributeError
+        if obj is getattr(self, "input", None) and event.type() == QEvent.Type.KeyPress:
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                     return False

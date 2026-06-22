@@ -971,9 +971,9 @@ class TodoWindow(OpenHamWindowBase):
         return row
 
     def eventFilter(self, obj, e):
-        # 行内子任务输入：Esc 取消、失焦即取消
+        # 行内子任务输入：Esc 取消、失焦即取消（getattr 兜底：构造早期可能被提前触发）
         from PyQt6.QtCore import QEvent
-        if self._adding_sub_for is not None:
+        if getattr(self, "_adding_sub_for", None) is not None:
             if e.type() == QEvent.Type.KeyPress and e.key() == Qt.Key.Key_Escape:
                 QTimer.singleShot(0, self._cancel_subtask)
                 return True
