@@ -1346,6 +1346,252 @@ class _ChatSignals(QObject):
     mem_candidates = pyqtSignal(object)       # 提炼出的记忆候选 [str]
 
 
+class _SplitPane(QWidget):
+    """分栏：从某对话分叉出来的一条独立分支（消息副本 + 输入 + 流式 + 思考）。
+
+    设计为「附加」而非改动主聊天核心：分栏只做普通对话续聊（含思考/记忆/自带对话），
+    不涉及智能体工具 / 选项块 / 团队（这些仍在主聊天里），以把影响面收在分栏内。"""
+
+    def __init__(self, window, bot, messages, title, parent=None):
+        super().__init__(parent)
+        self.win = window
+        self.bot = bot
+        self.messages = [dict(m) for m in messages]    # 独立副本
+        self._rows = []
+        self._gen = 0
+        self._assistant_row = None
+        self._assistant_text = ""
+        self._assistant_reasoning = ""
+        self._autoscroll = True
+        self._sig = _ChatSignals()
+        self._sig.chunk.connect(self._on_chunk)
+        self._sig.done.connect(self._on_done)
+        self._sig.error.connect(self._on_error)
+        self._build(title)
+        self._render_all()
+
+    # ── UI ──────────────────────────────────────────────────────────
+    def _build(self, title):
+        v = QVBoxLayout(self)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+        head = QFrame()
+        head.setStyleSheet(f"background: {theme.CARD}; border-bottom: 1px solid {theme.BORDER};")
+        hh = QHBoxLayout(head)
+        hh.setContentsMargins(14, 7, 8, 7)
+        lab = QLabel(title)
+        lab.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px; font-weight: 700;")
+        hh.addWidget(lab)
+        hh.addStretch(1)
+        close = QPushButton()
+        close.setIcon(icons.qicon("close", color=theme.TEXT2))
+        close.setIconSize(QSize(12, 12))
+        close.setFixedSize(24, 24)
+        close.setCursor(Qt.CursorShape.PointingHandCursor)
+        close.setToolTip("关闭此栏（丢弃这条分支）")
+        close.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; border-radius: 6px; }}"
+            f"QPushButton:hover {{ background: rgba(255,59,48,0.12); }}")
+        close.clicked.connect(lambda: self.win._close_split(self))
+        hh.addWidget(close)
+        v.addWidget(head)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setStyleSheet("background: transparent;")
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        host = QWidget()
+        host.setStyleSheet("background: transparent;")
+        self._msg_layout = QVBoxLayout(host)
+        self._msg_layout.setContentsMargins(18, 14, 18, 12)
+        self._msg_layout.setSpacing(10)
+        self._msg_layout.addStretch(1)
+        self._scroll.setWidget(host)
+        v.addWidget(self._scroll, 1)
+
+        card = QFrame()
+        card.setObjectName("splitInput")
+        card.setStyleSheet(
+            f"#splitInput {{ background: {theme.CARD}; border: 1px solid {theme.BORDER_IN};"
+            f" border-radius: 14px; }}")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(12, 10, 10, 8)
+        cl.setSpacing(6)
+        self.input = QPlainTextEdit()
+        self.input.setPlaceholderText("继续这条分支……（Enter 发送）")
+        self.input.setFrameShape(QFrame.Shape.NoFrame)
+        self.input.setStyleSheet("QPlainTextEdit { background: transparent; border: none; font-size: 14px; }")
+        self.input.setFixedHeight(52)
+        self.input.installEventFilter(self)
+        cl.addWidget(self.input)
+        brow = QHBoxLayout()
+        brow.setContentsMargins(0, 0, 0, 0)
+        pill = QLabel("  " + (self.bot.get("config", {}).get("model") or _model_label()))
+        pill.setStyleSheet(f"QLabel {{ color: {theme.TEXT2}; background: {theme.SUBTLE};"
+                           " border-radius: 9px; padding: 3px 10px; font-size: 12px; }}")
+        brow.addWidget(pill)
+        brow.addStretch(1)
+        send = QPushButton()
+        send.setIcon(icons.qicon("send", color="#ffffff"))
+        send.setIconSize(QSize(15, 15))
+        send.setFixedSize(34, 34)
+        send.setCursor(Qt.CursorShape.PointingHandCursor)
+        send.setStyleSheet(
+            f"QPushButton {{ background: {theme.ACCENT}; border: none; border-radius: 17px; }}"
+            f"QPushButton:hover {{ background: {theme.ACCENT_HOV}; }}")
+        send.clicked.connect(self.send)
+        brow.addWidget(send)
+        cl.addLayout(brow)
+        wrap = QWidget()
+        wl = QVBoxLayout(wrap)
+        wl.setContentsMargins(18, 4, 18, 14)
+        wl.addWidget(card)
+        v.addWidget(wrap)
+
+    def eventFilter(self, obj, event):
+        from PyQt6.QtCore import QEvent
+        if obj is self.input and event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    return False
+                self.send()
+                return True
+        return super().eventFilter(obj, event)
+
+    # ── 渲染 ────────────────────────────────────────────────────────
+    def _content_width(self):
+        return max(180, self._scroll.viewport().width() - 36)
+
+    def _add_row(self, role, text, final=False):
+        row = _MessageRow(role, bot_name=self.bot["name"],
+                          bot_avatar=self.win._bot_avatar(self.bot, 22), host=self)
+        self._msg_layout.insertWidget(self._msg_layout.count() - 1, row)
+        self._rows.append(row)
+        row.set_width(self._content_width())
+        row.set_text(text, final=final)
+        return row
+
+    def _render_all(self):
+        for m in self.messages:
+            row = self._add_row(m["role"], m["content"], final=True)
+            if m.get("reasoning"):
+                row.set_reasoning(m["reasoning"], streaming=False)
+        QTimer.singleShot(0, self._scroll_bottom)
+
+    def _scroll_bottom(self):
+        bar = self._scroll.verticalScrollBar()
+        bar.setValue(bar.maximum())
+
+    # ── 发送 / 生成 ─────────────────────────────────────────────────
+    def send(self):
+        text = self.input.toPlainText().strip()
+        if not text or self._assistant_row is not None:
+            return
+        self.input.clear()
+        self.messages.append({"role": "user", "content": text})
+        self._add_row("user", text, final=True)
+        self._generate()
+
+    def _generate(self):
+        history = []
+        sysp = (self.bot.get("system") or "").strip()
+        if CAP_MEMORY in self.bot.get("capabilities", []):
+            blk = _memory_block([m["text"] for m in self.win.store.get("memory", [])])
+            if blk:
+                sysp = (sysp or _CHAT_SYS).strip() + "\n\n" + blk
+        if sysp:
+            history.append({"role": "system", "content": sysp})
+        for sm in self.bot.get("seed", []):
+            if sm.get("content"):
+                history.append({"role": sm.get("role", "user"), "content": sm["content"]})
+        history += [_api_msg(m) for m in self.messages]
+        cfg = self.bot.get("config")
+        self._assistant_text = ""
+        self._assistant_reasoning = ""
+        self._assistant_row = self._add_row("assistant", "▍", final=False)
+        self._gen += 1
+        gen = self._gen
+        QTimer.singleShot(0, self._scroll_bottom)
+
+        def work():
+            try:
+                for kind, piece in call_chat_stream(history, cfg=cfg):
+                    if gen != self._gen:
+                        return
+                    self._sig.chunk.emit(gen, kind, piece)
+                if gen == self._gen:
+                    self._sig.done.emit(gen)
+            except Exception as e:
+                if gen == self._gen:
+                    self._sig.error.emit(gen, str(e))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_chunk(self, gen, kind, piece):
+        if gen != self._gen or self._assistant_row is None:
+            return
+        if kind == "reasoning":
+            self._assistant_reasoning += piece
+            self._assistant_row.set_reasoning(self._assistant_reasoning, streaming=True)
+        else:
+            self._assistant_text += piece
+            self._assistant_row.set_text(self._assistant_text + " ▍", final=False)
+        if self._autoscroll:
+            self._scroll_bottom()
+
+    def _on_done(self, gen):
+        if gen != self._gen:
+            return
+        reasoning = (self._assistant_reasoning or "").strip()
+        if self._assistant_row is not None:
+            self._assistant_row.set_text(self._assistant_text, final=True)
+            if reasoning:
+                self._assistant_row.set_reasoning(reasoning, streaming=False)
+                self._assistant_row.reason_btn.setChecked(False)
+        msg = {"role": "assistant", "content": self._assistant_text}
+        if reasoning:
+            msg["reasoning"] = reasoning
+        self.messages.append(msg)
+        self._assistant_row = None
+        if self._autoscroll:
+            self._scroll_bottom()
+
+    def _on_error(self, gen, err):
+        if gen != self._gen:
+            return
+        self._assistant_text += f"\n\n❌ {err}"
+        if self._assistant_row is not None:
+            self._assistant_row.set_text(self._assistant_text, final=True)
+        self.messages.append({"role": "assistant", "content": self._assistant_text})
+        self._assistant_row = None
+
+    # ── _MessageRow 需要的 host 接口（仅复制/重生成，编辑等不在分栏支持）──
+    def _clear_text_selections(self, keep):
+        pass
+
+    def _copy_plain(self, row):
+        from PyQt6.QtWidgets import QApplication
+        QApplication.clipboard().setText(getattr(row, "_raw", ""))
+
+    def _copy_markdown(self, row):
+        self._copy_plain(row)
+
+    def _edit_user(self, row):
+        pass
+
+    def _regenerate(self, row):
+        if self._assistant_row is not None:
+            return
+        if self.messages and self.messages[-1]["role"] == "assistant":
+            self.messages.pop()
+            last = self._rows.pop() if self._rows else None
+            if last is not None:
+                last.setParent(None)
+                last.deleteLater()
+            self._generate()
+
+
 class AIChatWindow(OpenHamWindowBase):
     """AI 对话主窗口（单例，由插件 setup 创建并复用）。"""
 
@@ -1433,6 +1679,18 @@ class AIChatWindow(OpenHamWindowBase):
         return btn
 
     def _add_sidebar_toggle(self):
+        # 分栏按钮：把当前对话分叉成两栏，各自独立续聊
+        self.split_btn = QPushButton()
+        self.split_btn.setIcon(icons.qicon("split", color=theme.TEXT2))
+        self.split_btn.setFixedSize(28, 28)
+        self.split_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.split_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.split_btn.setToolTip("分栏：从当前对话分叉成两栏，各自独立续聊")
+        self.split_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; border-radius: 7px; }}"
+            f"QPushButton:hover {{ background: {theme.HOVER}; }}")
+        self.split_btn.clicked.connect(self._open_split)
+        self.header_tools_layout.addWidget(self.split_btn)
         # 全局记忆管理按钮
         self.mem_btn = QPushButton()
         self.mem_btn.setIcon(icons.qicon("memory", color=theme.TEXT2))
@@ -1456,6 +1714,69 @@ class AIChatWindow(OpenHamWindowBase):
         self.store["memory"] = dlg.result_memory()
         _save_store(self.store)
 
+    # ── 分栏：从当前对话分叉两栏，各自独立续聊；关掉某栏丢弃该分支 ─────────
+    def _open_split(self):
+        if self._split_panes:
+            return
+        bot = self._cur_bot()
+        if self._is_team(bot):
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "分栏", "团队会话暂不支持分栏。")
+            return
+        if self._streaming:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "分栏", "请等当前回答结束再分栏。")
+            return
+        cur = self._cur()
+        if cur is None:
+            self._new_session()
+            cur = self._cur()
+        self._split_bot_id = bot["id"]
+        self._split_session_id = cur["id"]
+        left = _SplitPane(self, bot, cur["messages"], "分支 1")
+        right = _SplitPane(self, bot, cur["messages"], "分支 2")
+        div = QFrame()
+        div.setFixedWidth(1)
+        div.setStyleSheet(f"background: {theme.BORDER};")
+        self._split_panes = [left, right]
+        self._split_lay.addWidget(left, 1)
+        self._split_lay.addWidget(div)
+        self._split_lay.addWidget(right, 1)
+        self._chat_normal.setVisible(False)
+        self._split_host.setVisible(True)
+        self._sidebar.setVisible(False)        # 分栏时隐藏会话面板，避免切换歧义
+        self.split_btn.setEnabled(False)
+        QTimer.singleShot(0, left.input.setFocus)
+
+    def _close_split(self, pane):
+        """关掉 pane（丢弃这条分支），保留另一条→写回会话→回到单栏。"""
+        keep = next((p for p in self._split_panes if p is not pane), None)
+        bot = next((b for b in self.bots if b["id"] == self._split_bot_id), None)
+        sess = None
+        if bot:
+            sess = next((s for s in bot["sessions"] if s["id"] == self._split_session_id), None)
+        if keep is not None and sess is not None:
+            sess["messages"] = [dict(m) for m in keep.messages]
+            _save_store(self.store)
+        while self._split_lay.count():
+            it = self._split_lay.takeAt(0)
+            w = it.widget()
+            if w:
+                w.setParent(None)
+                w.deleteLater()
+        self._split_panes = []
+        self._split_host.setVisible(False)
+        self._chat_normal.setVisible(True)
+        self._sidebar.setVisible(True)
+        self.split_btn.setEnabled(True)
+        if bot:
+            self.cur_bot_id = bot["id"]
+            self.store["current_bot"] = bot["id"]
+            self.cur_id = self._split_session_id
+        self._refresh_bots()
+        self._refresh_session_list()
+        self._load_current()
+
     def _toggle_sidebar(self):
         show = not self._sidebar.isVisible()
         self._sidebar.setVisible(show)
@@ -1471,7 +1792,21 @@ class AIChatWindow(OpenHamWindowBase):
         h.addWidget(self._build_rail())
         self._sidebar = self._build_sidebar()
         h.addWidget(self._sidebar)
-        h.addWidget(self._build_chat(), 1)
+        # 聊天宿主：正常单栏 + 隐藏的分栏容器（分栏模式时切换）
+        chat_host = QWidget()
+        chost = QVBoxLayout(chat_host)
+        chost.setContentsMargins(0, 0, 0, 0)
+        chost.setSpacing(0)
+        self._chat_normal = self._build_chat()
+        chost.addWidget(self._chat_normal)
+        self._split_host = QWidget()
+        self._split_host.setVisible(False)
+        self._split_lay = QHBoxLayout(self._split_host)
+        self._split_lay.setContentsMargins(0, 0, 0, 0)
+        self._split_lay.setSpacing(0)
+        chost.addWidget(self._split_host)
+        self._split_panes = []
+        h.addWidget(chat_host, 1)
         self.content_layout.addWidget(row, 1)
 
     def _build_rail(self) -> QWidget:

@@ -105,6 +105,7 @@ _MAP = {
     "subtask": ("fa5s.stream", MUTED),
     "angle_down": ("fa5s.angle-down", MUTED),
     "angle_right": ("fa5s.angle-right", MUTED),
+    "split": ("mdi6.view-split-vertical", MUTED),
     "back": ("fa5s.arrow-left", MUTED),
     "forward": ("fa5s.arrow-right", MUTED),
     "up": ("fa5s.arrow-up", MUTED),
