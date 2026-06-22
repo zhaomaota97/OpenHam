@@ -230,6 +230,17 @@ def _norm_session(s: dict) -> dict:
 
 MODELS = ("deepseek-v4-flash", "deepseek-v4-pro")   # 仅此两款可选
 MAX_OUTPUT = 393216                                 # 384K：文档所列单次最大输出
+# 最大输出长度档位（必含最大档）；用档位选择代替自由输入，简单不易错
+TOKEN_TIERS = [("4K", 4096), ("16K", 16384), ("64K", 65536), ("384K·最大", MAX_OUTPUT)]
+
+
+def _snap_tier(v) -> int:
+    """把任意 max_tokens 吸附到最接近的档位值。"""
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        return 65536
+    return min((val for _, val in TOKEN_TIERS), key=lambda x: abs(x - v))
 
 
 def _default_config() -> dict:
@@ -585,14 +596,9 @@ class _BotDialog(QDialog):
         self.effort_seg = _Segmented([("high", "high"), ("max", "max")], cfg["reasoning_effort"])
         av.addWidget(self.effort_seg)
 
-        av.addWidget(self._sub(f"最大输出长度 max_tokens（默认 65536，最高 {MAX_OUTPUT}≈384K）"))
-        self.maxtok = QSpinBox()
-        self.maxtok.setRange(1, MAX_OUTPUT)
-        self.maxtok.setSingleStep(1024)
-        self.maxtok.setGroupSeparatorShown(True)
-        self.maxtok.setValue(int(cfg["max_tokens"]))
-        self.maxtok.setStyleSheet(_spin_qss())
-        av.addWidget(self.maxtok)
+        av.addWidget(self._sub("最大输出长度 max_tokens（按档位选择）"))
+        self.maxtok_seg = _Segmented(TOKEN_TIERS, _snap_tier(cfg["max_tokens"]))
+        av.addWidget(self.maxtok_seg)
 
         srow = QHBoxLayout()
         srow.setSpacing(16)
@@ -686,7 +692,7 @@ class _BotDialog(QDialog):
             "model": self.model_seg.value(),
             "thinking": self.think_seg.value() == "on",
             "reasoning_effort": self.effort_seg.value(),
-            "max_tokens": int(self.maxtok.value()),
+            "max_tokens": int(self.maxtok_seg.value()),
             "temperature": round(self.temp_spin.value(), 2),
             "top_p": round(self.topp_spin.value(), 2),
             "stop": [s.strip() for s in self.stop_in.text().split(",") if s.strip()][:16],
