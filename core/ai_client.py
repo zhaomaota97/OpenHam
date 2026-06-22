@@ -35,13 +35,17 @@ def _resolve_params(cfg: dict | None) -> dict:
     # 思考模式：bot 配置优先（True/False），未设置(None)则跟随全局开关
     th = cfg.get("thinking", None)
     enabled = bool(app_config.get("ai_thinking")) if th is None else bool(th)
-    out["extra_body"] = {"thinking": {"type": "enabled" if enabled else "disabled"}}
-    for k in ("temperature", "top_p", "frequency_penalty", "presence_penalty"):
+    extra = {"thinking": {"type": "enabled" if enabled else "disabled"}}
+    if enabled and cfg.get("reasoning_effort") in ("high", "max"):
+        extra["reasoning_effort"] = cfg["reasoning_effort"]   # 推理强度（文档：high 默认 / max）
+    out["extra_body"] = extra
+    # frequency_penalty / presence_penalty 已被文档标记弃用、传了也无效，故不再下发
+    for k in ("temperature", "top_p"):
         v = cfg.get(k)
         if v is not None:
             out[k] = v
     if cfg.get("stop"):
-        out["stop"] = cfg["stop"]
+        out["stop"] = cfg["stop"][:16]   # 文档：最多 16 个停止串
     if cfg.get("response_format") == "json":
         out["response_format"] = {"type": "json_object"}
     return out

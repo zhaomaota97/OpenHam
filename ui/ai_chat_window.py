@@ -228,18 +228,34 @@ def _norm_session(s: dict) -> dict:
     return s
 
 
+MODELS = ("deepseek-v4-flash", "deepseek-v4-pro")   # 仅此两款可选
+MAX_OUTPUT = 393216                                 # 384K：文档所列单次最大输出
+
+
 def _default_config() -> dict:
-    """bot 的可选模型/参数配置；空串/0/None 一律表示「跟随全局或默认」。"""
-    return {"model": "", "thinking": None, "max_tokens": 0,
-            "temperature": None, "top_p": None,
-            "frequency_penalty": None, "presence_penalty": None,
+    """bot 的模型/参数配置（均为具体默认值，依 DeepSeek 文档；不再有「跟随全局」）。"""
+    return {"model": "deepseek-v4-flash", "thinking": True,
+            "reasoning_effort": "high", "max_tokens": 65536,
+            "temperature": 1.0, "top_p": 1.0,
             "stop": [], "response_format": ""}
 
 
 def _norm_config(cfg) -> dict:
     out = _default_config()
     if isinstance(cfg, dict):
-        out.update({k: cfg[k] for k in out if k in cfg})
+        for k in out:
+            if k in cfg and cfg[k] is not None:
+                out[k] = cfg[k]
+    if out["model"] not in MODELS:
+        out["model"] = MODELS[0]
+    if not isinstance(out["thinking"], bool):
+        out["thinking"] = True
+    if out["reasoning_effort"] not in ("high", "max"):
+        out["reasoning_effort"] = "high"
+    try:
+        out["max_tokens"] = max(1, min(MAX_OUTPUT, int(out["max_tokens"] or 65536)))
+    except (TypeError, ValueError):
+        out["max_tokens"] = 65536
     return out
 
 
@@ -483,38 +499,6 @@ class _Segmented(QWidget):
         return self._value
 
 
-class _OptNum(QWidget):
-    """可选数值参数：勾「覆盖」才启用并下发，否则走模型默认。"""
-
-    def __init__(self, label, lo, hi, step, decimals, value=None, default=0.0, parent=None):
-        super().__init__(parent)
-        h = QHBoxLayout(self)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(10)
-        self.chk = QCheckBox(label)
-        self.chk.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.chk.setStyleSheet(_checkbox_style())
-        self.spin = QDoubleSpinBox()
-        self.spin.setRange(lo, hi)
-        self.spin.setSingleStep(step)
-        self.spin.setDecimals(decimals)
-        self.spin.setStyleSheet(_spin_qss())
-        if value is not None:
-            self.chk.setChecked(True)
-            self.spin.setValue(float(value))
-        else:
-            self.chk.setChecked(False)
-            self.spin.setValue(float(default))
-            self.spin.setEnabled(False)
-        self.chk.toggled.connect(self.spin.setEnabled)
-        h.addWidget(self.chk)
-        h.addStretch(1)
-        h.addWidget(self.spin)
-
-    def value(self):
-        return round(self.spin.value(), 4) if self.chk.isChecked() else None
-
-
 class _BotDialog(QDialog):
     """新建 / 编辑 bot：名称 + system prompt + 能力 + 模型与参数配置。"""
 
@@ -569,58 +553,18 @@ class _BotDialog(QDialog):
             cb.setStyleSheet(_checkbox_style())
             lay.addWidget(cb)
 
-        # ── 模型与参数（均可选，留空 / 不勾＝跟随全局或模型默认）──────────
+        # ── 模型 & 思考（常用，直接可见）─────────────────────────────────
         lay.addSpacing(10)
-        lay.addWidget(self._lbl("模型与参数（均为可选，留空 / 不勾＝跟随全局或模型默认）"))
-        mrow = QHBoxLayout()
-        mrow.setSpacing(8)
-        self.model_in = QLineEdit(cfg["model"])
-        self.model_in.setPlaceholderText("模型：留空＝跟随全局，如 deepseek-chat / deepseek-reasoner")
-        mrow.addWidget(self.model_in, 1)
-        self.model_btn = QPushButton("常用 ▾")
-        self.model_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.model_btn.setStyleSheet(
-            f"QPushButton {{ background: {theme.SUBTLE}; color: {theme.TEXT2};"
-            f" border: 1px solid {theme.BORDER}; border-radius: 7px; padding: 6px 12px;"
-            f" font-size: 13px; }} QPushButton:hover {{ border-color: {theme.BORDER_IN}; }}")
-        self.model_btn.clicked.connect(self._pick_model)
-        mrow.addWidget(self.model_btn)
-        lay.addLayout(mrow)
+        lay.addWidget(self._lbl("模型"))
+        self.model_seg = _Segmented([(m, m) for m in MODELS], cfg["model"])
+        lay.addWidget(self.model_seg)
 
-        lay.addWidget(self._sub("思考模式 thinking（开启后会展示思考过程）"))
-        th = cfg["thinking"]
-        thv = "global" if th is None else ("on" if th else "off")
-        self.think_seg = _Segmented([("跟随全局", "global"), ("开启", "on"), ("关闭", "off")], thv)
+        lay.addWidget(self._sub("思考模式（开启后展示思考过程）"))
+        self.think_seg = _Segmented([("开启", "on"), ("关闭", "off")],
+                                    "on" if cfg["thinking"] else "off")
         lay.addWidget(self.think_seg)
 
-        lay.addWidget(self._sub("最大输出长度 max_tokens（0＝默认，最高 1000000）"))
-        self.maxtok = QSpinBox()
-        self.maxtok.setRange(0, 1000000)
-        self.maxtok.setSingleStep(256)
-        self.maxtok.setGroupSeparatorShown(True)
-        self.maxtok.setValue(int(cfg["max_tokens"] or 0))
-        self.maxtok.setStyleSheet(_spin_qss())
-        lay.addWidget(self.maxtok)
-
-        self.opt_temp = _OptNum("温度 temperature（0–2）", 0.0, 2.0, 0.1, 2, cfg["temperature"], 1.0)
-        self.opt_topp = _OptNum("top_p（0–1）", 0.0, 1.0, 0.05, 2, cfg["top_p"], 1.0)
-        self.opt_fp = _OptNum("频率惩罚 frequency_penalty（-2–2）", -2.0, 2.0, 0.1, 2,
-                              cfg["frequency_penalty"], 0.0)
-        self.opt_pp = _OptNum("存在惩罚 presence_penalty（-2–2）", -2.0, 2.0, 0.1, 2,
-                              cfg["presence_penalty"], 0.0)
-        for w in (self.opt_temp, self.opt_topp, self.opt_fp, self.opt_pp):
-            lay.addWidget(w)
-
-        lay.addWidget(self._sub("停止序列 stop（逗号分隔，可留空）"))
-        self.stop_in = QLineEdit(", ".join(cfg["stop"] or []))
-        self.stop_in.setPlaceholderText("如：\\n\\n, 。, ###")
-        lay.addWidget(self.stop_in)
-
-        lay.addWidget(self._sub("响应格式 response_format"))
-        self.fmt_seg = _Segmented([("文本", ""), ("JSON", "json")], cfg["response_format"] or "")
-        lay.addWidget(self.fmt_seg)
-
-        # ── 高级（默认折叠）：自带对话 ───────────────────────────────────
+        # ── 高级（默认折叠）：输出长度 / 采样 / 停止 / 响应格式 / 自带对话 ──
         lay.addSpacing(12)
         self.adv_btn = QPushButton()
         self.adv_btn.setCheckable(True)
@@ -631,19 +575,60 @@ class _BotDialog(QDialog):
             f"QPushButton:hover {{ color: {theme.INDIGO}; }}")
         self.adv_btn.toggled.connect(self._toggle_adv)
         lay.addWidget(self.adv_btn)
+
         self.adv_box = QWidget()
         av = QVBoxLayout(self.adv_box)
         av.setContentsMargins(0, 2, 0, 0)
-        av.setSpacing(6)
-        hint = QLabel("用「用户：」「助手：」开头分行写。模型会把这段对话当作已经发生的上下文，"
-                      "每次新会话都接着它继续（不会显示在聊天记录里）。")
+        av.setSpacing(8)
+
+        av.addWidget(self._sub("推理强度 reasoning_effort（思考模式下生效）"))
+        self.effort_seg = _Segmented([("high", "high"), ("max", "max")], cfg["reasoning_effort"])
+        av.addWidget(self.effort_seg)
+
+        av.addWidget(self._sub(f"最大输出长度 max_tokens（默认 65536，最高 {MAX_OUTPUT}≈384K）"))
+        self.maxtok = QSpinBox()
+        self.maxtok.setRange(1, MAX_OUTPUT)
+        self.maxtok.setSingleStep(1024)
+        self.maxtok.setGroupSeparatorShown(True)
+        self.maxtok.setValue(int(cfg["max_tokens"]))
+        self.maxtok.setStyleSheet(_spin_qss())
+        av.addWidget(self.maxtok)
+
+        srow = QHBoxLayout()
+        srow.setSpacing(16)
+        tcol = QVBoxLayout()
+        tcol.setSpacing(4)
+        tcol.addWidget(self._sub("温度 temperature（0–2，默认 1）"))
+        self.temp_spin = self._dspin(0.0, 2.0, 0.1, 2, cfg["temperature"])
+        tcol.addWidget(self.temp_spin)
+        srow.addLayout(tcol)
+        pcol = QVBoxLayout()
+        pcol.setSpacing(4)
+        pcol.addWidget(self._sub("top_p（0–1，默认 1）"))
+        self.topp_spin = self._dspin(0.0, 1.0, 0.05, 2, cfg["top_p"])
+        pcol.addWidget(self.topp_spin)
+        srow.addLayout(pcol)
+        av.addLayout(srow)
+
+        av.addWidget(self._sub("停止序列 stop（逗号分隔，最多 16 个，可留空）"))
+        self.stop_in = QLineEdit(", ".join(cfg["stop"] or []))
+        self.stop_in.setPlaceholderText("如：。, ###, END")
+        av.addWidget(self.stop_in)
+
+        av.addWidget(self._sub("响应格式 response_format"))
+        self.fmt_seg = _Segmented([("文本", ""), ("JSON", "json")], cfg["response_format"] or "")
+        av.addWidget(self.fmt_seg)
+
+        av.addWidget(self._sub("自带对话（每次新会话都从这段对话继续，不显示在聊天里）"))
+        hint = QLabel("用「用户：」「助手：」开头分行写，模型会把它当作已发生的上下文接着续聊。")
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {theme.TEXT3}; font-size: 12px;")
         av.addWidget(hint)
         self.seed_in = QPlainTextEdit(_seed_to_text(seed or []))
         self.seed_in.setPlaceholderText("用户：你好\n助手：你好！我是你的专属助手，已经了解你的偏好，请直接说需求。")
-        self.seed_in.setFixedHeight(150)
+        self.seed_in.setFixedHeight(130)
         av.addWidget(self.seed_in)
+
         lay.addWidget(self.adv_box)
         self.adv_btn.setChecked(bool(seed))   # 有自带对话则默认展开
         self._toggle_adv(bool(seed))
@@ -675,16 +660,17 @@ class _BotDialog(QDialog):
 
     def _toggle_adv(self, on):
         self.adv_box.setVisible(on)
-        self.adv_btn.setText(("▾ " if on else "▸ ") + "高级：自带对话（每次新会话都从这段对话继续）")
+        self.adv_btn.setText(("▾ " if on else "▸ ")
+                             + "高级（输出长度 / 采样 / 停止 / 响应格式 / 自带对话）")
 
-    def _pick_model(self):
-        m = theme.style_menu(QMenu(self))
-        for nm in ("deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash",
-                   "deepseek-v4", "deepseek-coder"):
-            m.addAction(nm)
-        act = m.exec(self.model_btn.mapToGlobal(self.model_btn.rect().bottomLeft()))
-        if act is not None:
-            self.model_in.setText(act.text())
+    def _dspin(self, lo, hi, step, decimals, value):
+        s = QDoubleSpinBox()
+        s.setRange(lo, hi)
+        s.setSingleStep(step)
+        s.setDecimals(decimals)
+        s.setValue(float(value))
+        s.setStyleSheet(_spin_qss())
+        return s
 
     def values(self):
         caps = []
@@ -697,14 +683,13 @@ class _BotDialog(QDialog):
         if self.cap_memory.isChecked():
             caps.append(CAP_MEMORY)
         config = {
-            "model": self.model_in.text().strip(),
-            "thinking": {"global": None, "on": True, "off": False}[self.think_seg.value()],
+            "model": self.model_seg.value(),
+            "thinking": self.think_seg.value() == "on",
+            "reasoning_effort": self.effort_seg.value(),
             "max_tokens": int(self.maxtok.value()),
-            "temperature": self.opt_temp.value(),
-            "top_p": self.opt_topp.value(),
-            "frequency_penalty": self.opt_fp.value(),
-            "presence_penalty": self.opt_pp.value(),
-            "stop": [s.strip() for s in self.stop_in.text().split(",") if s.strip()],
+            "temperature": round(self.temp_spin.value(), 2),
+            "top_p": round(self.topp_spin.value(), 2),
+            "stop": [s.strip() for s in self.stop_in.text().split(",") if s.strip()][:16],
             "response_format": self.fmt_seg.value(),
         }
         seed = _parse_seed(self.seed_in.toPlainText())
