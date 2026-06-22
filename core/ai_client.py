@@ -26,14 +26,38 @@ def _client(api_key: str | None):
     return OpenAI(api_key=key, base_url=base_url), key
 
 
-def _thinking_extra() -> dict:
-    """根据配置生成思考模式开关参数（False=非思考模式）。"""
-    enabled = bool(app_config.get("ai_thinking"))
-    return {"thinking": {"type": "enabled" if enabled else "disabled"}}
+def _resolve_params(cfg: dict | None) -> dict:
+    """把 bot 的可选配置解析成 create() 的关键字参数。
+    未设置的项（空串 / None / 0 / 空列表）一律走全局或模型默认。"""
+    cfg = cfg or {}
+    out = {}
+    out["model"] = (cfg.get("model") or "").strip() or app_config.get("ai_model")
+    # 思考模式：bot 配置优先（True/False），未设置(None)则跟随全局开关
+    th = cfg.get("thinking", None)
+    enabled = bool(app_config.get("ai_thinking")) if th is None else bool(th)
+    out["extra_body"] = {"thinking": {"type": "enabled" if enabled else "disabled"}}
+    for k in ("temperature", "top_p", "frequency_penalty", "presence_penalty"):
+        v = cfg.get(k)
+        if v is not None:
+            out[k] = v
+    if cfg.get("stop"):
+        out["stop"] = cfg["stop"]
+    if cfg.get("response_format") == "json":
+        out["response_format"] = {"type": "json_object"}
+    return out
+
+
+def _resolve_max_tokens(cfg: dict | None, fallback: int) -> int:
+    mt = (cfg or {}).get("max_tokens")
+    try:
+        mt = int(mt)
+    except (TypeError, ValueError):
+        mt = 0
+    return mt if mt > 0 else fallback
 
 
 def call_deepseek_stream(text: str, api_key: str | None = None, sys_prompt: str = None,
-                         max_tokens: int | None = None):
+                         max_tokens: int | None = None, cfg: dict | None = None):
     """流式调用 DeepSeek，逐个 yield 文本片段；失败时 yield 错误提示。"""
     log.info("流式请求开始，文本: %r...", text[:20])
     try:
@@ -43,16 +67,15 @@ def call_deepseek_stream(text: str, api_key: str | None = None, sys_prompt: str 
             return
 
         system_content = sys_prompt if sys_prompt else app_config.get("ai_system_prompt") or _DEFAULT_SYS
-
+        fallback = max_tokens if max_tokens else (4096 if sys_prompt else 160)
         stream = client.chat.completions.create(
-            model=app_config.get("ai_model"),
             messages=[
                 {"role": "system", "content": system_content},
                 {"role": "user", "content": text},
             ],
-            max_tokens=max_tokens if max_tokens else (4096 if sys_prompt else 160),
+            max_tokens=_resolve_max_tokens(cfg, fallback),
             stream=True,
-            extra_body=_thinking_extra(),
+            **_resolve_params(cfg),
         )
         for chunk in stream:
             if not chunk.choices:
@@ -68,17 +91,19 @@ def call_deepseek_stream(text: str, api_key: str | None = None, sys_prompt: str 
         yield f"❌ AI 请求失败：{e}"
 
 
-def call_chat_stream(messages, api_key: str | None = None, max_tokens: int = 4096):
+def call_chat_stream(messages, api_key: str | None = None, max_tokens: int = 4096,
+                     cfg: dict | None = None):
     """多轮对话流式调用（携带上下文）。
 
-    messages 为 [{"role": "user"/"assistant", "content": str}, ...]，
-    通常不含 system；本函数会在最前自动补一条 system 提示。逐个 yield 文本片段，
-    失败时 yield 错误提示（与 call_deepseek_stream 行为一致，调用方无需 try）。"""
+    逐个 yield 二元组 (kind, text)：kind 为 "reasoning"(思考过程) 或 "answer"(正式回答)。
+    思考过程仅在思考模式开启、且模型返回 reasoning_content 时出现。
+    messages 为 [{"role","content"}, ...]，通常不含 system；本函数会自动补一条 system。
+    失败时 yield ("answer", 错误提示)，调用方无需 try。"""
     log.info("聊天流式请求，历史轮数=%d", len(messages))
     try:
         client, key = _client(api_key)
         if not key:
-            yield "❌ 未配置 API Key：请在「设置 → AI 模型」中填入你的 DeepSeek Key"
+            yield ("answer", "❌ 未配置 API Key：请在「设置 → AI 模型」中填入你的 DeepSeek Key")
             return
 
         msgs = list(messages)
@@ -87,43 +112,45 @@ def call_chat_stream(messages, api_key: str | None = None, max_tokens: int = 409
             msgs = [{"role": "system", "content": sys_content}] + msgs
 
         stream = client.chat.completions.create(
-            model=app_config.get("ai_model"),
             messages=msgs,
-            max_tokens=max_tokens,
+            max_tokens=_resolve_max_tokens(cfg, max_tokens),
             stream=True,
-            extra_body=_thinking_extra(),
+            **_resolve_params(cfg),
         )
         for chunk in stream:
             if not chunk.choices:
                 continue
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
+            delta = chunk.choices[0].delta
+            rc = getattr(delta, "reasoning_content", None)
+            if rc:
+                yield ("reasoning", rc)
+            content = getattr(delta, "content", None)
+            if content:
+                yield ("answer", content)
             if chunk.choices[0].finish_reason == "length":
-                yield "\n\n> ⚠️ 输出已达到单次最大长度被截断，可继续追问让我接着写。"
+                yield ("answer", "\n\n> ⚠️ 输出已达到单次最大长度被截断，可继续追问让我接着写。")
         log.info("聊天流式请求完成")
     except Exception as e:
         log.exception("聊天流式请求异常: %s", e)
-        yield f"❌ AI 请求失败：{e}"
+        yield ("answer", f"❌ AI 请求失败：{e}")
 
 
 def call_deepseek_sync(prompt: str, api_key: str | None, sys_prompt: str,
-                       max_tokens: int = 4096) -> str:
-    """非流式调用 DeepSeek，并使用特定的 sys_prompt，常用于约束输出格式。"""
+                       max_tokens: int = 4096, cfg: dict | None = None) -> str:
+    """非流式调用 DeepSeek，并使用特定的 sys_prompt，常用于约束输出格式。返回正式回答文本。"""
     log.info("同步请求开始")
     try:
         client, key = _client(api_key)
         if not key:
             raise Exception("未配置 API Key，请在「设置 → AI 模型」中填入你的 DeepSeek Key")
         resp = client.chat.completions.create(
-            model=app_config.get("ai_model"),
             messages=[
                 {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=max_tokens,
+            max_tokens=_resolve_max_tokens(cfg, max_tokens),
             stream=False,
-            extra_body=_thinking_extra(),
+            **_resolve_params(cfg),
         )
         result = resp.choices[0].message.content
         if resp.choices[0].finish_reason == "length":

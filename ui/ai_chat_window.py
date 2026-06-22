@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
     QListWidget, QListWidgetItem, QScrollArea, QPlainTextEdit, QMenu,
     QLineEdit, QTextBrowser, QDialog, QDialogButtonBox,
+    QCheckBox, QSpinBox, QDoubleSpinBox,
 )
 
 from ui.window_base import OpenHamWindowBase
@@ -192,13 +193,14 @@ def _api_msg(m):
     return {"role": m.get("role", "user"), "content": m.get("content", "")}
 
 
-def _run_agent_loop(history, max_iters=8):
+def _run_agent_loop(history, max_iters=8, cfg=None):
     """同步智能体循环（团队成员在工作线程里用）：调用模型→若有工具调用就执行→把结果回喂→
     继续，直到无工具调用或到上限，返回最终交付文本（团队流水线里工具自动执行）。"""
     msgs = list(history)
     final = ""
     for _ in range(max_iters):
-        final = "".join(call_chat_stream(msgs, max_tokens=1500)).strip()
+        final = "".join(t for k, t in call_chat_stream(msgs, max_tokens=1500, cfg=cfg)
+                        if k == "answer").strip()
         tc = _first_tool_call(final)
         if not tc:
             return final
@@ -226,9 +228,53 @@ def _norm_session(s: dict) -> dict:
     return s
 
 
-def _make_bot(name: str, system: str, capabilities=None, sessions=None) -> dict:
+def _default_config() -> dict:
+    """bot 的可选模型/参数配置；空串/0/None 一律表示「跟随全局或默认」。"""
+    return {"model": "", "thinking": None, "max_tokens": 0,
+            "temperature": None, "top_p": None,
+            "frequency_penalty": None, "presence_penalty": None,
+            "stop": [], "response_format": ""}
+
+
+def _norm_config(cfg) -> dict:
+    out = _default_config()
+    if isinstance(cfg, dict):
+        out.update({k: cfg[k] for k in out if k in cfg})
+    return out
+
+
+def _parse_seed(text: str) -> list:
+    """把「用户：/助手：」分行文本解析成 [{role, content}] 自带对话。"""
+    msgs, role, buf = [], None, []
+    for line in (text or "").splitlines():
+        m = re.match(r"^\s*(用户|助手|user|assistant|u|a)\s*[:：]\s*(.*)$", line, re.I)
+        if m:
+            if role is not None:
+                c = "\n".join(buf).strip()
+                if c:
+                    msgs.append({"role": role, "content": c})
+            r = m.group(1).lower()
+            role = "user" if r in ("用户", "user", "u") else "assistant"
+            buf = [m.group(2)]
+        elif role is not None:
+            buf.append(line)
+    if role is not None:
+        c = "\n".join(buf).strip()
+        if c:
+            msgs.append({"role": role, "content": c})
+    return msgs
+
+
+def _seed_to_text(seed) -> str:
+    return "\n".join(("用户：" if m.get("role") == "user" else "助手：") + m.get("content", "")
+                     for m in (seed or []))
+
+
+def _make_bot(name: str, system: str, capabilities=None, sessions=None,
+              config=None, seed=None) -> dict:
     return {"id": uuid.uuid4().hex, "name": name or "助手",
             "system": system or "", "capabilities": list(capabilities or []),
+            "config": _norm_config(config), "seed": list(seed or []),
             "created": time.time(),
             "sessions": [_norm_session(s) for s in (sessions or [])]}
 
@@ -394,17 +440,105 @@ def _checkbox_style() -> str:
             f"QCheckBox::indicator:checked {{ image: url({_check_png(True)}); }}")
 
 
-class _BotDialog(QDialog):
-    """新建 / 编辑 bot：名称 + system prompt。"""
+def _spin_qss() -> str:
+    return (f"QSpinBox, QDoubleSpinBox {{ background: {theme.SUBTLE}; color: {theme.TEXT};"
+            f" border: 1px solid {theme.BORDER}; border-radius: 7px; padding: 4px 8px;"
+            f" min-width: 96px; font-size: 13px; }}"
+            f"QSpinBox:disabled, QDoubleSpinBox:disabled {{ color: {theme.TEXT3};"
+            f" background: {theme.CARD}; }}")
 
-    def __init__(self, parent=None, name="", system="", capabilities=None):
+
+class _Segmented(QWidget):
+    """分段选择（二/三选一）。纯按钮，无原生弹层、不发黑。options=[(label, value), ...]"""
+
+    def __init__(self, options, value=None, parent=None):
+        super().__init__(parent)
+        self._value = value if value is not None else options[0][1]
+        h = QHBoxLayout(self)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(6)
+        self._btns = []
+        for label, val in options:
+            b = QPushButton(label)
+            b.setCheckable(True)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setChecked(val == self._value)
+            b.setStyleSheet(
+                f"QPushButton {{ background: {theme.SUBTLE}; color: {theme.TEXT2};"
+                f" border: 1px solid {theme.BORDER}; border-radius: 7px;"
+                f" padding: 6px 14px; font-size: 13px; }}"
+                f"QPushButton:checked {{ background: {theme.ACCENT}; color: #fff;"
+                f" border-color: {theme.ACCENT}; font-weight: 600; }}")
+            b.clicked.connect(lambda _, v=val: self._pick(v))
+            self._btns.append((b, val))
+            h.addWidget(b)
+        h.addStretch(1)
+
+    def _pick(self, v):
+        self._value = v
+        for b, val in self._btns:
+            b.setChecked(val == v)
+
+    def value(self):
+        return self._value
+
+
+class _OptNum(QWidget):
+    """可选数值参数：勾「覆盖」才启用并下发，否则走模型默认。"""
+
+    def __init__(self, label, lo, hi, step, decimals, value=None, default=0.0, parent=None):
+        super().__init__(parent)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(10)
+        self.chk = QCheckBox(label)
+        self.chk.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.chk.setStyleSheet(_checkbox_style())
+        self.spin = QDoubleSpinBox()
+        self.spin.setRange(lo, hi)
+        self.spin.setSingleStep(step)
+        self.spin.setDecimals(decimals)
+        self.spin.setStyleSheet(_spin_qss())
+        if value is not None:
+            self.chk.setChecked(True)
+            self.spin.setValue(float(value))
+        else:
+            self.chk.setChecked(False)
+            self.spin.setValue(float(default))
+            self.spin.setEnabled(False)
+        self.chk.toggled.connect(self.spin.setEnabled)
+        h.addWidget(self.chk)
+        h.addStretch(1)
+        h.addWidget(self.spin)
+
+    def value(self):
+        return round(self.spin.value(), 4) if self.chk.isChecked() else None
+
+
+class _BotDialog(QDialog):
+    """新建 / 编辑 bot：名称 + system prompt + 能力 + 模型与参数配置。"""
+
+    def __init__(self, parent=None, name="", system="", capabilities=None,
+                 config=None, seed=None):
         super().__init__(parent)
         self.setWindowTitle("新建 Bot" if not name else "编辑 Bot")
-        self.setMinimumWidth(440)
+        self.setMinimumSize(500, 620)
         self.setStyleSheet(f"QDialog {{ background: {theme.CARD}; }}")
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(20, 18, 20, 16)
+        cfg = _norm_config(config)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        inner = QWidget()
+        lay = QVBoxLayout(inner)
+        lay.setContentsMargins(20, 18, 20, 10)
         lay.setSpacing(8)
+        scroll.setWidget(inner)
+        root.addWidget(scroll, 1)
 
         lay.addWidget(self._lbl("名称"))
         self.name_in = QLineEdit(name)
@@ -416,12 +550,11 @@ class _BotDialog(QDialog):
         self.sys_in = QPlainTextEdit(system)
         self.sys_in.setPlaceholderText(
             "例如：你是一名专业英汉翻译，只输出译文，不加解释。")
-        self.sys_in.setFixedHeight(140)
+        self.sys_in.setFixedHeight(110)
         lay.addWidget(self.sys_in)
 
         lay.addSpacing(4)
         lay.addWidget(self._lbl("能力"))
-        from PyQt6.QtWidgets import QCheckBox
         caps = capabilities or []
         self.cap_choices = QCheckBox("快捷回复按钮（AI 给出可点击的追问选项）")
         self.cap_ask = QCheckBox("澄清提问（AI 主动用单选/多选问清你的需求）")
@@ -436,18 +569,122 @@ class _BotDialog(QDialog):
             cb.setStyleSheet(_checkbox_style())
             lay.addWidget(cb)
 
+        # ── 模型与参数（均可选，留空 / 不勾＝跟随全局或模型默认）──────────
+        lay.addSpacing(10)
+        lay.addWidget(self._lbl("模型与参数（均为可选，留空 / 不勾＝跟随全局或模型默认）"))
+        mrow = QHBoxLayout()
+        mrow.setSpacing(8)
+        self.model_in = QLineEdit(cfg["model"])
+        self.model_in.setPlaceholderText("模型：留空＝跟随全局，如 deepseek-chat / deepseek-reasoner")
+        mrow.addWidget(self.model_in, 1)
+        self.model_btn = QPushButton("常用 ▾")
+        self.model_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.model_btn.setStyleSheet(
+            f"QPushButton {{ background: {theme.SUBTLE}; color: {theme.TEXT2};"
+            f" border: 1px solid {theme.BORDER}; border-radius: 7px; padding: 6px 12px;"
+            f" font-size: 13px; }} QPushButton:hover {{ border-color: {theme.BORDER_IN}; }}")
+        self.model_btn.clicked.connect(self._pick_model)
+        mrow.addWidget(self.model_btn)
+        lay.addLayout(mrow)
+
+        lay.addWidget(self._sub("思考模式 thinking（开启后会展示思考过程）"))
+        th = cfg["thinking"]
+        thv = "global" if th is None else ("on" if th else "off")
+        self.think_seg = _Segmented([("跟随全局", "global"), ("开启", "on"), ("关闭", "off")], thv)
+        lay.addWidget(self.think_seg)
+
+        lay.addWidget(self._sub("最大输出长度 max_tokens（0＝默认，最高 1000000）"))
+        self.maxtok = QSpinBox()
+        self.maxtok.setRange(0, 1000000)
+        self.maxtok.setSingleStep(256)
+        self.maxtok.setGroupSeparatorShown(True)
+        self.maxtok.setValue(int(cfg["max_tokens"] or 0))
+        self.maxtok.setStyleSheet(_spin_qss())
+        lay.addWidget(self.maxtok)
+
+        self.opt_temp = _OptNum("温度 temperature（0–2）", 0.0, 2.0, 0.1, 2, cfg["temperature"], 1.0)
+        self.opt_topp = _OptNum("top_p（0–1）", 0.0, 1.0, 0.05, 2, cfg["top_p"], 1.0)
+        self.opt_fp = _OptNum("频率惩罚 frequency_penalty（-2–2）", -2.0, 2.0, 0.1, 2,
+                              cfg["frequency_penalty"], 0.0)
+        self.opt_pp = _OptNum("存在惩罚 presence_penalty（-2–2）", -2.0, 2.0, 0.1, 2,
+                              cfg["presence_penalty"], 0.0)
+        for w in (self.opt_temp, self.opt_topp, self.opt_fp, self.opt_pp):
+            lay.addWidget(w)
+
+        lay.addWidget(self._sub("停止序列 stop（逗号分隔，可留空）"))
+        self.stop_in = QLineEdit(", ".join(cfg["stop"] or []))
+        self.stop_in.setPlaceholderText("如：\\n\\n, 。, ###")
+        lay.addWidget(self.stop_in)
+
+        lay.addWidget(self._sub("响应格式 response_format"))
+        self.fmt_seg = _Segmented([("文本", ""), ("JSON", "json")], cfg["response_format"] or "")
+        lay.addWidget(self.fmt_seg)
+
+        # ── 高级（默认折叠）：自带对话 ───────────────────────────────────
+        lay.addSpacing(12)
+        self.adv_btn = QPushButton()
+        self.adv_btn.setCheckable(True)
+        self.adv_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.adv_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {theme.TEXT}; border: none;"
+            f" text-align: left; padding: 6px 2px; font-size: 13px; font-weight: 600; }}"
+            f"QPushButton:hover {{ color: {theme.INDIGO}; }}")
+        self.adv_btn.toggled.connect(self._toggle_adv)
+        lay.addWidget(self.adv_btn)
+        self.adv_box = QWidget()
+        av = QVBoxLayout(self.adv_box)
+        av.setContentsMargins(0, 2, 0, 0)
+        av.setSpacing(6)
+        hint = QLabel("用「用户：」「助手：」开头分行写。模型会把这段对话当作已经发生的上下文，"
+                      "每次新会话都接着它继续（不会显示在聊天记录里）。")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {theme.TEXT3}; font-size: 12px;")
+        av.addWidget(hint)
+        self.seed_in = QPlainTextEdit(_seed_to_text(seed or []))
+        self.seed_in.setPlaceholderText("用户：你好\n助手：你好！我是你的专属助手，已经了解你的偏好，请直接说需求。")
+        self.seed_in.setFixedHeight(150)
+        av.addWidget(self.seed_in)
+        lay.addWidget(self.adv_box)
+        self.adv_btn.setChecked(bool(seed))   # 有自带对话则默认展开
+        self._toggle_adv(bool(seed))
+
+        lay.addStretch(1)
+
+        # 底部按钮（固定在滚动区外）
+        bar = QWidget()
+        bh = QHBoxLayout(bar)
+        bh.setContentsMargins(20, 8, 20, 14)
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         btns.button(QDialogButtonBox.StandardButton.Ok).setText("保存")
         btns.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
-        lay.addWidget(btns)
+        bh.addWidget(btns)
+        root.addWidget(bar)
 
     def _lbl(self, t):
         l = QLabel(t)
         l.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px; font-weight: 600;")
         return l
+
+    def _sub(self, t):
+        l = QLabel(t)
+        l.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px; margin-top: 4px;")
+        return l
+
+    def _toggle_adv(self, on):
+        self.adv_box.setVisible(on)
+        self.adv_btn.setText(("▾ " if on else "▸ ") + "高级：自带对话（每次新会话都从这段对话继续）")
+
+    def _pick_model(self):
+        m = theme.style_menu(QMenu(self))
+        for nm in ("deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash",
+                   "deepseek-v4", "deepseek-coder"):
+            m.addAction(nm)
+        act = m.exec(self.model_btn.mapToGlobal(self.model_btn.rect().bottomLeft()))
+        if act is not None:
+            self.model_in.setText(act.text())
 
     def values(self):
         caps = []
@@ -459,8 +696,20 @@ class _BotDialog(QDialog):
             caps.append(CAP_TOOLS)
         if self.cap_memory.isChecked():
             caps.append(CAP_MEMORY)
+        config = {
+            "model": self.model_in.text().strip(),
+            "thinking": {"global": None, "on": True, "off": False}[self.think_seg.value()],
+            "max_tokens": int(self.maxtok.value()),
+            "temperature": self.opt_temp.value(),
+            "top_p": self.opt_topp.value(),
+            "frequency_penalty": self.opt_fp.value(),
+            "presence_penalty": self.opt_pp.value(),
+            "stop": [s.strip() for s in self.stop_in.text().split(",") if s.strip()],
+            "response_format": self.fmt_seg.value(),
+        }
+        seed = _parse_seed(self.seed_in.toPlainText())
         return (self.name_in.text().strip(),
-                self.sys_in.toPlainText().strip(), caps)
+                self.sys_in.toPlainText().strip(), caps, config, seed)
 
 
 class _TeamDialog(QDialog):
@@ -719,6 +968,37 @@ class _MessageRow(QWidget):
             head.addStretch(1)
             col.addLayout(head)
 
+            # 思考过程（思考模式下出现，可折叠；优雅的浅灰卡片）
+            self.reason_box = QFrame()
+            self.reason_box.setObjectName("reasonBox")
+            self.reason_box.setStyleSheet(
+                f"#reasonBox {{ background: #f7f7fb; border: 1px solid {theme.BORDER};"
+                f" border-radius: 10px; }}")
+            rv = QVBoxLayout(self.reason_box)
+            rv.setContentsMargins(12, 8, 12, 9)
+            rv.setSpacing(6)
+            self.reason_btn = QPushButton("  思考过程")
+            self.reason_btn.setCheckable(True)
+            self.reason_btn.setIcon(icons.qicon("angle_right", color=theme.TEXT2))
+            self.reason_btn.setIconSize(QSize(12, 12))
+            self.reason_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.reason_btn.setStyleSheet(
+                f"QPushButton {{ background: transparent; color: {theme.TEXT2}; border: none;"
+                f" text-align: left; font-size: 12px; font-weight: 600; padding: 0; }}"
+                f"QPushButton:hover {{ color: {theme.TEXT}; }}")
+            self.reason_btn.toggled.connect(self._toggle_reason)
+            rv.addWidget(self.reason_btn)
+            self.reason_lbl = QLabel("")
+            self.reason_lbl.setWordWrap(True)
+            self.reason_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            self.reason_lbl.setStyleSheet(
+                f"QLabel {{ background: transparent; color: {theme.TEXT2}; font-size: 13px; }}")
+            self.reason_lbl.setVisible(False)
+            self.reason_lbl.installEventFilter(self)
+            rv.addWidget(self.reason_lbl)
+            self.reason_box.setVisible(False)
+            col.addWidget(self.reason_box)
+
             self.browser = QTextBrowser()
             self.browser.setOpenExternalLinks(True)
             self.browser.setFrameShape(QFrame.Shape.NoFrame)
@@ -849,6 +1129,28 @@ class _MessageRow(QWidget):
             self._fit_height()
             if final:                              # 仅在回答完成时渲染交互控件
                 self._render_blocks(blocks)
+
+    def set_reasoning(self, text: str, streaming: bool = False):
+        """显示/更新「思考过程」卡片。streaming=True 时展开并显示「正在思考…」。"""
+        if self.role != "assistant" or getattr(self, "reason_box", None) is None:
+            return
+        self._reasoning = text or ""
+        if not text:
+            self.reason_box.setVisible(False)
+            return
+        self.reason_box.setVisible(True)
+        self.reason_lbl.setText(text)
+        if streaming:
+            self.reason_btn.setText("  正在思考…")
+            if not self.reason_btn.isChecked():
+                self.reason_btn.setChecked(True)   # 思考中默认展开
+        else:
+            self.reason_btn.setText("  思考过程")
+
+    def _toggle_reason(self, on: bool):
+        self.reason_lbl.setVisible(on)
+        self.reason_btn.setIcon(icons.qicon("angle_down" if on else "angle_right",
+                                            color=theme.TEXT2))
 
     def _render_blocks(self, blocks):
         while self.blocks_layout.count():
@@ -1043,7 +1345,7 @@ class _MessageRow(QWidget):
 
 
 class _ChatSignals(QObject):
-    chunk = pyqtSignal(int, str)
+    chunk = pyqtSignal(int, str, str)        # (gen, kind: reasoning/answer, text)
     done = pyqtSignal(int)
     error = pyqtSignal(int, str)
     team_plan = pyqtSignal(int, object)       # gen, {"summary":..,"steps":[{bot,task}]}
@@ -1075,6 +1377,7 @@ class AIChatWindow(OpenHamWindowBase):
         self._streaming = False
         self._assistant_row = None
         self._assistant_text = ""
+        self._assistant_reasoning = ""
         self._filter = ""
         # 团队：编排器拆任务 → 成员按流程依次交付 → 编排器汇总交付给用户
         self._team_active = False
@@ -1524,10 +1827,10 @@ class AIChatWindow(OpenHamWindowBase):
         dlg = _BotDialog(self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        name, system, caps = dlg.values()
+        name, system, caps, config, seed = dlg.values()
         if not name:
             name = "新 Bot"
-        bot = _make_bot(name, system, capabilities=caps)
+        bot = _make_bot(name, system, capabilities=caps, config=config, seed=seed)
         self.bots.append(bot)
         self.cur_bot_id = bot["id"]
         self.store["current_bot"] = bot["id"]
@@ -1600,13 +1903,15 @@ class AIChatWindow(OpenHamWindowBase):
         if not bot:
             return
         dlg = _BotDialog(self, bot["name"], bot["system"],
-                         bot.get("capabilities"))
+                         bot.get("capabilities"), bot.get("config"), bot.get("seed"))
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        name, system, caps = dlg.values()
+        name, system, caps, config, seed = dlg.values()
         bot["name"] = name or bot["name"]
         bot["system"] = system
         bot["capabilities"] = caps
+        bot["config"] = config
+        bot["seed"] = seed
         _save_store(self.store)
         self._refresh_bots()
         if bot_id == self.cur_bot_id:
@@ -1768,7 +2073,9 @@ class AIChatWindow(OpenHamWindowBase):
             for m in cur["messages"]:
                 spk = (self._bot_by_id(m.get("bot"))
                        if is_grp and m["role"] == "assistant" else None)
-                self._add_message(m["role"], m["content"], final=True, bot=spk)
+                row = self._add_message(m["role"], m["content"], final=True, bot=spk)
+                if m.get("reasoning") and row is not None:
+                    row.set_reasoning(m["reasoning"], streaming=False)
         self._update_action_visibility()
         self._sync_agent_toggle()
         self._scroll_to_bottom()
@@ -1861,6 +2168,7 @@ class AIChatWindow(OpenHamWindowBase):
         self._team_active = False          # 普通单 bot 回答
         self._autoscroll = True            # 新一轮生成：恢复自动滚到底
         self._assistant_text = ""
+        self._assistant_reasoning = ""     # 思考过程（思考模式下流式累积）
         self._assistant_row = self._add_message("assistant", "▍")
         self._scroll_to_bottom()
 
@@ -1883,17 +2191,22 @@ class AIChatWindow(OpenHamWindowBase):
             sys_prompt = (sys_prompt or _CHAT_SYS).strip() + "\n\n" + "\n\n".join(extras)
         if sys_prompt:
             history.append({"role": "system", "content": sys_prompt})
+        # 自带对话：作为「已发生的上下文」插在会话消息之前，模型据此接着续聊（不入库、不显示）
+        for sm in bot.get("seed", []):
+            if sm.get("content"):
+                history.append({"role": sm.get("role", "user"), "content": sm["content"]})
         history += [_api_msg(m) for m in cur["messages"]]
+        cfg = bot.get("config")
         self._gen += 1
         gen = self._gen
         self._set_streaming(True)
 
         def work():
             try:
-                for piece in call_chat_stream(history):
+                for kind, piece in call_chat_stream(history, cfg=cfg):
                     if gen != self._gen:
                         return
-                    self._sig.chunk.emit(gen, piece)
+                    self._sig.chunk.emit(gen, kind, piece)
                 if gen == self._gen:
                     self._sig.done.emit(gen)
             except Exception as e:
@@ -2010,10 +2323,12 @@ class AIChatWindow(OpenHamWindowBase):
 
         def work():
             try:
+                mcfg = member.get("config")
                 if use_tools:                      # 成员是智能体：可执行命令/读写文件等
-                    text = _run_agent_loop(history).strip()
+                    text = _run_agent_loop(history, cfg=mcfg).strip()
                 else:
-                    text = "".join(call_chat_stream(history, max_tokens=1500)).strip()
+                    text = "".join(t for k, t in call_chat_stream(history, max_tokens=1500, cfg=mcfg)
+                                   if k == "answer").strip()
             except Exception as e:
                 text = f"（{member['name']} 没能完成：{e}）"
             if gen == self._gen:
@@ -2179,11 +2494,15 @@ class AIChatWindow(OpenHamWindowBase):
         self._load_current()
         self._run_completion()
 
-    def _on_chunk(self, gen: int, piece: str):
+    def _on_chunk(self, gen: int, kind: str, piece: str):
         if gen != self._gen or self._assistant_row is None:
             return
-        self._assistant_text += piece
-        self._assistant_row.set_text(self._assistant_text + " ▍", final=False)
+        if kind == "reasoning":
+            self._assistant_reasoning += piece
+            self._assistant_row.set_reasoning(self._assistant_reasoning, streaming=True)
+        else:
+            self._assistant_text += piece
+            self._assistant_row.set_text(self._assistant_text + " ▍", final=False)
         if self._autoscroll:
             self._scroll_to_bottom()
 
@@ -2192,11 +2511,18 @@ class AIChatWindow(OpenHamWindowBase):
     def _on_done(self, gen: int):
         if gen != self._gen:
             return
+        reasoning = (self._assistant_reasoning or "").strip()
         if self._assistant_row is not None:
             self._assistant_row.set_text(self._assistant_text, final=True)
+            if reasoning:
+                self._assistant_row.set_reasoning(reasoning, streaming=False)
+                self._assistant_row.reason_btn.setChecked(False)   # 出完答案默认收起思考
         cur = self._cur()
         if cur is not None:
-            cur["messages"].append({"role": "assistant", "content": self._assistant_text})
+            msg = {"role": "assistant", "content": self._assistant_text}
+            if reasoning:
+                msg["reasoning"] = reasoning
+            cur["messages"].append(msg)
             _save_store(self.store)
         self._update_action_visibility()
         if self._autoscroll:
