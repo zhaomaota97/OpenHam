@@ -23,10 +23,10 @@ _DEFAULTS = {
     "ai_base_url": "https://api.deepseek.com",
     "ai_thinking": False,  # False = 非思考模式
     # 联机
-    "relay_url": "ws://47.102.218.59:9000",  # OpenHam relay (阿里云 ECS)
+    "relay_url": "wss://openham.focus.beer/relay/",  # OpenHam relay（统一到 openham 子域）
     "nickname": "",
     # 更新
-    "update_url": "http://47.102.218.59/openham",  # 增量更新源（version.json 所在）
+    "update_url": "https://openham.focus.beer",  # 更新/下载源（含展示页）
 }
 
 _cache: dict | None = None
@@ -51,6 +51,10 @@ def load_settings(refresh: bool = False) -> dict:
                 data.update({k: v for k, v in stored.items() if k in _DEFAULTS})
         except Exception as e:
             log.warning("读取 %s 失败，使用默认值: %s", _SETTINGS_FILE, e)
+    if data.get("relay_url") in ("ws://47.102.218.59:9000", "wss://relay.focus.beer/"):
+        data["relay_url"] = _DEFAULTS["relay_url"]
+    if data.get("update_url") in ("http://47.102.218.59/openham", "https://focus.beer/openham"):
+        data["update_url"] = _DEFAULTS["update_url"]
     _cache = data
     return _cache
 

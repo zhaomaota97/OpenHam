@@ -11,13 +11,14 @@ CODEZIP="/mnt/c/Users/ning/Desktop/OpenHam-code.zip"
 VJSON="/mnt/c/Users/ning/Desktop/version.json"
 KEY="$HOME/.ssh/openham_ecs"
 ECS="root@47.102.218.59"
-DL="/opt/openham-dl"
+# Caddy 跑在容器里，只能看到它挂的 /data 卷；下载文件放卷的宿主机路径下（容器内即 /data/dl/openham）
+DL="/var/lib/docker/volumes/edge_caddy_data/_data/dl/openham"
 
 VERSION_FILE="$SRC/VERSION"
 LOCAL_VER="$(tr -d ' \t\r\n' < "$VERSION_FILE")"
 # 以服务器已发布版本为权威下限：发布版本必 > 线上版本，杜绝本地 VERSION 文件漂移
 # （WSL /mnt/c 偶发不一致）导致的版本号撞车。本地比服务器新则用本地，否则服务器 +1。
-SRV_VER="$(curl -s -m 10 http://47.102.218.59/openham/version.json 2>/dev/null \
+SRV_VER="$(curl -s -m 10 https://openham.focus.beer/version.json 2>/dev/null \
   | python3 -c 'import sys,json
 try: print(json.load(sys.stdin).get("version",""))
 except: print("")' 2>/dev/null || true)"
@@ -75,7 +76,7 @@ print("    完整包:", build(out_lite, False)//1024//1024, "MB")
 print("    代码包:", build(out_code, True)//1024, "KB")
 with open(vjson, "w", encoding="utf-8") as f:
     json.dump({"version": version,
-               "code_url": "http://47.102.218.59/openham/OpenHam-code.zip",
+               "code_url": "https://openham.focus.beer/OpenHam-code.zip",
                "notes": "增量更新（仅代码）"}, f, ensure_ascii=False)
 PY
 
@@ -102,4 +103,4 @@ NEXT="$(echo "$VERSION" | awk -F. '{printf "%d.%d.%d", $1, $2, ($3+1)}')"
 echo "$NEXT" > "$VERSION_FILE"
 (cd "$SRC" && git add VERSION && git commit -q -m "chore(release): v$VERSION（下一版预置 v$NEXT）" 2>/dev/null) || true
 
-echo "[4/4] 完成 ✅  版本 v$VERSION → http://47.102.218.59/openham/   （VERSION 已写回 $NEXT 备下次）"
+echo "[4/4] 完成 ✅  版本 v$VERSION → https://openham.focus.beer/   （VERSION 已写回 $NEXT 备下次）"

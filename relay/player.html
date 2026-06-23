@@ -67,7 +67,7 @@
 </head>
 <body>
   <div id="lobby">
-    <img id="logo" src="http://47.102.218.59/openham/logo.png" alt="OpenHam">
+    <img id="logo" src="https://openham.focus.beer/logo.png" alt="OpenHam">
     <h1>OpenHam 联机</h1>
     <div class="hint">输入房间口令，加入朋友的房间一起玩。<br>无需安装，浏览器直接玩。</div>
     <div class="field">
@@ -260,7 +260,7 @@ async function runGame(buf){
   }
 
   // 引擎与统一输入层（与桌面端同形，从 ECS 加载）。放在最前，保证游戏脚本前就绪。
-  const LIB="http://47.102.218.59/openham/lib";
+  const LIB="https://openham.focus.beer/lib";
   const libs=`<script src="${LIB}/phaser.min.js"><\/script><script src="${LIB}/openham_controls.js"><\/script>`;
   // 注入 OpenHam 桥（属性合并，和 openham_controls 的 OpenHam.input 共存）。iframe 与父页用 postMessage 通信
   const bridge=`<script>

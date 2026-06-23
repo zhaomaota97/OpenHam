@@ -622,7 +622,7 @@ class SettingsWindow(OpenHamWindowBase):
                 "deepseek_api_key": self.api_key_input.text().strip(),
                 "ai_model": self.model_input.text().strip() or "deepseek-v4-flash",
                 "ai_base_url": self.base_url_input.text().strip() or "https://api.deepseek.com",
-                "relay_url": self.relay_input.text().strip() or "ws://47.102.218.59:9000",
+                "relay_url": self.relay_input.text().strip() or "wss://openham.focus.beer/relay/",
             })
         except Exception as e:
             self.status_label.setText(f"设置已保存，但 AI 配置写入失败：{e}")
