@@ -1857,6 +1857,20 @@ class AIChatWindow(OpenHamWindowBase):
         return btn
 
     def _add_sidebar_toggle(self):
+        # 对话内搜索按钮（Ctrl+F）
+        self.search_btn = QPushButton()
+        self.search_btn.setIcon(icons.qicon("search", color=theme.TEXT2))
+        self.search_btn.setFixedSize(28, 28)
+        self.search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.search_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.search_btn.setToolTip("在当前对话中搜索（Ctrl+F）")
+        self.search_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; border-radius: 7px; }}"
+            f"QPushButton:hover {{ background: {theme.HOVER}; }}")
+        self.search_btn.clicked.connect(self._toggle_search)
+        self.header_tools_layout.addWidget(self.search_btn)
+        from PyQt6.QtGui import QShortcut, QKeySequence
+        QShortcut(QKeySequence("Ctrl+F"), self, activated=self._toggle_search)
         # 分栏按钮：把当前对话分叉成两栏，各自独立续聊
         self.split_btn = QPushButton()
         self.split_btn.setIcon(icons.qicon("split", color=theme.TEXT2))
@@ -1960,6 +1974,138 @@ class AIChatWindow(OpenHamWindowBase):
         self._sidebar.setVisible(show)
         self.sidebar_btn.setVisible(not show)   # 折叠后才显示标题栏的展开按钮
         QTimer.singleShot(0, lambda: [m.set_width(self._content_width()) for m in self._msgs])
+
+    # ── 导航：上/下一轮问答 + 对话内搜索 ─────────────────────────────────
+    def _build_search_bar(self):
+        self._search_bar = QFrame()
+        self._search_bar.setObjectName("searchBar")
+        self._search_bar.setStyleSheet(
+            f"#searchBar {{ background: {theme.CARD}; border-bottom: 1px solid {theme.BORDER}; }}")
+        h = QHBoxLayout(self._search_bar)
+        h.setContentsMargins(28, 8, 14, 8)
+        h.setSpacing(8)
+        ic = QLabel()
+        ic.setPixmap(icons.qicon("search", color=theme.TEXT3).pixmap(QSize(14, 14)))
+        h.addWidget(ic)
+        self._search_in = QLineEdit()
+        self._search_in.setPlaceholderText("在当前对话中搜索…（回车下一个 / Shift+回车上一个 / Esc 关闭）")
+        self._search_in.setStyleSheet(
+            f"QLineEdit {{ background: transparent; border: none; font-size: 14px; color: {theme.TEXT}; }}")
+        self._search_in.textChanged.connect(self._do_search)
+        self._search_in.installEventFilter(self)
+        h.addWidget(self._search_in, 1)
+        self._search_count = QLabel("")
+        self._search_count.setStyleSheet(f"color: {theme.TEXT3}; font-size: 12px;")
+        h.addWidget(self._search_count)
+
+        def navbtn(icname, tip, d):
+            b = QPushButton()
+            b.setIcon(icons.qicon(icname, color=theme.TEXT2))
+            b.setIconSize(QSize(12, 12))
+            b.setFixedSize(26, 26)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setToolTip(tip)
+            b.setStyleSheet(
+                f"QPushButton {{ background: transparent; border: none; border-radius: 6px; }}"
+                f"QPushButton:hover {{ background: {theme.SUBTLE}; }}")
+            b.clicked.connect(lambda: self._search_step(d))
+            return b
+
+        h.addWidget(navbtn("up", "上一个", -1))
+        h.addWidget(navbtn("down", "下一个", 1))
+        close = QPushButton()
+        close.setIcon(icons.qicon("close", color=theme.TEXT2))
+        close.setIconSize(QSize(12, 12))
+        close.setFixedSize(26, 26)
+        close.setCursor(Qt.CursorShape.PointingHandCursor)
+        close.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; border-radius: 6px; }}"
+            f"QPushButton:hover {{ background: {theme.SUBTLE}; }}")
+        close.clicked.connect(self._close_search)
+        h.addWidget(close)
+        self._search_bar.setVisible(False)
+        self._search_matches = []
+        self._search_idx = -1
+        return self._search_bar
+
+    def _toggle_search(self):
+        if getattr(self, "_search_bar", None) is None:
+            return
+        if self._search_bar.isVisible():
+            self._close_search()
+        else:
+            self._search_bar.setVisible(True)
+            self._search_in.setFocus()
+            self._search_in.selectAll()
+            self._do_search(self._search_in.text())
+
+    def _close_search(self):
+        self._search_bar.setVisible(False)
+        self._clear_text_selections(None)
+        self.input.setFocus()
+
+    def _do_search(self, text):
+        text = (text or "").strip()
+        self._search_matches = []
+        self._search_idx = -1
+        if text:
+            low = text.lower()
+            for r in self._msgs:
+                if low in (getattr(r, "_raw", "") or "").lower():
+                    self._search_matches.append(r)
+        n = len(self._search_matches)
+        if n:
+            self._search_step(1, first=True)
+        else:
+            self._search_count.setText("无结果" if text else "")
+
+    def _search_step(self, direction, first=False):
+        n = len(self._search_matches)
+        if n == 0:
+            return
+        self._search_idx = 0 if first else (self._search_idx + direction) % n
+        self._search_count.setText(f"{self._search_idx + 1}/{n}")
+        row = self._search_matches[self._search_idx]
+        self._scroll_row_to_top(row)
+        self._clear_text_selections(None)
+        q = self._search_in.text().strip()
+        for br in (row.all_text_widgets() if hasattr(row, "all_text_widgets") else []):
+            br.moveCursor(QTextCursor.MoveOperation.Start)
+            if br.find(q):
+                break
+
+    def _jump_turn(self, direction):
+        """跳到上/下一轮问答（以「用户消息」为锚点）。"""
+        users = [r for r in self._msgs if getattr(r, "role", "") == "user"]
+        if not users:
+            return
+        bar = self.scroll.verticalScrollBar()
+        cur = bar.value()
+        ys = []
+        for r in users:
+            try:
+                ys.append(r.mapTo(self.msg_host, QPoint(0, 0)).y())
+            except Exception:
+                pass
+        ys = sorted(set(ys))
+        if not ys:
+            return
+        if direction < 0:
+            cands = [y for y in ys if y < cur - 6]
+            target = cands[-1] if cands else ys[0]
+        else:
+            cands = [y for y in ys if y > cur + 6]
+            target = cands[0] if cands else ys[-1]
+        bar.setValue(max(0, min(target - 10, bar.maximum())))
+
+    def _reposition_jump(self):
+        box = getattr(self, "_jump_box", None)
+        area = getattr(self, "_chat_area", None)
+        if box is None or area is None:
+            return
+        box.move(max(0, area.width() - box.width() - 18),
+                 max(0, area.height() - box.height() - 150))
+        box.raise_()
 
     # ── 界面骨架 ──────────────────────────────────────────────────────
     def _build_ui(self):
@@ -2129,6 +2275,8 @@ class AIChatWindow(OpenHamWindowBase):
         rv.setContentsMargins(0, 0, 0, 0)
         rv.setSpacing(0)
 
+        rv.addWidget(self._build_search_bar())
+
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -2143,6 +2291,30 @@ class AIChatWindow(OpenHamWindowBase):
         self.msg_layout.addStretch(1)
         self.scroll.setWidget(self.msg_host)
         rv.addWidget(self.scroll, 1)
+
+        # 浮动「上/下一轮问答」跳转条（悬浮于聊天区右下、输入框上方）
+        self._jump_box = QFrame(right)
+        self._jump_box.setObjectName("jumpBox")
+        self._jump_box.setStyleSheet(
+            f"#jumpBox {{ background: {theme.CARD}; border: 1px solid {theme.BORDER};"
+            f" border-radius: 19px; }}")
+        jb = QVBoxLayout(self._jump_box)
+        jb.setContentsMargins(3, 3, 3, 3)
+        jb.setSpacing(2)
+        for ic, tip, d in (("up", "上一轮问答", -1), ("down", "下一轮问答", 1)):
+            b = QPushButton()
+            b.setIcon(icons.qicon(ic, color=theme.TEXT2))
+            b.setIconSize(QSize(13, 13))
+            b.setFixedSize(30, 30)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setToolTip(tip)
+            b.setStyleSheet(
+                f"QPushButton {{ background: transparent; border: none; border-radius: 15px; }}"
+                f"QPushButton:hover {{ background: {theme.SUBTLE}; }}")
+            b.clicked.connect(lambda _, dd=d: self._jump_turn(dd))
+            jb.addWidget(b)
+        self._jump_box.setFixedSize(38, 70)
+        right.installEventFilter(self)     # 监听聊天区缩放以重定位跳转条
 
         wrap = QWidget()
         wrap.setStyleSheet("background: transparent;")
@@ -3388,6 +3560,17 @@ class AIChatWindow(OpenHamWindowBase):
                     return False
                 self._send()
                 return True
+        # 搜索框：回车下一个 / Shift+回车上一个 / Esc 关闭
+        if obj is getattr(self, "_search_in", None) and event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._search_step(-1 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1)
+                return True
+            if event.key() == Qt.Key.Key_Escape:
+                self._close_search()
+                return True
+        # 聊天区缩放（含会话面板折叠）→ 重定位跳转条
+        if obj is getattr(self, "_chat_area", None) and event.type() == QEvent.Type.Resize:
+            self._reposition_jump()
         # 双击标题栏：最大化 / 还原
         if obj is self.title_bar and event.type() == QEvent.Type.MouseButtonDblClick:
             self.toggle_max()
@@ -3405,6 +3588,7 @@ class AIChatWindow(OpenHamWindowBase):
             g.move(self.card.width() - g.width() - 4,
                    self.card.height() - g.height() - 4)
             g.raise_()
+        self._reposition_jump()
 
     # ── 外部入口 ──────────────────────────────────────────────────────
     def open(self):
@@ -3419,6 +3603,7 @@ class AIChatWindow(OpenHamWindowBase):
         self.activateWindow()
         self._force_foreground()
         self.input.setFocus()
+        QTimer.singleShot(0, self._reposition_jump)
 
     def _force_foreground(self):
         """Win32 AttachThreadInput 强制把本窗口提到最前（绕过 SetForegroundWindow 限制）。"""
