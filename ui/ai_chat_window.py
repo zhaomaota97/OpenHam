@@ -171,6 +171,32 @@ def _parse_blocks(text: str):
     return stripped.strip(), blocks
 
 
+_FENCE_RE = re.compile(r"```[ \t]*([\w+\-.#]*)[ \t]*\n(.*?)```", re.DOTALL)
+
+
+def _split_md_segments(md: str):
+    """把 Markdown 切成交替的 ('text', 文本) 与 ('code', 语言, 代码) 段。
+    围栏代码块单独成段，便于用专门的「代码卡片」渲染。"""
+    segs = []
+    pos = 0
+    for m in _FENCE_RE.finditer(md or ""):
+        if m.start() > pos:
+            t = (md[pos:m.start()]).strip("\n")
+            if t.strip():
+                segs.append(("text", t))
+        lang = (m.group(1) or "").strip()
+        code = (m.group(2) or "").rstrip("\n")
+        segs.append(("code", lang, code))
+        pos = m.end()
+    if pos < len(md or ""):
+        t = md[pos:].strip("\n")
+        if t.strip():
+            segs.append(("text", t))
+    if not segs:
+        segs.append(("text", md or ""))
+    return segs
+
+
 def _first_tool_call(text: str):
     """返回消息里第一个 openham:tool 调用 {tool,arg,content}，没有则 None。"""
     _, blocks = _parse_blocks(text or "")
@@ -866,6 +892,85 @@ class _MemoryDialog(QDialog):
         return self._items
 
 
+class _CodeBlock(QWidget):
+    """Monica 风格的代码卡片：头部显示语言 + 复制按钮，主体等宽字体、长行横向滚动。"""
+
+    def __init__(self, lang: str, code: str, parent=None):
+        super().__init__(parent)
+        self._code = code or ""
+        v = QVBoxLayout(self)
+        v.setContentsMargins(0, 3, 0, 3)
+        v.setSpacing(0)
+        card = QFrame()
+        card.setObjectName("codeCard")
+        card.setStyleSheet(
+            f"#codeCard {{ background: #f6f8fa; border: 1px solid {theme.BORDER}; border-radius: 10px; }}")
+        cv = QVBoxLayout(card)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(0)
+        head = QFrame()
+        head.setObjectName("codeHead")
+        head.setStyleSheet(
+            f"#codeHead {{ background: #eef1f5; border-bottom: 1px solid {theme.BORDER};"
+            " border-top-left-radius: 10px; border-top-right-radius: 10px; }}")
+        hh = QHBoxLayout(head)
+        hh.setContentsMargins(12, 5, 8, 5)
+        hh.setSpacing(6)
+        lbl = QLabel((lang or "code").lower())
+        lbl.setStyleSheet(f"color: {theme.TEXT3}; font-size: 11px;"
+                          " font-family: Consolas, 'Courier New', monospace; background: transparent;")
+        hh.addWidget(lbl)
+        hh.addStretch(1)
+        self.copy_btn = QPushButton("  复制")
+        self.copy_btn.setIcon(icons.qicon("copy", color=theme.TEXT2))
+        self.copy_btn.setIconSize(QSize(12, 12))
+        self.copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.copy_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {theme.TEXT2}; border: none;"
+            f" border-radius: 6px; padding: 2px 8px; font-size: 12px; }}"
+            f"QPushButton:hover {{ background: rgba(0,0,0,0.06); color: {theme.TEXT}; }}")
+        self.copy_btn.clicked.connect(self._copy)
+        hh.addWidget(self.copy_btn)
+        cv.addWidget(head)
+        self.body = QPlainTextEdit()
+        self.body.setReadOnly(True)
+        self.body.setPlainText(self._code)
+        self.body.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.body.setFrameShape(QFrame.Shape.NoFrame)
+        self.body.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.body.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        f = QFont("Consolas")
+        f.setStyleHint(QFont.StyleHint.Monospace)
+        f.setPointSize(10)
+        self.body.setFont(f)
+        self.body.setStyleSheet(
+            f"QPlainTextEdit {{ background: #f6f8fa; border: none; color: #24292f;"
+            f" padding: 10px 12px; selection-background-color: {theme.SEL_TEXT_BG};"
+            f" selection-color: {theme.SEL_TEXT_FG}; }}")
+        cv.addWidget(self.body)
+        v.addWidget(card)
+        self._fit()
+
+    def _fit(self):
+        # 按行数 + 字体行高算高度，不依赖布局是否就绪（NoWrap 下行数固定）
+        fm = self.body.fontMetrics()
+        lines = (self._code or "").count("\n") + 1
+        h = lines * fm.lineSpacing() + 28        # 上下内边距 + 可能的横向滚动条
+        if h > 520:                              # 超长代码封顶，内部纵向滚动
+            self.body.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            h = 520
+        self.body.setFixedHeight(max(34, h))
+
+    def set_width(self, w: int):
+        self.setFixedWidth(max(160, w))
+
+    def _copy(self):
+        from PyQt6.QtWidgets import QApplication
+        QApplication.clipboard().setText(self._code)
+        self.copy_btn.setText("  已复制")
+        QTimer.singleShot(1300, lambda: self.copy_btn.setText("  复制"))
+
+
 class _MessageRow(QWidget):
     """一条消息。用户=右侧浅灰气泡；助手=左侧「头像+名称+模型标签+Markdown 正文」。"""
 
@@ -990,23 +1095,18 @@ class _MessageRow(QWidget):
             self.reason_box.setVisible(False)
             col.addWidget(self.reason_box)
 
-            self.browser = QTextBrowser()
-            self.browser.setOpenExternalLinks(True)
-            self.browser.setFrameShape(QFrame.Shape.NoFrame)
-            self.browser.setVerticalScrollBarPolicy(
-                Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            self.browser.setHorizontalScrollBarPolicy(
-                Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            self.browser.setStyleSheet(
-                f"QTextBrowser {{ background: transparent; border: none;"
-                f" color: #1d1d1f; font-size: 15px;"
-                f" selection-background-color: {theme.SEL_TEXT_BG};"
-                f" selection-color: {theme.SEL_TEXT_FG}; }}")
-            self.browser.viewport().installEventFilter(self)   # 选区互斥
-            self.browser.document().setDefaultStyleSheet(
-                "pre, code { background:#f3f3f5; font-family:Consolas,monospace; }"
-                "a { color:#6e56cf; }")
+            self.browser = self._make_browser()
             col.addWidget(self.browser)
+            # 含围栏代码时，改用「文本段 + 代码卡片」分段渲染（默认隐藏）
+            self.code_host = QWidget()
+            self.code_host.setStyleSheet("background: transparent;")
+            self.code_layout = QVBoxLayout(self.code_host)
+            self.code_layout.setContentsMargins(0, 0, 0, 0)
+            self.code_layout.setSpacing(0)
+            self.code_host.setVisible(False)
+            self._seg_widgets = []
+            self._cw = 600
+            col.addWidget(self.code_host)
             # 交互控件容器（choices 快捷回复 / ask 澄清提问），默认隐藏
             self.blocks_host = QWidget()
             self.blocks_host.setStyleSheet("background: transparent;")
@@ -1106,20 +1206,90 @@ class _MessageRow(QWidget):
             self.host._clear_text_selections(obj)
         return False
 
+    def _make_browser(self) -> QTextBrowser:
+        br = QTextBrowser()
+        br.setOpenExternalLinks(True)
+        br.setFrameShape(QFrame.Shape.NoFrame)
+        br.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        br.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        br.setStyleSheet(
+            f"QTextBrowser {{ background: transparent; border: none;"
+            f" color: #1d1d1f; font-size: 15px;"
+            f" selection-background-color: {theme.SEL_TEXT_BG};"
+            f" selection-color: {theme.SEL_TEXT_FG}; }}")
+        br.viewport().installEventFilter(self)   # 选区互斥
+        br.document().setDefaultStyleSheet(
+            "pre, code { background:#f3f3f5; font-family:Consolas,monospace; }"
+            "a { color:#6e56cf; }")
+        return br
+
     def set_text(self, text: str, final: bool = False):
         self._raw = text
         if self.role == "tool":
             self.tool_out.setText(text)
-        elif self.role == "user":
+            return
+        if self.role == "user":
             self.bubble.setText(text)
-        else:
-            md, blocks = _parse_blocks(text)       # 去掉控件块再渲染 Markdown
+            return
+        md, blocks = _parse_blocks(text)           # 去掉控件块再渲染 Markdown
+        segs = _split_md_segments(md) if final else None
+        has_code = bool(segs) and any(s[0] == "code" for s in segs)
+        if has_code:                               # 分段渲染：文本段 + 代码卡片
+            self.browser.setVisible(False)
+            self.code_host.setVisible(True)
+            self._build_rich(segs)
+        else:                                      # 普通：单个浏览器（流式期间也走这里）
+            self.code_host.setVisible(False)
+            self.browser.setVisible(True)
             self.browser.setMarkdown(md)
-            self._improve_typography()
-            self._style_tables()
-            self._fit_height()
-            if final:                              # 仅在回答完成时渲染交互控件
-                self._render_blocks(blocks)
+            self._improve_typography(self.browser)
+            self._style_tables(self.browser)
+            self._fit_height(self.browser)
+        if final:                                  # 仅在回答完成时渲染交互控件
+            self._render_blocks(blocks)
+
+    def _build_rich(self, segs):
+        while self.code_layout.count():
+            it = self.code_layout.takeAt(0)
+            w = it.widget()
+            if w:
+                w.setParent(None)
+                w.deleteLater()
+        self._seg_widgets = []
+        for seg in segs:
+            if seg[0] == "text":
+                b = self._make_browser()
+                b.setMarkdown(seg[1])
+                self._improve_typography(b)
+                self._style_tables(b)
+                self.code_layout.addWidget(b)
+                self._seg_widgets.append(b)
+            else:
+                cb = _CodeBlock(seg[1], seg[2], self)
+                self.code_layout.addWidget(cb)
+                self._seg_widgets.append(cb)
+        self._apply_rich_width()
+
+    def _apply_rich_width(self):
+        for w in self._seg_widgets:
+            if isinstance(w, _CodeBlock):
+                w.set_width(self._cw)
+            else:
+                w.setFixedWidth(max(160, self._cw))
+                self._fit_height(w)
+
+    def all_text_widgets(self):
+        """本行所有可选中的文本控件（含分段浏览器与代码体），供跨消息单选清理。"""
+        out = []
+        br = getattr(self, "browser", None)
+        if br is not None:
+            out.append(br)
+        for w in getattr(self, "_seg_widgets", []):
+            if isinstance(w, _CodeBlock):
+                out.append(w.body)
+            else:
+                out.append(w)
+        return out
 
     def set_reasoning(self, text: str, streaming: bool = False):
         """显示/更新「思考过程」卡片。streaming=True 时展开并显示「正在思考…」。"""
@@ -1278,20 +1448,20 @@ class _MessageRow(QWidget):
         other.clicked.connect(lambda: self.host and self.host._focus_input())
         return other
 
-    def _improve_typography(self):
+    def _improve_typography(self, br=None):
         """放宽行距与段间距，让 Markdown 不再挤成一团。"""
-        doc = self.browser.document()
+        doc = (br or self.browser).document()
         cur = QTextCursor(doc)
         cur.select(QTextCursor.SelectionType.Document)
         bf = QTextBlockFormat()
-        bf.setLineHeight(165, 1)   # 1 = ProportionalHeight，约 1.65 倍行距
+        bf.setLineHeight(178, 1)   # 1 = ProportionalHeight，约 1.78 倍行距，更舒展
         bf.setTopMargin(2)
-        bf.setBottomMargin(9)
+        bf.setBottomMargin(10)
         cur.mergeBlockFormat(bf)
 
-    def _style_tables(self):
+    def _style_tables(self, br=None):
         """给 Markdown 表格补上边框/内边距/表头底色（Qt 默认渲染太朴素）。"""
-        doc = self.browser.document()
+        doc = (br or self.browser).document()
         tables = []
         stack = list(doc.rootFrame().childFrames())
         while stack:
@@ -1325,14 +1495,22 @@ class _MessageRow(QWidget):
         elif self.role == "tool":
             self.tool_out.setMaximumWidth(max(160, content_px - 30))
         else:
-            self.browser.setFixedWidth(max(160, content_px))
-            self._fit_height()
+            self._cw = max(160, content_px)
+            if getattr(self, "code_host", None) is not None and self.code_host.isVisible():
+                self._apply_rich_width()
+            else:
+                self.browser.setFixedWidth(self._cw)
+                self._fit_height(self.browser)
 
-    def _fit_height(self):
-        if self.role != "user" and self.browser is not None:
-            doc = self.browser.document()
-            doc.setTextWidth(self.browser.viewport().width() or self.browser.width())
-            self.browser.setFixedHeight(max(24, int(doc.size().height()) + 6))
+    def _fit_height(self, br=None):
+        if self.role == "user":
+            return
+        br = br or self.browser
+        if br is None:
+            return
+        doc = br.document()
+        doc.setTextWidth(br.viewport().width() or br.width())
+        br.setFixedHeight(max(24, int(doc.size().height()) + 6))
 
 
 class _ChatSignals(QObject):
@@ -2362,8 +2540,10 @@ class AIChatWindow(OpenHamWindowBase):
     def _clear_text_selections(self, except_obj=None):
         """在某条消息里开始新选择时，清掉其它消息的旧选区（实现跨消息单一选区）。"""
         for r in self._msgs:
-            br = getattr(r, "browser", None)
-            if br is not None and br.viewport() is not except_obj:
+            widgets = r.all_text_widgets() if hasattr(r, "all_text_widgets") else []
+            for br in widgets:
+                if br.viewport() is except_obj:
+                    continue
                 c = br.textCursor()
                 if c.hasSelection():
                     c.clearSelection()
