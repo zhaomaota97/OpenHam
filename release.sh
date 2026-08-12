@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# 一键发布 OpenHam 到 ECS：完整精简包（新用户）+ 代码包（老用户增量更新）+ version.json。
+# 一键发布 OpenHam 到 ECS：安装包（新用户）+ 代码包（老用户增量更新）+ version.json。
 # 复用工作目录已安装的依赖，打包时排除；代码包还额外排除 runtime（增量更新只换代码）。
 # 用法：在 WSL 里  bash release.sh
 set -e
 
-SRC="/mnt/c/Users/ning/Desktop/OpenHam"
-LITE="/mnt/c/Users/ning/Desktop/OpenHam_lite"
-ZIP="/mnt/c/Users/ning/Desktop/OpenHam-lite.zip"
-CODEZIP="/mnt/c/Users/ning/Desktop/OpenHam-code.zip"
-VJSON="/mnt/c/Users/ning/Desktop/version.json"
+SRC="/mnt/c/Users/ning/Desktop/code/OpenHam"
+# 构建产物放临时目录，不再乱丢到桌面
+BUILD="/tmp/openham-release"
+mkdir -p "$BUILD"
+LITE="$BUILD/OpenHam_lite"
+ZIP="$BUILD/OpenHam.zip"
+CODEZIP="$BUILD/OpenHam-code.zip"
+VJSON="$BUILD/version.json"
 KEY="$HOME/.ssh/openham_ecs"
 ECS="root@47.102.218.59"
 # Caddy 跑在容器里，只能看到它挂的 /data 卷；下载文件放卷的宿主机路径下（容器内即 /data/dl/openham）
@@ -42,7 +45,7 @@ else:
     print("1.0.0")
 PY
 )"
-echo "[1/4] 生成精简副本（发布 v$VERSION｜本地 $LOCAL_VER · 线上 ${SRV_VER:-?}，排除依赖/敏感/dev 文件）…"
+echo "[1/4] 生成安装副本（发布 v$VERSION｜本地 $LOCAL_VER · 线上 ${SRV_VER:-?}，排除依赖/敏感/dev 文件）…"
 rm -rf "$LITE"; mkdir -p "$LITE"
 rsync -a \
   --exclude='.git' --exclude='.env' --exclude='user_settings.json' \
@@ -51,14 +54,15 @@ rsync -a \
   --exclude='runtime/Scripts' --exclude='OpenHam_send' --exclude='OpenHam_lite' \
   --exclude='release.sh' --exclude='invented_games' --exclude='my_games' \
   --exclude='ai_chat' --exclude='ui/script_manager/workspace' \
+  --exclude='relay' \
   "$SRC/" "$LITE/"
 echo "$VERSION" > "$LITE/version.txt"   # 安装包内记录版本，供日后比对
 
-echo "[2/4] 打包 完整精简包 + 代码包…"
+echo "[2/4] 打包 完整包 + 代码包（增量更新）+ version.json…"
 python3 - "$LITE" "$ZIP" "$CODEZIP" "$VJSON" "$VERSION" <<'PY'
-import sys, os, zipfile, json
-src, out_lite, out_code, vjson, version = sys.argv[1:6]
-# 增量代码包不含的用户状态文件（避免更新覆盖用户配置/脚本）
+import sys, os, zipfile, json, datetime
+src, out_full, out_code, vjson, version = sys.argv[1:6]
+# 增量代码包不含 runtime 与用户状态文件（避免更新覆盖用户配置/脚本）
 SKIP_CODE = {"config.json", "config/plugins.json",
              "script_manager/scripts.json", "ui/script_manager/history.json"}
 def build(out, skip_runtime):
@@ -72,18 +76,20 @@ def build(out, skip_runtime):
                     continue
                 z.write(full, os.path.join("OpenHam", rel))
     return os.path.getsize(out)
-print("    完整包:", build(out_lite, False)//1024//1024, "MB")
+print("    完整包:", build(out_full, False)//1024//1024, "MB")
 print("    代码包:", build(out_code, True)//1024, "KB")
 with open(vjson, "w", encoding="utf-8") as f:
     json.dump({"version": version,
-               "code_url": "https://openham.focus.beer/OpenHam-code.zip",
+               "code_url": "https://files.focus.beer/downloads/openham/OpenHam-code.zip",
+               "updated": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
                "notes": "增量更新（仅代码）"}, f, ensure_ascii=False)
 PY
 
-echo "[3/4] 上传 完整包 + 代码包 + version.json + 下载页 + logo…"
+echo "[3/4] 上传：页面/元数据→openham.focus.beer，安装包/更新包→MinIO…"
 # ECS 出公网链路不稳，scp 常中途掐断；每个文件按退出码多重试，避免发布只传一半。
 SCPOPT="-i $KEY -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o ServerAliveInterval=5"
-put() {  # $1=本地文件  $2=远端文件名
+SSHOPT="-i $KEY -o StrictHostKeyChecking=no -o ConnectTimeout=20 -o ServerAliveInterval=5"
+put() {  # $1=本地文件  $2=远端文件名（落到 Caddy 卷 $DL）
   local i
   for i in $(seq 1 8); do
     if scp $SCPOPT "$1" "$ECS:$DL/$2"; then return 0; fi
@@ -91,11 +97,15 @@ put() {  # $1=本地文件  $2=远端文件名
   done
   echo "    ✗ $2 上传失败（链路反复中断）"; return 1
 }
-put "$ZIP" OpenHam-lite.zip
-put "$CODEZIP" OpenHam-code.zip
+# 展示页/元数据放 openham.focus.beer（同源，供下载页与更新器读取）
 put "$VJSON" version.json
 put "$SRC/relay/download.html" index.html
 put "$SRC/logo.png" logo.png
+# 安装程序/更新包：先传到卷暂存，再灌入 MinIO 统一存储（downloads/openham/），随后删暂存
+put "$ZIP" OpenHam.zip
+put "$CODEZIP" OpenHam-code.zip
+echo "    → 灌入 MinIO downloads/openham/ …"
+ssh $SSHOPT "$ECS" "PW=\$(grep '^MINIO_ROOT_PASSWORD=' /opt/minio/.env | cut -d= -f2-); docker run --rm --network platform-net -v $DL:/src:ro -e MC_HOST_m=http://ningadmin:\$PW@minio:9000 minio/mc cp /src/OpenHam.zip /src/OpenHam-code.zip m/downloads/openham/ && rm -f $DL/OpenHam.zip $DL/OpenHam-code.zip && echo '    ✓ 已入 MinIO（暂存已清）'" || echo "    ✗ MinIO 灌入失败，请检查"
 
 # 发布成功后：VERSION 末位 +1 写回，供下次发布自增。
 # 注意：故意不改本机 $SRC/version.txt（安装标记），好让维护者用「检查更新」自测更新链路。

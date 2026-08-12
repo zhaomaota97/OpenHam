@@ -48,7 +48,9 @@ def match_dashdash(text: str) -> bool:
 
 @openham_plugin(
     match=match_dashdash,
-    desc="聊天（-- 前缀唤起 / 多 Bot / 多轮 / Markdown）",
+    desc="AI聊天",
+    tray_label="AI聊天",
+    tray_open="open_chat",
     setup=setup_ai_chat,
 )
 def execute_ai_chat(text: str):

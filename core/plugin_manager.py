@@ -50,18 +50,23 @@ class OpenHamPluginAPI:
 
 plugin_api = OpenHamPluginAPI()
 
-def openham_plugin(trigger: str | List[str] | None = None, 
+def openham_plugin(trigger: str | List[str] | None = None,
                    actions: Dict[str, Dict] | None = None,
                    match: Callable[[str], bool] | None = None,
                    desc: str = "",
-                   setup: Callable[[OpenHamPluginAPI], None] | None = None):
+                   setup: Callable[[OpenHamPluginAPI], None] | None = None,
+                   tray_label: str | None = None,
+                   tray_open: str | None = None):
     """
     OpenHam 插件注册装饰器。支持直接触发单身命令，也支持级联注册多动作子集。
+    tray_label/tray_open：插件想在托盘菜单提供一个打开项时声明——label 是菜单文字，
+    tray_open 是要调用的 handler 名（用 api.register_handler 注册）。是否真出现在托盘由
+    用户在「插件管理」里勾选「显示在托盘」决定（默认不显示，避免菜单膨胀）。
     """
     def decorator(func):
         plugin_id = f"{func.__module__}.{func.__name__}"
         default_triggers = [trigger] if isinstance(trigger, str) else (trigger or [])
-        
+
         # 保存元数据用于 UI 展示
         ALL_PLUGINS_META[plugin_id] = {
             "id": plugin_id,
@@ -71,7 +76,9 @@ def openham_plugin(trigger: str | List[str] | None = None,
             "actions": actions or {},
             "desc": desc,
             "has_match": bool(match),
-            "has_setup": bool(setup)
+            "has_setup": bool(setup),
+            "tray_label": tray_label,
+            "tray_open": tray_open,
         }
         
         # 查找配置覆写
@@ -81,19 +88,18 @@ def openham_plugin(trigger: str | List[str] | None = None,
         if not enabled:
             return func
             
-        # 挂载平级传统根触发器（如有）
-        if default_triggers or conf.get("triggers"):
-            triggers = conf.get("triggers", default_triggers)
-            for t in triggers:
+        # 挂载平级传统根触发器：触发词固定取代码定义，不再读用户配置
+        # （精确匹配这一层要可靠、零等待，触发命令配置功能已取消）
+        if default_triggers:
+            for t in default_triggers:
                 PLUGIN_REGISTRY[t] = func
                 if desc:
                     PLUGIN_PREVIEWS[t] = f"🧩 {desc}"
                     
         # 挂载微服务级别的 actions 动作分支
         if actions:
-            conf_actions = conf.get("actions", {})
             for act_name, act_conf in actions.items():
-                act_triggers = conf_actions.get(act_name, {}).get("triggers", act_conf.get("trigger", []))
+                act_triggers = act_conf.get("trigger", [])
                 
                 # 工厂闭包锁定目标函数的参数绑定！
                 def make_handler(target_func, target_act):

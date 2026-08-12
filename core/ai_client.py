@@ -19,11 +19,14 @@ _CHAT_SYS = (
 )
 
 
+# 统一走平台 LLM 网关：base_url 指向网关，凭证用统一账号 token（不再自带 DeepSeek key）
+GATEWAY_BASE = "https://gateway.focus.beer/v1"
+
+
 def _client(api_key: str | None):
-    """按当前用户配置构造 OpenAI 兼容客户端。"""
-    key = (api_key or app_config.get_api_key() or "").strip()
-    base_url = app_config.get("ai_base_url")
-    return OpenAI(api_key=key, base_url=base_url), key
+    """构造走网关的 OpenAI 兼容客户端；凭证 = 统一账号 token。"""
+    key = (api_key or app_config.get_token() or "").strip()
+    return OpenAI(api_key=key or "none", base_url=GATEWAY_BASE), key
 
 
 def _resolve_params(cfg: dict | None) -> dict:
@@ -67,7 +70,7 @@ def call_deepseek_stream(text: str, api_key: str | None = None, sys_prompt: str 
     try:
         client, key = _client(api_key)
         if not key:
-            yield "❌ 未配置 API Key：请在「设置 → AI 模型」中填入你的 DeepSeek Key"
+            yield "❌ 请先在「设置 → 账号」登录统一账号后再使用 AI"
             return
 
         system_content = sys_prompt if sys_prompt else app_config.get("ai_system_prompt") or _DEFAULT_SYS
@@ -107,7 +110,7 @@ def call_chat_stream(messages, api_key: str | None = None, max_tokens: int = 409
     try:
         client, key = _client(api_key)
         if not key:
-            yield ("answer", "❌ 未配置 API Key：请在「设置 → AI 模型」中填入你的 DeepSeek Key")
+            yield ("answer", "❌ 请先在「设置 → 账号」登录统一账号后再使用 AI")
             return
 
         msgs = list(messages)
@@ -146,7 +149,7 @@ def call_deepseek_sync(prompt: str, api_key: str | None, sys_prompt: str,
     try:
         client, key = _client(api_key)
         if not key:
-            raise Exception("未配置 API Key，请在「设置 → AI 模型」中填入你的 DeepSeek Key")
+            raise Exception("请先在「设置 → 账号」登录统一账号后再使用 AI")
         resp = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": sys_prompt},

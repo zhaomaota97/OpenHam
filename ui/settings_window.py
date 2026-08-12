@@ -259,7 +259,7 @@ class SettingsWindow(OpenHamWindowBase):
         nav_layout.setSpacing(8)
 
         self.nav_buttons = []
-        for index, title in enumerate(("常规", "高级", "依赖管理")):
+        for index, title in enumerate(("常规", "账号", "高级", "依赖管理")):
             btn = QPushButton(title)
             btn.setCheckable(True)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -279,6 +279,7 @@ class SettingsWindow(OpenHamWindowBase):
         self.page_stack = QStackedWidget()
         self.page_stack.setStyleSheet("background: transparent; border: none;")
         self.page_stack.addWidget(self._build_general_tab())
+        self.page_stack.addWidget(self._build_account_tab())
         self.page_stack.addWidget(self._build_advanced_tab())
         self.page_stack.addWidget(self._build_dependency_tab())
         content_layout.addWidget(self.page_stack, 1)
@@ -373,72 +374,82 @@ class SettingsWindow(OpenHamWindowBase):
         self.search_roots_input.setStyleSheet(self._editor_style())
         form_layout.addRow(self._form_label("搜索目录"), self.search_roots_input)
 
-        self.relay_input = QLineEdit()
-        self.relay_input.setPlaceholderText("ws://服务器IP:9000")
-        self.relay_input.setStyleSheet(self._input_style())
-        form_layout.addRow(self._form_label("联机服务器"), self.relay_input)
-
         hint = QLabel("全局热键修改后需要重启 OpenHam 才会完全生效。")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #86868b; font-size: 12px;")
         form_layout.addRow(QLabel(""), hint)
 
         layout.addWidget(form_box)
-        layout.addWidget(self._build_ai_box())
         layout.addStretch()
         return tab
 
-    def _build_ai_box(self) -> QWidget:
-        ai_box = QGroupBox("AI 模型")
-        ai_box.setStyleSheet(self._group_box_style())
-        ai_layout = QFormLayout(ai_box)
-        ai_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+    def _build_account_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(16)
+
+        acc_box = QGroupBox("统一账号")
+        acc_box.setStyleSheet(self._group_box_style())
+        ai_layout = QFormLayout(acc_box)
+        ai_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         ai_layout.setFormAlignment(Qt.AlignmentFlag.AlignTop)
         ai_layout.setHorizontalSpacing(16)
         ai_layout.setVerticalSpacing(14)
 
-        # API Key 行：密码框 + 显示/隐藏切换
-        key_row = QWidget()
-        key_row_layout = QHBoxLayout(key_row)
-        key_row_layout.setContentsMargins(0, 0, 0, 0)
-        key_row_layout.setSpacing(10)
+        # 账号行：状态 + 登录/退出
+        acc_row = QWidget()
+        acc_row_layout = QHBoxLayout(acc_row)
+        acc_row_layout.setContentsMargins(0, 0, 0, 0)
+        acc_row_layout.setSpacing(10)
+        self.account_label = QLabel("未登录")
+        acc_row_layout.addWidget(self.account_label, 1)
+        self.account_btn = QPushButton("登录")
+        self.account_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.account_btn.setStyleSheet(self._secondary_button_style())
+        self.account_btn.clicked.connect(self._toggle_account)
+        acc_row_layout.addWidget(self.account_btn)
+        ai_layout.addRow(self._form_label("账号"), acc_row)
 
-        self.api_key_input = QLineEdit()
-        self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_key_input.setPlaceholderText("sk-...（你自己的 DeepSeek 密钥）")
-        self.api_key_input.setStyleSheet(self._input_style())
-        key_row_layout.addWidget(self.api_key_input, 1)
+        self.credits_label = QLabel("—")
+        ai_layout.addRow(self._form_label("积分余额"), self.credits_label)
 
-        self.show_key_btn = QPushButton("显示")
-        self.show_key_btn.setCheckable(True)
-        self.show_key_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.show_key_btn.setStyleSheet(self._secondary_button_style())
-        self.show_key_btn.toggled.connect(self._toggle_key_visibility)
-        key_row_layout.addWidget(self.show_key_btn)
+        layout.addWidget(acc_box)
+        layout.addStretch()
+        self._refresh_account_ui()
+        return tab
 
-        ai_layout.addRow(self._form_label("API Key"), key_row)
+    def _refresh_account_ui(self):
+        from core import app_config
+        if app_config.is_logged_in():
+            self.account_label.setText(app_config.get_account_username())
+            self.account_btn.setText("退出")
+        else:
+            self.account_label.setText("未登录")
+            self.account_btn.setText("登录")
+        self._refresh_credits()
 
-        self.model_input = QLineEdit()
-        self.model_input.setPlaceholderText("deepseek-v4-flash")
-        self.model_input.setStyleSheet(self._input_style())
-        ai_layout.addRow(self._form_label("模型"), self.model_input)
+    def _refresh_credits(self):
+        from core import app_config, account
+        if not app_config.is_logged_in():
+            self.credits_label.setText("—（未登录）")
+            return
+        c = account.get_credits()
+        if not c:
+            self.credits_label.setText("—")
+        elif c.get("unlimited"):
+            self.credits_label.setText("无限（管理员）")
+        else:
+            self.credits_label.setText(str(c.get("balance", "—")))
 
-        self.base_url_input = QLineEdit()
-        self.base_url_input.setPlaceholderText("https://api.deepseek.com")
-        self.base_url_input.setStyleSheet(self._input_style())
-        ai_layout.addRow(self._form_label("Base URL"), self.base_url_input)
-
-        ai_hint = QLabel("每位用户使用各自的 API Key 与额度。密钥仅保存在本机 user_settings.json，不会提交到仓库。修改后立即生效，无需重启。")
-        ai_hint.setWordWrap(True)
-        ai_hint.setStyleSheet("color: #86868b; font-size: 12px;")
-        ai_layout.addRow(QLabel(""), ai_hint)
-        return ai_box
-
-    def _toggle_key_visibility(self, shown: bool):
-        self.api_key_input.setEchoMode(
-            QLineEdit.EchoMode.Normal if shown else QLineEdit.EchoMode.Password
-        )
-        self.show_key_btn.setText("隐藏" if shown else "显示")
+    def _toggle_account(self):
+        from core import app_config, account
+        if app_config.is_logged_in():
+            account.logout()
+        else:
+            from ui.account_dialog import AccountDialog
+            AccountDialog(self).exec()
+        self._refresh_account_ui()
 
     def _build_advanced_tab(self) -> QWidget:
         tab = QWidget()
@@ -588,12 +599,8 @@ class SettingsWindow(OpenHamWindowBase):
         roots = self._config.get("search_roots") or []
         self.search_roots_input.setPlainText("\n".join(roots))
 
-        # AI 模型设置（来自 user_settings.json）
-        s = app_config.load_settings(refresh=True)
-        self.api_key_input.setText(s.get("deepseek_api_key", ""))
-        self.model_input.setText(s.get("ai_model", ""))
-        self.base_url_input.setText(s.get("ai_base_url", ""))
-        self.relay_input.setText(s.get("relay_url", ""))
+        # 账号状态刷新（模型不再由用户配置，改为 AI 聊天里按 bot 配置）
+        self._refresh_account_ui()
         if hasattr(self, "autostart_chk"):
             self.autostart_chk.blockSignals(True)
             try:
@@ -615,18 +622,6 @@ class SettingsWindow(OpenHamWindowBase):
         config_path = os.path.join(self._project_dir, "config.json")
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(self._config, f, ensure_ascii=False, indent=2)
-
-        # AI 模型设置（含密钥）写入独立的、被 gitignore 的 user_settings.json
-        try:
-            app_config.save_settings({
-                "deepseek_api_key": self.api_key_input.text().strip(),
-                "ai_model": self.model_input.text().strip() or "deepseek-v4-flash",
-                "ai_base_url": self.base_url_input.text().strip() or "https://api.deepseek.com",
-                "relay_url": self.relay_input.text().strip() or "wss://openham.focus.beer/relay/",
-            })
-        except Exception as e:
-            self.status_label.setText(f"设置已保存，但 AI 配置写入失败：{e}")
-            return
 
         self.status_label.setText("设置已保存")
 

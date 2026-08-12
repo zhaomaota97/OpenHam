@@ -20,8 +20,8 @@ import threading
 
 from PyQt6.QtCore import (Qt, QObject, pyqtSignal, QTimer, QSize, QPointF,
                           QPoint, QRectF)
-from PyQt6.QtGui import (QColor, QPixmap, QPainter, QFont, QIcon, QBrush, QPen,
-                         QPolygonF, QTextCursor, QTextBlockFormat, QTextTable,
+from PyQt6.QtGui import (QColor, QPixmap, QPainter, QFont, QFontMetrics, QIcon, QBrush, QPen,
+                         QPolygonF, QTextCursor, QTextCharFormat, QTextBlockFormat, QTextTable,
                          QTextTableFormat, QTextFrameFormat, QTextLength)
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -381,6 +381,12 @@ def _save_store(store: dict):
             json.dump(store, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
+    # 改动后推到云端（已登录才发送；后台不阻塞）
+    try:
+        from core import cloud_sync
+        cloud_sync.push_async("chat", store)
+    except Exception:
+        pass
 
 
 def _time_group(ts: float) -> str:
@@ -513,15 +519,18 @@ class _Segmented(QWidget):
         self._btns = []
         for label, val in options:
             b = QPushButton(label)
+            _bf = b.font(); _bf.setPixelSize(13); b.setFont(_bf)   # 字号全交给 setFont，渲染与 sizeHint 一致
+            # 选中态不再加粗（加粗会让渲染比 sizeHint 宽 → 截断）；最小宽度按文字+内边距(28)+余量
+            b.setMinimumWidth(QFontMetrics(_bf).horizontalAdvance(label) + 40)
             b.setCheckable(True)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setChecked(val == self._value)
             b.setStyleSheet(
                 f"QPushButton {{ background: {theme.SUBTLE}; color: {theme.TEXT2};"
                 f" border: 1px solid {theme.BORDER}; border-radius: 7px;"
-                f" padding: 6px 14px; font-size: 13px; }}"
+                f" padding: 6px 14px; }}"
                 f"QPushButton:checked {{ background: {theme.ACCENT}; color: #fff;"
-                f" border-color: {theme.ACCENT}; font-weight: 600; }}")
+                f" border-color: {theme.ACCENT}; }}")
             b.clicked.connect(lambda _, v=val: self._pick(v))
             self._btns.append((b, val))
             h.addWidget(b)
@@ -579,16 +588,19 @@ class _BotDialog(QDialog):
         caps = capabilities or []
         self.cap_choices = QCheckBox("快捷回复按钮（AI 给出可点击的追问选项）")
         self.cap_ask = QCheckBox("澄清提问（AI 主动用单选/多选问清你的需求）")
-        self.cap_tools = QCheckBox("智能体工具（可执行命令 / 读写文件 / 联网，⚠ 谨慎）")
         self.cap_memory = QCheckBox("记忆（读取全局用户记忆，知道你的所在地/偏好等，不重复追问）")
+        self.cap_tools = QCheckBox("智能体工具（可执行命令 / 读写文件 / 联网）")
         for cb, on in ((self.cap_choices, CAP_CHOICES in caps),
                        (self.cap_ask, CAP_ASK in caps),
-                       (self.cap_tools, CAP_TOOLS in caps),
                        (self.cap_memory, CAP_MEMORY in caps)):
             cb.setChecked(on)
             cb.setCursor(Qt.CursorShape.PointingHandCursor)
             cb.setStyleSheet(_checkbox_style())
             lay.addWidget(cb)
+        # 智能体工具属高级能力，移到下方「高级」区
+        self.cap_tools.setChecked(CAP_TOOLS in caps)
+        self.cap_tools.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.cap_tools.setStyleSheet(_checkbox_style())
 
         # ── 模型 & 思考（常用，直接可见）─────────────────────────────────
         lay.addSpacing(10)
@@ -618,6 +630,9 @@ class _BotDialog(QDialog):
         av.setContentsMargins(0, 2, 0, 0)
         av.setSpacing(8)
 
+        av.addWidget(self._sub("智能体工具（可让 AI 执行命令 / 读写文件 / 联网，请按需开启）"))
+        av.addWidget(self.cap_tools)
+
         av.addWidget(self._sub("推理强度 reasoning_effort（思考模式下生效）"))
         self.effort_seg = _Segmented([("high", "high"), ("max", "max")], cfg["reasoning_effort"])
         av.addWidget(self.effort_seg)
@@ -626,26 +641,9 @@ class _BotDialog(QDialog):
         self.maxtok_seg = _Segmented(TOKEN_TIERS, _snap_tier(cfg["max_tokens"]))
         av.addWidget(self.maxtok_seg)
 
-        srow = QHBoxLayout()
-        srow.setSpacing(16)
-        tcol = QVBoxLayout()
-        tcol.setSpacing(4)
-        tcol.addWidget(self._sub("温度 temperature（0–2，默认 1）"))
+        av.addWidget(self._sub("温度 temperature（0–2，默认 1）"))
         self.temp_spin = self._dspin(0.0, 2.0, 0.1, 2, cfg["temperature"])
-        tcol.addWidget(self.temp_spin)
-        srow.addLayout(tcol)
-        pcol = QVBoxLayout()
-        pcol.setSpacing(4)
-        pcol.addWidget(self._sub("top_p（0–1，默认 1）"))
-        self.topp_spin = self._dspin(0.0, 1.0, 0.05, 2, cfg["top_p"])
-        pcol.addWidget(self.topp_spin)
-        srow.addLayout(pcol)
-        av.addLayout(srow)
-
-        av.addWidget(self._sub("停止序列 stop（逗号分隔，最多 16 个，可留空）"))
-        self.stop_in = QLineEdit(", ".join(cfg["stop"] or []))
-        self.stop_in.setPlaceholderText("如：。, ###, END")
-        av.addWidget(self.stop_in)
+        av.addWidget(self.temp_spin)
 
         av.addWidget(self._sub("响应格式 response_format"))
         self.fmt_seg = _Segmented([("文本", ""), ("JSON", "json")], cfg["response_format"] or "")
@@ -692,8 +690,7 @@ class _BotDialog(QDialog):
 
     def _toggle_adv(self, on):
         self.adv_box.setVisible(on)
-        self.adv_btn.setText(("▾ " if on else "▸ ")
-                             + "高级（输出长度 / 采样 / 停止 / 响应格式 / 自带对话）")
+        self.adv_btn.setText(("▾ " if on else "▸ ") + "高级")
 
     def _dspin(self, lo, hi, step, decimals, value):
         s = QDoubleSpinBox()
@@ -720,8 +717,6 @@ class _BotDialog(QDialog):
             "reasoning_effort": self.effort_seg.value(),
             "max_tokens": int(self.maxtok_seg.value()),
             "temperature": round(self.temp_spin.value(), 2),
-            "top_p": round(self.topp_spin.value(), 2),
-            "stop": [s.strip() for s in self.stop_in.text().split(",") if s.strip()][:16],
             "response_format": self.fmt_seg.value(),
         }
         seed = _parse_seed(self.seed_in.toPlainText())
@@ -796,87 +791,174 @@ class _TeamDialog(QDialog):
 
 
 class _MemoryDialog(QDialog):
-    """全局记忆管理：查看 / 删除 / 手动添加。"""
+    """全局记忆管理：查看 / 删除 / 添加。对所有带「记忆」能力的 Bot 生效。"""
 
     def __init__(self, parent, memory):
         super().__init__(parent)
         self.setWindowTitle("全局记忆")
-        self.setMinimumWidth(420)
-        self.setStyleSheet(f"QDialog {{ background: {theme.CARD}; }}")
+        self.resize(600, 580)
+        self.setMinimumSize(460, 420)
+        self.setStyleSheet(f"QDialog {{ background: {theme.BG}; }}")
         self._items = [dict(m) for m in (memory or [])]
+
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(18, 16, 18, 14)
-        lay.setSpacing(8)
-        tip = QLabel("这些记忆对【所有带「记忆」能力的 Bot】生效——它们聊天时会知道这些信息。")
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        # ── 顶部标题区 ──
+        head = QWidget()
+        head.setObjectName("memHead")
+        head.setStyleSheet(
+            f"#memHead {{ background: {theme.CARD}; border-bottom: 1px solid {theme.BORDER}; }}")
+        hv = QVBoxLayout(head)
+        hv.setContentsMargins(22, 18, 22, 16)
+        hv.setSpacing(5)
+        trow = QHBoxLayout()
+        trow.setSpacing(9)
+        ic = QLabel()
+        ic.setPixmap(icons.qicon("idea", color="#e0a82e").pixmap(QSize(22, 22)))
+        ic.setFixedWidth(24)
+        trow.addWidget(ic)
+        title = QLabel("全局记忆")
+        title.setStyleSheet(f"color: {theme.TEXT}; font-size: 18px; font-weight: 700; background: transparent;")
+        trow.addWidget(title)
+        self._count = QLabel("")
+        self._count.setStyleSheet(f"color: {theme.TEXT3}; font-size: 13px; background: transparent;")
+        trow.addWidget(self._count)
+        trow.addStretch(1)
+        hv.addLayout(trow)
+        tip = QLabel("对所有带「记忆」能力的 Bot 生效——聊天时它们会知道这些信息，不重复追问。")
         tip.setWordWrap(True)
-        tip.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12px;")
-        lay.addWidget(tip)
+        tip.setStyleSheet(f"color: {theme.TEXT2}; font-size: 12.5px; background: transparent;")
+        hv.addWidget(tip)
+        lay.addWidget(head)
+
+        # ── 添加输入区 ──
+        addbar = QWidget()
+        addbar.setObjectName("memAdd")
+        addbar.setStyleSheet(
+            f"#memAdd {{ background: {theme.CARD}; border-bottom: 1px solid {theme.BORDER}; }}")
+        av = QHBoxLayout(addbar)
+        av.setContentsMargins(22, 12, 22, 12)
+        av.setSpacing(8)
+        self._in = QLineEdit()
+        self._in.setPlaceholderText("添加一条记忆，如：用户在上海、喜欢简洁回答…")
+        self._in.setFixedHeight(38)
+        self._in.setStyleSheet(
+            f"QLineEdit {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER_IN};"
+            f" border-radius: 10px; padding: 0 12px; font-size: 14px; color: {theme.TEXT}; }}"
+            f"QLineEdit:focus {{ border-color: {theme.INDIGO}; }}")
+        self._in.returnPressed.connect(self._add_manual)
+        av.addWidget(self._in, 1)
+        addb = QPushButton("  添加")
+        addb.setIcon(icons.qicon("add", color="#ffffff"))
+        addb.setIconSize(QSize(14, 14))
+        addb.setFixedHeight(38)
+        addb.setCursor(Qt.CursorShape.PointingHandCursor)
+        addb.setStyleSheet(
+            f"QPushButton {{ background: {theme.ACCENT}; color: #fff; border: none;"
+            f" border-radius: 10px; padding: 0 18px; font-size: 14px; font-weight: 600; }}"
+            f"QPushButton:hover {{ background: {theme.ACCENT_HOV}; }}")
+        addb.clicked.connect(self._add_manual)
+        av.addWidget(addb)
+        lay.addWidget(addbar)
+
+        # ── 列表区 ──
         self._list_host = QWidget()
+        self._list_host.setStyleSheet("background: transparent;")
         self._lv = QVBoxLayout(self._list_host)
-        self._lv.setContentsMargins(0, 0, 0, 0)
-        self._lv.setSpacing(5)
+        self._lv.setContentsMargins(18, 14, 18, 14)
+        self._lv.setSpacing(8)
         self._lv.addStretch(1)
         sc = QScrollArea()
         sc.setWidgetResizable(True)
         sc.setFrameShape(QFrame.Shape.NoFrame)
-        sc.setMinimumHeight(220)
         sc.setStyleSheet("QScrollArea { background: transparent; border: none; }")
         sc.setWidget(self._list_host)
         lay.addWidget(sc, 1)
+
+        self._empty = QLabel("还没有记忆。\n聊天时说「记一下…」会确认入库，或在上方手动添加。")
+        self._empty.setWordWrap(True)
+        self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty.setStyleSheet(f"color: {theme.TEXT3}; font-size: 13px; background: transparent;"
+                                  " padding: 40px 10px;")
+        self._lv.insertWidget(0, self._empty)
         for m in self._items:
             self._add_row(m)
-        add = QHBoxLayout()
-        add.setSpacing(8)
-        self._in = QLineEdit()
-        self._in.setPlaceholderText("手动添加一条记忆，如：用户在上海")
-        self._in.returnPressed.connect(self._add_manual)
-        add.addWidget(self._in, 1)
-        addb = QPushButton("添加")
-        addb.setObjectName("primary")
-        addb.clicked.connect(self._add_manual)
-        add.addWidget(addb)
-        lay.addLayout(add)
-        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        btns.button(QDialogButtonBox.StandardButton.Close).setText("完成")
-        btns.rejected.connect(self.accept)
-        btns.accepted.connect(self.accept)
-        lay.addWidget(btns)
-        self._empty = QLabel("（还没有记忆。聊天时确认入库，或在上方手动添加。）")
-        self._empty.setStyleSheet(f"color: {theme.TEXT3}; font-size: 12px;")
-        self._lv.insertWidget(0, self._empty)
-        self._empty.setVisible(not self._items)
+
+        # ── 底部 ──
+        foot = QWidget()
+        foot.setObjectName("memFoot")
+        foot.setStyleSheet(
+            f"#memFoot {{ background: {theme.CARD}; border-top: 1px solid {theme.BORDER}; }}")
+        fv = QHBoxLayout(foot)
+        fv.setContentsMargins(22, 12, 22, 12)
+        fv.addStretch(1)
+        done = QPushButton("完成")
+        done.setFixedHeight(36)
+        done.setCursor(Qt.CursorShape.PointingHandCursor)
+        done.setStyleSheet(
+            f"QPushButton {{ background: {theme.SUBTLE}; color: {theme.TEXT};"
+            f" border: 1px solid {theme.BORDER}; border-radius: 9px; padding: 0 22px; font-size: 14px; }}"
+            f"QPushButton:hover {{ background: {theme.HOVER}; }}")
+        done.clicked.connect(self.accept)
+        fv.addWidget(done)
+        lay.addWidget(foot)
+
+        self._refresh_state()
 
     def _add_row(self, m):
         row = QFrame()
         row.setObjectName("memItem")
         row.setStyleSheet(
-            f"#memItem {{ background: {theme.SUBTLE}; border: 1px solid {theme.BORDER};"
-            f" border-radius: 8px; }}")
+            f"#memItem {{ background: {theme.CARD}; border: 1px solid {theme.BORDER};"
+            f" border-radius: 12px; }}"
+            f"#memItem:hover {{ border-color: {theme.BORDER_IN}; }}")
         h = QHBoxLayout(row)
-        h.setContentsMargins(10, 6, 8, 6)
-        h.setSpacing(8)
+        h.setContentsMargins(14, 11, 10, 11)
+        h.setSpacing(10)
+        col = QVBoxLayout()
+        col.setSpacing(3)
         lab = QLabel(m["text"])
         lab.setWordWrap(True)
-        lab.setStyleSheet(f"color: {theme.TEXT}; font-size: 13px; background: transparent;"
-                          " border: none;")
-        h.addWidget(lab, 1)
+        lab.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        lab.setStyleSheet(f"color: {theme.TEXT}; font-size: 14px; background: transparent; border: none;")
+        col.addWidget(lab)
+        ts = m.get("created")
+        ds = ""
+        if ts:
+            try:
+                ds = time.strftime("%Y-%m-%d", time.localtime(ts))
+            except Exception:
+                ds = ""
+        if ds:
+            dl = QLabel("记于 " + ds)
+            dl.setStyleSheet(f"color: {theme.TEXT3}; font-size: 11px; background: transparent; border: none;")
+            col.addWidget(dl)
+        h.addLayout(col, 1)
         rm = QPushButton()
         rm.setIcon(icons.qicon("delete", color="#c87a6a"))
-        rm.setIconSize(QSize(13, 13))
-        rm.setFixedSize(24, 24)
+        rm.setIconSize(QSize(14, 14))
+        rm.setFixedSize(28, 28)
         rm.setCursor(Qt.CursorShape.PointingHandCursor)
-        rm.setStyleSheet("QPushButton { background: transparent; border: none; border-radius: 6px; }"
+        rm.setToolTip("删除这条记忆")
+        rm.setStyleSheet("QPushButton { background: transparent; border: none; border-radius: 7px; }"
                          f"QPushButton:hover {{ background: #fbeeec; }}")
         rm.clicked.connect(lambda _, mm=m, rr=row: self._del(mm, rr))
-        h.addWidget(rm)
+        h.addWidget(rm, 0, Qt.AlignmentFlag.AlignTop)
         self._lv.insertWidget(self._lv.count() - 1, row)
+
+    def _refresh_state(self):
+        n = len(self._items)
+        self._count.setText(f"· {n} 条" if n else "")
+        self._empty.setVisible(n == 0)
 
     def _del(self, m, row):
         if m in self._items:
             self._items.remove(m)
         row.setParent(None)
         row.deleteLater()
-        self._empty.setVisible(not self._items)
+        self._refresh_state()
 
     def _add_manual(self):
         t = self._in.text().strip()
@@ -886,7 +968,7 @@ class _MemoryDialog(QDialog):
         self._items.append(m)
         self._add_row(m)
         self._in.clear()
-        self._empty.setVisible(False)
+        self._refresh_state()
 
     def result_memory(self):
         return self._items
@@ -971,15 +1053,53 @@ class _CodeBlock(QWidget):
         QTimer.singleShot(1300, lambda: self.copy_btn.setText("  复制"))
 
 
+class _InputGrip(QWidget):
+    """输入框顶部拖拽手柄：上下拖动改变输入框高度（输入长文本时方便编辑/浏览）。"""
+
+    def __init__(self, host, parent=None):
+        super().__init__(parent)
+        self._host = host
+        self.setFixedHeight(12)
+        self.setCursor(Qt.CursorShape.SizeVerCursor)
+        self._dragging = False
+        self._sy = 0
+        self._sh = 0
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#cfcfd4"))
+        cx = self.width() // 2
+        p.drawRoundedRect(cx - 16, 5, 32, 3, 1.5, 1.5)
+        p.end()
+
+    def mousePressEvent(self, e):
+        self._dragging = True
+        self._sy = int(e.globalPosition().y())
+        self._sh = self._host.input.height()
+
+    def mouseMoveEvent(self, e):
+        if self._dragging:
+            dy = self._sy - int(e.globalPosition().y())   # 向上拖 → 变高
+            h = int(max(58, min(440, self._sh + dy)))
+            self._host._input_floor_h = h
+            self._host.input.setFixedHeight(h)
+
+    def mouseReleaseEvent(self, e):
+        self._dragging = False
+
+
 class _MessageRow(QWidget):
     """一条消息。用户=右侧浅灰气泡；助手=左侧「头像+名称+模型标签+Markdown 正文」。"""
 
     def __init__(self, role: str, bot_name="Hamster", bot_avatar=None,
-                 host=None, parent=None):
+                 host=None, parent=None, model=None):
         super().__init__(parent)
         self.role = role
         self._raw = ""
         self.host = host
+        self._model = model
         self._pinned = False
         # 限定到自身，避免 bare 样式级联到子 QMenu（导致复制下拉菜单背景变黑）
         self.setObjectName("msgRow")
@@ -992,6 +1112,7 @@ class _MessageRow(QWidget):
             self.browser = None
             self.bubble = QLabel("")
             self.bubble.setWordWrap(True)
+            _bf = self.bubble.font(); _bf.setPixelSize(15); self.bubble.setFont(_bf)  # 与样式字号一致，度量才准
             self.bubble.setTextInteractionFlags(
                 Qt.TextInteractionFlag.TextSelectableByMouse)
             self.bubble.setStyleSheet(
@@ -1000,6 +1121,15 @@ class _MessageRow(QWidget):
                 f" selection-background-color: {theme.SEL_TEXT_BG};"
                 f" selection-color: {theme.SEL_TEXT_FG}; }}")
             self.bubble.installEventFilter(self)   # 开始新选择时清掉其它消息选区
+            self._expanded = False
+            self.expand_btn = QPushButton("展开全部")
+            self.expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.expand_btn.setVisible(False)
+            self.expand_btn.setStyleSheet(
+                f"QPushButton {{ background: transparent; color: {theme.INDIGO};"
+                f" border: none; font-size: 12px; padding: 0 2px; }}"
+                f"QPushButton:hover {{ text-decoration: underline; }}")
+            self.expand_btn.clicked.connect(self._toggle_user_collapse)
             self.actions = self._build_actions()
             rightw = QWidget()
             rightw.setStyleSheet("background: transparent;")
@@ -1007,6 +1137,7 @@ class _MessageRow(QWidget):
             rv.setContentsMargins(0, 0, 0, 0)
             rv.setSpacing(3)
             rv.addWidget(self.bubble, 0, Qt.AlignmentFlag.AlignRight)
+            rv.addWidget(self.expand_btn, 0, Qt.AlignmentFlag.AlignRight)
             rv.addWidget(self.actions, 0, Qt.AlignmentFlag.AlignRight)
             outer.addStretch(1)
             outer.addWidget(rightw)
@@ -1056,7 +1187,7 @@ class _MessageRow(QWidget):
                 f"color: {theme.TEXT}; font-size: 13px; font-weight: 600;"
                 " background: transparent;")
             head.addWidget(name)
-            badge = QLabel(_model_label())
+            badge = QLabel(self._model or _model_label())
             badge.setStyleSheet(
                 f"QLabel {{ color: {theme.INDIGO}; background: {theme.INDIGO_SOFT};"
                 " border-radius: 6px; padding: 1px 7px; font-size: 11px; }}")
@@ -1215,12 +1346,17 @@ class _MessageRow(QWidget):
         br.setStyleSheet(
             f"QTextBrowser {{ background: transparent; border: none;"
             f" color: #1d1d1f; font-size: 15px;"
+            f" font-family: 'Microsoft YaHei UI','Segoe UI',-apple-system,sans-serif;"
             f" selection-background-color: {theme.SEL_TEXT_BG};"
             f" selection-color: {theme.SEL_TEXT_FG}; }}")
         br.viewport().installEventFilter(self)   # 选区互斥
         br.document().setDefaultStyleSheet(
-            "pre, code { background:#f3f3f5; font-family:Consolas,monospace; }"
-            "a { color:#6e56cf; }")
+            "h1{font-size:1.5em;font-weight:700;} h2{font-size:1.3em;font-weight:700;}"
+            "h3{font-size:1.13em;font-weight:700;} h4{font-weight:700;}"
+            "code { background:#f3f3f5; font-family:Consolas,monospace; }"
+            "pre { background:#f3f3f5; font-family:Consolas,monospace; }"
+            "blockquote { color:#6e6e73; }"
+            "a { color:#6e56cf; text-decoration:none; }")
         return br
 
     def set_text(self, text: str, final: bool = False):
@@ -1230,6 +1366,7 @@ class _MessageRow(QWidget):
             return
         if self.role == "user":
             self.bubble.setText(text)
+            self._size_user_bubble()
             return
         md, blocks = _parse_blocks(text)           # 去掉控件块再渲染 Markdown
         segs = _split_md_segments(md) if final else None
@@ -1241,10 +1378,13 @@ class _MessageRow(QWidget):
         else:                                      # 普通：单个浏览器（流式期间也走这里）
             self.code_host.setVisible(False)
             self.browser.setVisible(True)
+            self.browser.setUpdatesEnabled(False)   # 抑制重排过程中的中间刷新，防闪烁
             self.browser.setMarkdown(md)
             self._improve_typography(self.browser)
-            self._style_tables(self.browser)
+            if final:
+                self._style_tables(self.browser)    # 表格样式较重，仅最终渲染
             self._fit_height(self.browser)
+            self.browser.setUpdatesEnabled(True)
         if final:                                  # 仅在回答完成时渲染交互控件
             self._render_blocks(blocks)
 
@@ -1454,9 +1594,9 @@ class _MessageRow(QWidget):
         cur = QTextCursor(doc)
         cur.select(QTextCursor.SelectionType.Document)
         bf = QTextBlockFormat()
-        bf.setLineHeight(178, 1)   # 1 = ProportionalHeight，约 1.78 倍行距，更舒展
+        bf.setLineHeight(160, 1)   # 约 1.6 倍行距：舒展但不松散
         bf.setTopMargin(2)
-        bf.setBottomMargin(10)
+        bf.setBottomMargin(8)
         cur.mergeBlockFormat(bf)
 
     def _style_tables(self, br=None):
@@ -1489,13 +1629,53 @@ class _MessageRow(QWidget):
                 cf.setBackground(QBrush(QColor(theme.SUBTLE)))
                 cell.setFormat(cf)
 
+    def _size_user_bubble(self):
+        """用户气泡按文字内容自适应宽度：短消息贴合文字、长消息到上限才换行
+        （修 wordWrap QLabel 在右对齐布局里塌缩、导致没几个字就换行的问题）。"""
+        if self.role != "user" or getattr(self, "bubble", None) is None:
+            return
+        base = getattr(self, "_uw", 760)
+        maxw = max(220, min(680, int(base * 0.78)))     # 上限：窗口的 78%，但不超过 680
+        # 关键：用显式 15px 字体测量（QSS 的 font-size 不会反映到控件 QFont，fontMetrics 会偏小）
+        f = self.bubble.font()
+        f.setPixelSize(15)
+        fm = QFontMetrics(f)
+        natural = max((fm.horizontalAdvance(ln) for ln in (self.bubble.text() or "").split("\n")),
+                      default=0)
+        self.bubble.setFixedWidth(max(48, min(maxw, natural + 38)))   # +38 ≈ 左右内边距28 + 缓冲
+        self._apply_collapse()
+
+    def _apply_collapse(self):
+        """用户消息过长时自动折叠（默认收起、可点「展开全部」，仿 Monica）。"""
+        if self.role != "user" or getattr(self, "expand_btn", None) is None:
+            return
+        fw = self.bubble.width()
+        full_h = self.bubble.heightForWidth(fw) if fw > 0 else self.bubble.sizeHint().height()
+        TRIGGER, COLLAPSED = 230, 150
+        if full_h <= TRIGGER:
+            self.bubble.setMaximumHeight(16777215)
+            self.expand_btn.setVisible(False)
+            return
+        self.expand_btn.setVisible(True)
+        if self._expanded:
+            self.bubble.setMaximumHeight(16777215)
+            self.expand_btn.setText("收起")
+        else:
+            self.bubble.setMaximumHeight(COLLAPSED)
+            self.expand_btn.setText("展开全部")
+
+    def _toggle_user_collapse(self):
+        self._expanded = not self._expanded
+        self._apply_collapse()
+
     def set_width(self, content_px: int):
         if self.role == "user":
-            self.bubble.setMaximumWidth(max(120, int(content_px * 0.72)))
+            self._uw = content_px
+            self._size_user_bubble()
         elif self.role == "tool":
             self.tool_out.setMaximumWidth(max(160, content_px - 30))
         else:
-            self._cw = max(160, content_px)
+            self._cw = max(160, min(820, content_px))   # 正文限最大宽度：超宽窗口下长行更易读、更精致
             if getattr(self, "code_host", None) is not None and self.code_host.isVisible():
                 self._apply_rich_width()
             else:
@@ -1711,9 +1891,31 @@ class _SplitPane(QWidget):
             return
         if kind == "reasoning":
             self._assistant_reasoning += piece
-            self._assistant_row.set_reasoning(self._assistant_reasoning, streaming=True)
+            self._reason_dirty = True
         else:
             self._assistant_text += piece
+            self._answer_dirty = True
+        self._schedule_stream_render()
+
+    def _schedule_stream_render(self):
+        """合并连续 token，按帧节流渲染，避免逐字 setMarkdown 重排导致的卡顿/闪烁。"""
+        t = getattr(self, "_stream_timer", None)
+        if t is None:
+            t = QTimer(self)
+            t.setSingleShot(True)
+            t.timeout.connect(self._flush_stream_render)
+            self._stream_timer = t
+        if not t.isActive():
+            t.start(55)   # ~18fps
+
+    def _flush_stream_render(self):
+        if self._assistant_row is None:
+            return
+        if getattr(self, "_reason_dirty", False):
+            self._reason_dirty = False
+            self._assistant_row.set_reasoning(self._assistant_reasoning, streaming=True)
+        if getattr(self, "_answer_dirty", False):
+            self._answer_dirty = False
             self._assistant_row.set_text(self._assistant_text + " ▍", final=False)
         if self._autoscroll:
             self._scroll_bottom()
@@ -1721,6 +1923,10 @@ class _SplitPane(QWidget):
     def _on_done(self, gen):
         if gen != self._gen:
             return
+        t = getattr(self, "_stream_timer", None)
+        if t is not None:
+            t.stop()
+        self._answer_dirty = self._reason_dirty = False
         reasoning = (self._assistant_reasoning or "").strip()
         if self._assistant_row is not None:
             self._assistant_row.set_text(self._assistant_text, final=True)
@@ -1768,6 +1974,74 @@ class _SplitPane(QWidget):
                 last.setParent(None)
                 last.deleteLater()
             self._generate()
+
+
+class _MidDragScroll(QObject):
+    """中键自动滚动（飞书 / 浏览器式）：中键点一下进入，鼠标移动即按「离锚点的距离」
+    持续滚动（越远越快），再点任意键退出；也支持「按住中键拖动、松手即停」。
+    装到 QApplication 上以越过消息控件（QTextBrowser/QLabel 会吃掉鼠标事件）可靠捕获中键。"""
+
+    _DEAD = 16            # 锚点附近的死区（像素），区内不滚
+
+    def __init__(self, area):
+        super().__init__(area)
+        self._area = area                       # QScrollArea
+        self._active = False
+        self._anchor_y = 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)             # ~60fps 连续滚动
+        self._timer.timeout.connect(self._tick)
+
+    def _in_area(self, obj):
+        vp = self._area.viewport()
+        w = obj
+        while w is not None:
+            if w is vp:
+                return True
+            w = w.parent() if hasattr(w, "parent") else None
+        return False
+
+    def _start(self, anchor_y):
+        self._active = True
+        self._anchor_y = anchor_y
+        self._area.viewport().setCursor(Qt.CursorShape.SizeVerCursor)
+        self._timer.start()
+
+    def _stop(self):
+        self._active = False
+        self._timer.stop()
+        self._area.viewport().unsetCursor()
+
+    def _tick(self):
+        from PyQt6.QtGui import QCursor
+        dy = QCursor.pos().y() - self._anchor_y
+        if abs(dy) <= self._DEAD:
+            return
+        step = (dy - self._DEAD) if dy > 0 else (dy + self._DEAD)   # 离锚点越远越快
+        bar = self._area.verticalScrollBar()
+        bar.setValue(bar.value() + int(step / 9))
+
+    def eventFilter(self, obj, ev):
+        from PyQt6.QtCore import QEvent
+        t = ev.type()
+        if t == QEvent.Type.MouseButtonPress:
+            if ev.button() == Qt.MouseButton.MiddleButton:
+                if self._active:                 # 已激活 → 再点中键退出
+                    self._stop()
+                    return True
+                if self._in_area(obj):           # 在聊天区内点中键 → 进入自动滚动
+                    self._start(int(ev.globalPosition().y()))
+                    return True
+            elif self._active:                   # 激活时按其它键 → 退出
+                self._stop()
+                return True
+        elif (t == QEvent.Type.MouseButtonRelease
+              and ev.button() == Qt.MouseButton.MiddleButton and self._active):
+            # 松开中键时若已远离锚点 = 之前是「按住拖」 → 停；否则是「点一下」 → 保持激活
+            if abs(int(ev.globalPosition().y()) - self._anchor_y) > self._DEAD:
+                self._stop()
+            return True
+        return False
 
 
 class AIChatWindow(OpenHamWindowBase):
@@ -1829,6 +2103,10 @@ class AIChatWindow(OpenHamWindowBase):
 
         self._build_ui()
         self._add_sidebar_toggle()
+        # 中键按住拖动 = 快速滚动聊天区（过滤器随窗口销毁自动移除）
+        self._mid_scroll = _MidDragScroll(self.scroll)
+        from PyQt6.QtWidgets import QApplication
+        QApplication.instance().installEventFilter(self._mid_scroll)
         self.title_bar.installEventFilter(self)   # 双击标题栏最大化/还原
         # 基类底部 grip 行会在三栏下方留一道白条、还挤裁掉左栏「新建Bot」按钮；
         # 移除它让内容铺满，缩放手柄改成卡片右下角浮层。
@@ -1842,63 +2120,29 @@ class AIChatWindow(OpenHamWindowBase):
         self._refresh_session_list()
         self._load_current()
 
-    # ── 标题栏：折叠/展开会话面板 ─────────────────────────────────────
-    def _toggle_btn(self, tip):
-        btn = QPushButton()
-        btn.setIcon(icons.qicon("panel", color=theme.TEXT2))
-        btn.setFixedSize(28, 28)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        btn.setToolTip(tip)
-        btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: none; border-radius: 7px; }}"
-            f"QPushButton:hover {{ background: {theme.HOVER}; }}")
-        btn.clicked.connect(self._toggle_sidebar)
-        return btn
-
     def _add_sidebar_toggle(self):
-        # 对话内搜索按钮（Ctrl+F）
-        self.search_btn = QPushButton()
-        self.search_btn.setIcon(icons.qicon("search", color=theme.TEXT2))
-        self.search_btn.setFixedSize(28, 28)
-        self.search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.search_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.search_btn.setToolTip("在当前对话中搜索（Ctrl+F）")
-        self.search_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: none; border-radius: 7px; }}"
-            f"QPushButton:hover {{ background: {theme.HOVER}; }}")
-        self.search_btn.clicked.connect(self._toggle_search)
-        self.header_tools_layout.addWidget(self.search_btn)
+        """搜索 / 分栏 / 记忆 → 输入框上方工具栏的小药丸按钮（仿 Monica）。"""
+        def tool(icon, label, tip, slot):
+            b = QPushButton("  " + label)
+            b.setIcon(icons.qicon(icon, color=theme.TEXT2))
+            b.setIconSize(QSize(14, 14))
+            _bf = b.font(); _bf.setPixelSize(12); b.setFont(_bf)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.setToolTip(tip)
+            b.setStyleSheet(
+                f"QPushButton {{ background: {theme.SUBTLE}; color: {theme.TEXT2};"
+                f" border: none; border-radius: 10px; padding: 7px 13px; }}"
+                f"QPushButton:hover {{ background: {theme.HOVER}; color: {theme.TEXT}; }}")
+            b.clicked.connect(slot)
+            self._input_toolbar.addWidget(b)
+            return b
+        self.search_btn = tool("search", "搜索", "在当前对话中搜索（Ctrl+F）", self._toggle_search)
+        self.split_btn = tool("split", "分栏", "分栏：从当前对话分叉成两栏，各自独立续聊", self._open_split)
+        self.mem_btn = tool("idea", "记忆", "全局记忆（查看 / 删除 / 添加）", self._open_memory)
+        self._input_toolbar.addStretch(1)
         from PyQt6.QtGui import QShortcut, QKeySequence
         QShortcut(QKeySequence("Ctrl+F"), self, activated=self._toggle_search)
-        # 分栏按钮：把当前对话分叉成两栏，各自独立续聊
-        self.split_btn = QPushButton()
-        self.split_btn.setIcon(icons.qicon("split", color=theme.TEXT2))
-        self.split_btn.setFixedSize(28, 28)
-        self.split_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.split_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.split_btn.setToolTip("分栏：从当前对话分叉成两栏，各自独立续聊")
-        self.split_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: none; border-radius: 7px; }}"
-            f"QPushButton:hover {{ background: {theme.HOVER}; }}")
-        self.split_btn.clicked.connect(self._open_split)
-        self.header_tools_layout.addWidget(self.split_btn)
-        # 全局记忆管理按钮
-        self.mem_btn = QPushButton()
-        self.mem_btn.setIcon(icons.qicon("memory", color=theme.TEXT2))
-        self.mem_btn.setFixedSize(28, 28)   # 图标尺寸跟随基类标题栏按钮默认，保持一致
-        self.mem_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.mem_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.mem_btn.setToolTip("全局记忆（查看 / 删除 / 添加）")
-        self.mem_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: none; border-radius: 7px; }}"
-            f"QPushButton:hover {{ background: {theme.HOVER}; }}")
-        self.mem_btn.clicked.connect(self._open_memory)
-        self.header_tools_layout.addWidget(self.mem_btn)
-        # 标题栏的按钮只在「面板已折叠」时出现，用来展开（折叠按钮在面板标题内，折叠后看不见）
-        self.sidebar_btn = self._toggle_btn("展开会话面板")
-        self.sidebar_btn.setVisible(False)
-        self.header_tools_layout.addWidget(self.sidebar_btn)
 
     def _open_memory(self):
         dlg = _MemoryDialog(self, self.store.get("memory", []))
@@ -1972,7 +2216,6 @@ class AIChatWindow(OpenHamWindowBase):
     def _toggle_sidebar(self):
         show = not self._sidebar.isVisible()
         self._sidebar.setVisible(show)
-        self.sidebar_btn.setVisible(not show)   # 折叠后才显示标题栏的展开按钮
         QTimer.singleShot(0, lambda: [m.set_width(self._content_width()) for m in self._msgs])
 
     # ── 导航：上/下一轮问答 + 对话内搜索 ─────────────────────────────────
@@ -2042,6 +2285,7 @@ class AIChatWindow(OpenHamWindowBase):
     def _close_search(self):
         self._search_bar.setVisible(False)
         self._clear_text_selections(None)
+        self._clear_search_highlight()
         self.input.setFocus()
 
     def _do_search(self, text):
@@ -2066,16 +2310,68 @@ class AIChatWindow(OpenHamWindowBase):
         self._search_idx = 0 if first else (self._search_idx + direction) % n
         self._search_count.setText(f"{self._search_idx + 1}/{n}")
         row = self._search_matches[self._search_idx]
-        self._scroll_row_to_top(row)
         self._clear_text_selections(None)
+        self._clear_search_highlight()
         q = self._search_in.text().strip()
+        from PyQt6.QtWidgets import QTextEdit
+        match_y = None
         for br in (row.all_text_widgets() if hasattr(row, "all_text_widgets") else []):
             br.moveCursor(QTextCursor.MoveOperation.Start)
-            if br.find(q):
+            if q and br.find(q):
+                cur = br.textCursor()
+                sel = QTextEdit.ExtraSelection()
+                fmt = QTextCharFormat()
+                fmt.setBackground(QColor("#ffe24d"))   # 明黄高亮，像浏览器查找
+                fmt.setForeground(QColor("#1d1d1f"))
+                sel.format = fmt
+                sel.cursor = cur
+                br.setExtraSelections([sel])
+                try:
+                    match_y = br.mapTo(self.msg_host, QPoint(0, 0)).y() + br.cursorRect(cur).top()
+                except Exception:
+                    pass
+                cur.clearSelection()
+                br.setTextCursor(cur)                  # 清掉选区蓝，只留黄色高亮
+                self._search_hl = br
                 break
+        bar = self.scroll.verticalScrollBar()
+        if match_y is not None:                        # 命中点落到视口约 1/3 处，确保看得见高亮
+            target = match_y - int(self.scroll.viewport().height() * 0.33)
+            bar.setValue(max(0, min(target, bar.maximum())))
+        else:                                          # 用户消息（QLabel 无法局部高亮）：滚到行 + 整条气泡闪黄
+            self._scroll_row_to_top(row)
+            self._flash_bubble(row)
+
+    def _flash_bubble(self, row):
+        bub = getattr(row, "bubble", None)
+        if bub is None or getattr(row, "role", "") != "user":
+            return
+        bub.setStyleSheet("QLabel { background: #ffe24d; color: #1d1d1f;"
+                          " border-radius: 14px; padding: 10px 14px; font-size: 15px; }")
+        self._search_hl_bubble = bub
+
+    def _clear_search_highlight(self):
+        br = getattr(self, "_search_hl", None)
+        if br is not None:
+            try:
+                br.setExtraSelections([])
+            except Exception:
+                pass
+        self._search_hl = None
+        bub = getattr(self, "_search_hl_bubble", None)
+        if bub is not None:
+            try:
+                bub.setStyleSheet(
+                    f"QLabel {{ background: {theme.SUBTLE}; color: {theme.TEXT};"
+                    f" border-radius: 14px; padding: 10px 14px; font-size: 15px;"
+                    f" selection-background-color: {theme.SEL_TEXT_BG};"
+                    f" selection-color: {theme.SEL_TEXT_FG}; }}")
+            except Exception:
+                pass
+        self._search_hl_bubble = None
 
     def _jump_turn(self, direction):
-        """跳到上/下一轮问答（以「用户消息」为锚点）。"""
+        """跳到上/下一轮问答（以「用户消息」为锚点，按轮次序号 ±1 步进）。"""
         users = [r for r in self._msgs if getattr(r, "role", "") == "user"]
         if not users:
             return
@@ -2090,13 +2386,16 @@ class AIChatWindow(OpenHamWindowBase):
         ys = sorted(set(ys))
         if not ys:
             return
-        if direction < 0:
-            cands = [y for y in ys if y < cur - 6]
-            target = cands[-1] if cands else ys[0]
-        else:
-            cands = [y for y in ys if y > cur + 6]
-            target = cands[0] if cands else ys[-1]
-        bar.setValue(max(0, min(target - 10, bar.maximum())))
+        LAND = 12   # 落位偏移：目标问题落在视口顶部下方约 12px
+        # 当前轮 = 视口顶部上方/附近最后一个问题（LAND+几像素内都算「当前这一轮」）
+        idx = 0
+        for i, y in enumerate(ys):
+            if y <= cur + LAND + 4:
+                idx = i
+        tgt = idx + (1 if direction > 0 else -1)
+        if tgt < 0 or tgt >= len(ys):
+            return      # 已到首/末轮，不再跳（不回弹到当前轮，避免「点了没反应」）
+        bar.setValue(max(0, min(ys[tgt] - LAND, bar.maximum())))
 
     def _reposition_jump(self):
         box = getattr(self, "_jump_box", None)
@@ -2104,7 +2403,7 @@ class AIChatWindow(OpenHamWindowBase):
         if box is None or area is None:
             return
         box.move(max(0, area.width() - box.width() - 18),
-                 max(0, area.height() - box.height() - 150))
+                 max(0, area.height() - box.height() - 188))
         box.raise_()
 
     # ── 界面骨架 ──────────────────────────────────────────────────────
@@ -2145,6 +2444,21 @@ class AIChatWindow(OpenHamWindowBase):
         v.setContentsMargins(0, 12, 0, 12)
         v.setSpacing(8)
         v.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+
+        # 会话面板 折叠/展开 开关：常驻 rail 顶端，不会挡住聊天内容
+        self.sidebar_btn = QPushButton()
+        self.sidebar_btn.setIcon(icons.qicon("panel", color=theme.TEXT2))
+        self.sidebar_btn.setIconSize(QSize(17, 17))
+        self.sidebar_btn.setFixedSize(40, 32)
+        self.sidebar_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sidebar_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.sidebar_btn.setToolTip("折叠 / 展开会话面板")
+        self.sidebar_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; border-radius: 9px; }}"
+            f"QPushButton:hover {{ background: {theme.HOVER}; }}")
+        self.sidebar_btn.clicked.connect(self._toggle_sidebar)
+        v.addWidget(self.sidebar_btn, 0, Qt.AlignmentFlag.AlignHCenter)
+        v.addSpacing(2)
 
         # 默认 bot（Hamster）= 顶部 logo 头像，固定在最上方
         self.default_holder = QVBoxLayout()
@@ -2216,9 +2530,7 @@ class AIChatWindow(OpenHamWindowBase):
         title_row.setSpacing(6)
         title_row.addWidget(self.bot_title)
         title_row.addStretch(1)
-        self.collapse_btn = self._toggle_btn("折叠会话面板")   # 会话面板标题右侧的折叠按钮
-        title_row.addWidget(self.collapse_btn)
-        v.addLayout(title_row)
+        v.addLayout(title_row)   # 折叠按钮已统一到最左侧 rail，面板标题不再重复放
 
         self.search = QLineEdit()
         self.search.setPlaceholderText("搜索会话")
@@ -2321,14 +2633,29 @@ class AIChatWindow(OpenHamWindowBase):
         wl = QVBoxLayout(wrap)
         wl.setContentsMargins(28, 6, 28, 18)
         wl.setSpacing(0)
+        # 输入框上方工具栏（搜索 / 分栏 / 记忆），按钮在 _add_sidebar_toggle 里填充
+        self._input_toolbar = QHBoxLayout()
+        self._input_toolbar.setContentsMargins(2, 0, 2, 5)
+        self._input_toolbar.setSpacing(4)
+        wl.addLayout(self._input_toolbar)
         card = QFrame()
         card.setObjectName("inputCard")
-        card.setStyleSheet(
+        self._input_card = card
+        # 各状态边框「宽度」始终 1.5px，只变颜色——避免 hover/聚焦时宽度变化导致内容抖动
+        self._input_card_normal = (
             f"#inputCard {{ background: {theme.CARD};"
-            f" border: 1px solid {theme.BORDER_IN}; border-radius: 16px; }}")
+            f" border: 1.5px solid {theme.BORDER_IN}; border-radius: 16px; }}"
+            f"#inputCard:hover {{ border-color: {theme.INDIGO}; }}")
+        self._input_card_focus = (
+            f"#inputCard {{ background: {theme.CARD};"
+            f" border: 1.5px solid {theme.INDIGO}; border-radius: 16px; }}")
+        card.setStyleSheet(self._input_card_normal)
         cl = QVBoxLayout(card)
-        cl.setContentsMargins(14, 12, 12, 10)
-        cl.setSpacing(6)
+        cl.setContentsMargins(14, 6, 12, 10)
+        cl.setSpacing(4)
+        self._input_floor_h = 58
+        self._input_grip = _InputGrip(self)        # 顶部拖拽手柄：上下拖改输入框高度
+        cl.addWidget(self._input_grip)
         self.input = QPlainTextEdit()
         self.input.setPlaceholderText("发消息……（Enter 发送，Shift+Enter 换行）")
         self.input.setFrameShape(QFrame.Shape.NoFrame)
@@ -2336,6 +2663,7 @@ class AIChatWindow(OpenHamWindowBase):
             "QPlainTextEdit { background: transparent; border: none; font-size: 15px; }")
         self.input.setFixedHeight(58)
         self.input.installEventFilter(self)
+        self.input.textChanged.connect(self._autogrow_input)   # 随内容自适应升高
         cl.addWidget(self.input)
 
         bottom = QHBoxLayout()
@@ -2343,8 +2671,8 @@ class AIChatWindow(OpenHamWindowBase):
         bottom.setSpacing(8)
         self.model_pill = QLabel("  " + _model_label())
         self.model_pill.setStyleSheet(
-            f"QLabel {{ color: {theme.TEXT2}; background: {theme.SUBTLE};"
-            " border-radius: 9px; padding: 3px 10px; font-size: 12px; }}")
+            f"QLabel {{ color: {theme.TEXT3}; background: transparent;"
+            " padding: 2px 4px; font-size: 11px; letter-spacing: 0.3px; }}")
         bottom.addWidget(self.model_pill)
         # 智能体「自动执行工具」开关（仅在当前 bot 有 tools 能力时显示）
         self.agent_toggle = QPushButton("✋ 逐条确认")
@@ -2356,12 +2684,13 @@ class AIChatWindow(OpenHamWindowBase):
         bottom.addStretch(1)
         self.send_btn = QPushButton()
         self.send_btn.setIcon(icons.qicon("send", color="#ffffff"))
-        self.send_btn.setIconSize(QSize(17, 17))
+        self.send_btn.setIconSize(QSize(15, 15))
         self.send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.send_btn.setFixedSize(38, 38)
+        self.send_btn.setFixedSize(34, 34)
         self.send_btn.setStyleSheet(
-            f"QPushButton {{ background: {theme.ACCENT}; border: none; border-radius: 19px; }}"
+            f"QPushButton {{ background: {theme.ACCENT}; border: none; border-radius: 17px; }}"
             f"QPushButton:hover {{ background: {theme.ACCENT_HOV}; }}"
+            f"QPushButton:pressed {{ background: {theme.ACCENT}; }}"
             f"QPushButton:disabled {{ background: {theme.TEXT3}; }}")
         self.send_btn.clicked.connect(self._on_send_btn)
         bottom.addWidget(self.send_btn)
@@ -2564,6 +2893,7 @@ class AIChatWindow(OpenHamWindowBase):
         is_grp = self._is_team(bot)
         menu = theme.style_menu(QMenu(self))
         act_edit = menu.addAction(icons.qicon("edit"), "编辑团队" if is_grp else "编辑 Bot")
+        act_copy = menu.addAction(icons.qicon("copy"), "复制 Bot") if not is_grp else None
         act_del = menu.addAction(icons.qicon("delete"), "解散团队" if is_grp else "删除 Bot")
         is_def = bool(self.bots) and bot_id == self.bots[0]["id"]
         if is_def or len(self.bots) <= 1:   # 默认 Hamster 不可删
@@ -2571,8 +2901,27 @@ class AIChatWindow(OpenHamWindowBase):
         chosen = menu.exec(anchor.mapToGlobal(pos))
         if chosen == act_edit:
             self._edit_team(bot_id) if is_grp else self._edit_bot(bot_id)
+        elif act_copy is not None and chosen == act_copy:
+            self._copy_bot(bot_id)
         elif chosen == act_del:
             self._delete_bot(bot_id)
+
+    def _copy_bot(self, bot_id: str):
+        bot = self._bot_by_id(bot_id)
+        if not bot or self._is_team(bot):
+            return
+        new = _make_bot(bot.get("name", "助手") + " 副本", bot.get("system", ""),
+                        capabilities=bot.get("capabilities"), sessions=None,
+                        config=bot.get("config"), seed=bot.get("seed"))
+        try:
+            idx = next(i for i, b in enumerate(self.bots) if b["id"] == bot_id)
+        except StopIteration:
+            idx = len(self.bots) - 1
+        self.bots.insert(idx + 1, new)
+        self.store["bots"] = self.bots
+        _save_store(self.store)
+        self._refresh_bots()
+        self._select_bot(new["id"])
 
     def _edit_bot(self, bot_id: str):
         bot = next((b for b in self.bots if b["id"] == bot_id), None)
@@ -2729,7 +3078,8 @@ class AIChatWindow(OpenHamWindowBase):
         # 团队里每条助手消息按「说话的成员」显示头像/名字；否则用当前 bot
         b = bot or self._cur_bot()
         msg = _MessageRow(role, bot_name=b["name"],
-                          bot_avatar=self._bot_avatar(b, 22), host=self)
+                          bot_avatar=self._bot_avatar(b, 22), host=self,
+                          model=(b.get("config", {}) or {}).get("model"))
         self.msg_layout.insertWidget(self.msg_layout.count() - 1, msg)
         self._rows.append(msg)
         self._msgs.append(msg)
@@ -2756,7 +3106,15 @@ class AIChatWindow(OpenHamWindowBase):
                     row.set_reasoning(m["reasoning"], streaming=False)
         self._update_action_visibility()
         self._sync_agent_toggle()
+        self._update_model_pill()
         self._scroll_to_bottom()
+
+    def _update_model_pill(self):
+        """输入框上的模型标签显示当前 bot 自己的模型（而非全局默认）。"""
+        if not hasattr(self, "model_pill"):
+            return
+        m = (self._cur_bot().get("config", {}) or {}).get("model") or _model_label()
+        self.model_pill.setText("  " + m)
 
     def _show_empty_hint(self):
         bot = self._cur_bot()
@@ -2774,18 +3132,19 @@ class AIChatWindow(OpenHamWindowBase):
             htext = f"团队「{bot['name']}」：{mnames}"
             stext = "把需求交给团队，编排器会拆给成员、再汇总交付"
         else:
-            htext = f"我是「{bot['name']}」，有什么可以帮你的？"
-            stext = "在下方输入开始对话"
+            htext = f"我是「{bot['name']}」Bot，有什么可以帮你的？"
+            stext = ""
         hint = QLabel(htext)
         hint.setWordWrap(True)
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint.setStyleSheet(f"color: {theme.TEXT2}; font-size: 16px;"
                            " font-weight: 600; background: transparent;")
         bl.addWidget(hint)
-        sub = QLabel(stext)
-        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sub.setStyleSheet(f"color: {theme.TEXT3}; font-size: 13px; background: transparent;")
-        bl.addWidget(sub)
+        if stext:
+            sub = QLabel(stext)
+            sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            sub.setStyleSheet(f"color: {theme.TEXT3}; font-size: 13px; background: transparent;")
+            bl.addWidget(sub)
         self.msg_layout.insertWidget(self.msg_layout.count() - 1, box)
         self._rows.append(box)
 
@@ -3177,9 +3536,31 @@ class AIChatWindow(OpenHamWindowBase):
             return
         if kind == "reasoning":
             self._assistant_reasoning += piece
-            self._assistant_row.set_reasoning(self._assistant_reasoning, streaming=True)
+            self._reason_dirty = True
         else:
             self._assistant_text += piece
+            self._answer_dirty = True
+        self._schedule_stream_render()
+
+    def _schedule_stream_render(self):
+        """合并连续 token，按帧节流渲染，避免逐字 setMarkdown 重排导致的卡顿/闪烁。"""
+        t = getattr(self, "_stream_timer", None)
+        if t is None:
+            t = QTimer(self)
+            t.setSingleShot(True)
+            t.timeout.connect(self._flush_stream_render)
+            self._stream_timer = t
+        if not t.isActive():
+            t.start(55)   # ~18fps
+
+    def _flush_stream_render(self):
+        if self._assistant_row is None:
+            return
+        if getattr(self, "_reason_dirty", False):
+            self._reason_dirty = False
+            self._assistant_row.set_reasoning(self._assistant_reasoning, streaming=True)
+        if getattr(self, "_answer_dirty", False):
+            self._answer_dirty = False
             self._assistant_row.set_text(self._assistant_text + " ▍", final=False)
         if self._autoscroll:
             self._scroll_to_bottom()
@@ -3189,6 +3570,10 @@ class AIChatWindow(OpenHamWindowBase):
     def _on_done(self, gen: int):
         if gen != self._gen:
             return
+        t = getattr(self, "_stream_timer", None)
+        if t is not None:
+            t.stop()
+        self._answer_dirty = self._reason_dirty = False
         reasoning = (self._assistant_reasoning or "").strip()
         if self._assistant_row is not None:
             self._assistant_row.set_text(self._assistant_text, final=True)
@@ -3554,8 +3939,12 @@ class AIChatWindow(OpenHamWindowBase):
     def eventFilter(self, obj, event):
         from PyQt6.QtCore import QEvent
         # getattr 兜底：构造早期(self.input 尚未建好)本过滤器可能被提前触发，防 AttributeError
-        if obj is getattr(self, "input", None) and event.type() == QEvent.Type.KeyPress:
-            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        if obj is getattr(self, "input", None):
+            if event.type() == QEvent.Type.FocusIn and getattr(self, "_input_card", None) is not None:
+                self._input_card.setStyleSheet(self._input_card_focus)
+            elif event.type() == QEvent.Type.FocusOut and getattr(self, "_input_card", None) is not None:
+                self._input_card.setStyleSheet(self._input_card_normal)
+            elif event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                     return False
                 self._send()
@@ -3576,6 +3965,15 @@ class AIChatWindow(OpenHamWindowBase):
             self.toggle_max()
             return True
         return super().eventFilter(obj, event)
+
+    def _autogrow_input(self):
+        """输入框随内容自适应升高；以手柄拖拽设的高度为下限（向上长，最多 440px 再内部滚动）。"""
+        try:
+            h = self.input.document().documentLayout().documentSize().height()
+        except Exception:
+            h = 58
+        floor = getattr(self, "_input_floor_h", 58)
+        self.input.setFixedHeight(int(max(floor, min(440, h + 16))))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

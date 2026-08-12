@@ -50,15 +50,6 @@ def _set_dpi_aware():
         pass
 _set_dpi_aware()
 
-# ── Qt WebEngine 预初始化（必须在 QApplication 创建前完成）──────────────
-# 游戏沙箱窗口用 QWebEngineView。Qt 要求其初始化早于 QApplication，否则
-# 首次打开游戏窗口会直接闪退。这里在创建 QApplication 之前先就位。
-QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
-try:
-    from PyQt6 import QtWebEngineWidgets as _qtwe  # noqa: F401  仅为提前初始化 WebEngine
-except Exception:
-    _qtwe = None
-
 from ui import InputWindow, ScriptManagerOverlay
 from ui import icons
 from ui import theme
@@ -209,7 +200,8 @@ def main():
 
     tray_menu = QMenu()
     tray_menu.setStyleSheet(theme.menu_qss())   # 统一浅色，杜绝背景发黑
-    action_title = tray_menu.addAction("OpenHam 0.1.0")
+    _ver = updater.local_version()
+    action_title = tray_menu.addAction(f"OpenHam {_ver}" if _ver else "OpenHam")
     action_title.setEnabled(False)
     action_show = tray_menu.addAction("打开主窗口")
     action_show.setShortcut(QKeySequence(hotkey_label))
@@ -261,34 +253,23 @@ def main():
     # 全部核心依赖注册完毕，触发插件 setup 生命周期钩子
     load_plugins()
 
-    # AI 聊天插件启用时（注册了 open_chat），在托盘菜单「联机」下、「设置」上加「聊天」项。
-    # 放在 load_plugins() 之后，确保「联机」「设置」都已就位，顺序确定。
-    if "open_chat" in plugin_api._handlers:
-        chat_act = QAction("聊天", tray_menu)
-        chat_act.triggered.connect(lambda: plugin_api.call("open_chat"))
-        _acts = tray_menu.actions()
-        _lianji = next((a for a in _acts if a.text() == "联机"), None)
-        if _lianji is not None:                       # 插在「联机」之后
-            _i = _acts.index(_lianji)
-            _after = _acts[_i + 1] if _i + 1 < len(_acts) else None
-            tray_menu.insertAction(_after, chat_act) if _after else tray_menu.addAction(chat_act)
-        else:                                          # 无联机则插在「设置」之前
-            _settings = next((a for a in _acts if a.text().startswith("设置")), None)
-            tray_menu.insertAction(_settings, chat_act) if _settings else tray_menu.addAction(chat_act)
-
-    # 任务插件启用时（注册了 open_todo），在「聊天」后、「设置」前加「任务」项。
-    if "open_todo" in plugin_api._handlers:
-        todo_act = QAction("任务", tray_menu)
-        todo_act.triggered.connect(lambda: plugin_api.call("open_todo"))
-        _acts = tray_menu.actions()
-        _chat = next((a for a in _acts if a.text() == "聊天"), None)
-        _anchor = _chat or next((a for a in _acts if a.text().startswith("设置")), None)
-        if _anchor is not None:
-            _i = _acts.index(_anchor)
-            _after = _acts[_i + 1] if (_chat and _i + 1 < len(_acts)) else _anchor
-            tray_menu.insertAction(_after, todo_act) if _after else tray_menu.addAction(todo_act)
-        else:
-            tray_menu.addAction(todo_act)
+    # 功能项进托盘：遍历声明了 tray_label 的插件，只有用户在「插件管理」里勾了
+    # 「显示在托盘」的才加入（默认不显示，避免插件变多时托盘菜单无限变长）。
+    # 通用逻辑，新插件零改动 main.py 即可被纳入。
+    from core.plugin_manager import ALL_PLUGINS_META, get_plugin_config
+    _confs = get_plugin_config()
+    for _pid, _meta in ALL_PLUGINS_META.items():
+        _label, _opener = _meta.get("tray_label"), _meta.get("tray_open")
+        if not _label or not _opener:
+            continue
+        if not _confs.get(_pid, {}).get("tray", True):   # 默认显示，用户可在插件管理里关掉
+            continue
+        if _opener not in plugin_api._handlers:
+            continue
+        _act = QAction(_label, tray_menu)
+        _act.triggered.connect(lambda _checked=False, o=_opener: plugin_api.call(o))
+        _settings = next((a for a in tray_menu.actions() if a.text().startswith("设置")), None)
+        tray_menu.insertAction(_settings, _act) if _settings else tray_menu.addAction(_act)
 
     action_show.triggered.connect(window.show_window)
     action_script_config.triggered.connect(script_overlay.open)
@@ -376,7 +357,24 @@ def main():
     tray.activated.connect(_on_tray_activated)
     tray.show()
 
-    window.show_window()
+    # 启动即处理登录：未登录则只弹登录窗（不显示主界面，登录成功后再显示）；
+    # 已登录则显示主界面并后台把云端 AI 聊天/待办拉到本地。
+    def _startup_account():
+        import threading
+        from core import app_config, cloud_sync
+        if app_config.is_logged_in():
+            window.show_window()
+            threading.Thread(target=cloud_sync.pull_all, daemon=True).start()
+        else:
+            try:
+                from ui.account_dialog import AccountDialog
+                AccountDialog().exec()
+            except Exception as e:
+                log.warning("登录窗打开失败: %s", e)
+            if app_config.is_logged_in():
+                threading.Thread(target=cloud_sync.pull_all, daemon=True).start()
+                window.show_window()
+    QTimer.singleShot(200, _startup_account)
 
     _last_hotkey_time = 0.0
     def on_hotkey():
@@ -462,20 +460,50 @@ def main():
             window.show_thinking()
             def _call():
                 nonlocal _last_oneshot
-                answer = ""
+                # Layer 2：单次「流式」调用——开头若是 JSON 则判定为技能（静默收完再执行），
+                # 否则判定为普通回答、照常逐字流式。一次调用，既保留流式、又无双调用延迟。
+                from core.skills import (route_sys_prompt, route_user_prompt,
+                                         parse_skill, get_skill)
+                sysp, userp = route_sys_prompt(), route_user_prompt(text)
+                buf = ""
+                mode = None        # None=未定 / "answer"=流式回答 / "skill"=静默收 JSON
                 try:
-                    for piece in call_deepseek_stream(text):
+                    for piece in call_deepseek_stream(userp, sys_prompt=sysp):
                         if _ai_gen != my_gen:
-                            log.debug("AI 线程 gen=%d 已被新提交取消", my_gen)
                             return
-                        answer += piece
-                        ai_signal.chunk.emit(piece)
-                    if _ai_gen == my_gen:
-                        log.info("AI 线程 gen=%d 流式完成", my_gen)
-                        # 记录这轮一次性问答，供随后的 -- 指令携带为上下文
-                        if answer.strip() and not answer.lstrip().startswith("❌"):
-                            _last_oneshot = {"q": text, "a": answer}
+                        buf += piece
+                        if mode is None:
+                            head = buf.lstrip()
+                            if not head:
+                                continue                  # 还只是空白，继续等
+                            if head[0] == "{":
+                                mode = "skill"             # 像技能 JSON → 静默收集，先不显示
+                                continue
+                            mode = "answer"
+                            ai_signal.chunk.emit(buf)      # 是回答 → 吐出已累计部分，开始流式
+                            continue
+                        if mode == "answer":
+                            ai_signal.chunk.emit(piece)
+                        # skill 模式：继续静默累计，不显示
+                    if _ai_gen != my_gen:
+                        return
+                    if mode == "skill":
+                        dec = parse_skill(buf)
+                        if dec:
+                            sk = get_skill(dec["skill"])
+                            try:
+                                out = sk.handler(dec.get("arg", "")) if sk else buf
+                            except Exception as e:
+                                out = f"❌ 技能执行出错：{e}"
+                            ai_signal.responded.emit(out)
+                        else:
+                            ai_signal.responded.emit(buf)  # 像 JSON 但不是有效技能 → 当回答显示
+                    elif mode == "answer":
+                        if buf.strip() and not buf.lstrip().startswith("❌"):
+                            _last_oneshot = {"q": text, "a": buf}
                         ai_signal.stream_done.emit()
+                    else:
+                        ai_signal.responded.emit("❌ 没拿到回答，请重试")
                 except Exception as e:
                     log.exception("AI 线程 gen=%d 异常: %s", my_gen, e)
                     if _ai_gen == my_gen:
@@ -483,7 +511,7 @@ def main():
             threading.Thread(target=_call, daemon=True).start()
         else:
             _ai_gen += 1
-            window.show_ai_result("❌ 未配置 API Key：请在「设置 → AI 模型」中填入你的 DeepSeek Key")
+            window.show_ai_result("❌ 请先在「设置 → 账号」登录统一账号后再使用 AI")
 
     window.submitted.connect(on_submitted)
 

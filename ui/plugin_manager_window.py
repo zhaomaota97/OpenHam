@@ -236,72 +236,37 @@ class PluginItemWidget(QWidget):
         
         layout.addLayout(top_row)
         
-        # Bottom rows: Triggers or Actions
-        if not meta.get("actions"):
-            bot_row = QHBoxLayout()
-            alias_lbl = QLabel("触发命令:")
-            alias_lbl.setStyleSheet("color: #86868b; font-size: 12px;")
-            
-            triggers = conf.get("triggers")
-            if triggers is None or (not triggers and meta.get("default_triggers")):
-                triggers = meta.get("default_triggers", [])
-            
-            self.trigger_input = TagInputWidget(self.plugin_id, triggers)
-            self.trigger_input.tags_changed.connect(lambda: self.changed.emit())
-            
-            bot_row.addWidget(alias_lbl)
-            bot_row.addWidget(self.trigger_input, 1)
-            layout.addLayout(bot_row)
-            self.action_inputs = None
-            
-        else:
-            self.trigger_input = None
-            self.action_inputs = {}
-            conf_actions = conf.get("actions", {})
-            
-            act_container = QVBoxLayout()
-            act_container.setSpacing(0)
-            act_container.setContentsMargins(0, 4, 0, 0)
-            
-            first = True
-            for act_name, act_meta in meta.get("actions").items():
-                if not first:
-                    act_container.addSpacing(12)
-                first = False    
-                
-                act_row = QHBoxLayout()
-                act_row.setContentsMargins(0, 0, 0, 0)
-                
-                desc_text = act_meta.get("desc", act_name)
-                lbl = QLabel(icons.richify(f"{desc_text}:"))
-                lbl.setStyleSheet("color: #86868b; font-size: 13px; min-width: 80px;")
-                
-                act_conf = conf_actions.get(act_name, {})
-                triggers = act_conf.get("triggers")
-                if triggers is None or (not triggers and act_meta.get("trigger")):
-                    triggers = act_meta.get("trigger", [])
-                
-                tag_input = TagInputWidget(self.plugin_id, triggers)
-                tag_input.tags_changed.connect(lambda: self.changed.emit())
-                self.action_inputs[act_name] = tag_input
-                
-                act_row.addWidget(lbl)
-                act_row.addWidget(tag_input, 1)
-                
-                act_container.addLayout(act_row)
-                
-            layout.addLayout(act_container)
-        
+        # 触发词只读展示（触发命令配置已取消——精确匹配的触发词固定由代码定义）
+        self.trigger_input = None
+        self.action_inputs = None
+        triggers_display = list(meta.get("default_triggers", []))
+        if meta.get("actions"):
+            for act_meta in meta.get("actions").values():
+                triggers_display += list(act_meta.get("trigger", []))
+        if triggers_display:
+            trg_lbl = QLabel("触发：" + "  ·  ".join(triggers_display))
+            trg_lbl.setStyleSheet("color: #86868b; font-size: 12px;")
+            trg_lbl.setWordWrap(True)
+            layout.addWidget(trg_lbl)
+
+        # 「显示在托盘菜单」开关：仅对声明了 tray_label 的插件出现（默认关）
+        self.tray_toggle = None
+        if meta.get("tray_label"):
+            tray_row = QHBoxLayout()
+            tray_lbl = QLabel("显示在托盘菜单")
+            tray_lbl.setStyleSheet("color: #86868b; font-size: 12px;")
+            self.tray_toggle = ToggleSwitch(conf.get("tray", True))
+            self.tray_toggle.toggled.connect(lambda: self.changed.emit())
+            tray_row.addWidget(tray_lbl)
+            tray_row.addStretch(1)
+            tray_row.addWidget(self.tray_toggle)
+            layout.addLayout(tray_row)
+
     def get_data(self):
-        """返回此插件最新的 config 持久化字典"""
+        """返回此插件最新的 config 持久化字典（启用状态 + 是否显示在托盘）"""
         data = {"enabled": self.toggle.isChecked()}
-        if self.trigger_input is not None:
-            data["triggers"] = self.trigger_input.get_tags()
-        if self.action_inputs:
-            acts = {}
-            for act_name, widget in self.action_inputs.items():
-                acts[act_name] = {"triggers": widget.get_tags()}
-            data["actions"] = acts
+        if self.tray_toggle is not None:
+            data["tray"] = self.tray_toggle.isChecked()
         return data
 
 

@@ -7,8 +7,43 @@
 窗口本体见 ui/todo_window.TodoWindow；插件只负责单例创建与唤起/转发。
 """
 from core.plugin_manager import openham_plugin
+from core.skills import Skill, register_skill
+from core import task_store
 
 _window = None   # 单例窗口
+
+
+# ── Layer 2 技能：任务能力注册成 skill，供 agent 路由调用（与窗口共享同一数据源）──
+def _skill_add_task(arg: str) -> str:
+    t = task_store.add_task(arg)
+    if not t:
+        return "（任务标题为空，没添加）"
+    due = t.get("due")
+    return f"✅ 已添加待办事项：{t['title']}" + (f"（截止 {due}）" if due else "")
+
+
+def _skill_list_tasks(arg: str) -> str:
+    tasks = task_store.list_tasks()
+    if not tasks:
+        return "📋 当前没有未完成的任务"
+    lines = [f"📋 未完成任务（{len(tasks)}）："] + [f"· {t['title']}" for t in tasks]
+    return "\n".join(lines)
+
+
+register_skill(Skill(
+    name="add_task",
+    when_to_use="用户想新增/记录一条待办任务时。例：『记一下买牛奶』『提醒我明天交报告』『加个任务：联系客户』。",
+    arg_hint="要新增的任务（去掉『记一下/提醒我』之类引导词，但要保留时间词如『明天/后天/下周三/3天后』，系统会自动解析成截止日期）",
+    mutating=True,
+    handler=_skill_add_task,
+))
+register_skill(Skill(
+    name="list_tasks",
+    when_to_use="用户想查看/询问自己有哪些待办任务时。例：『我有哪些任务』『今天要做什么』『看下待办』。",
+    arg_hint="无需参数",
+    mutating=False,
+    handler=_skill_list_tasks,
+))
 
 
 def setup_todo(api):
@@ -46,7 +81,9 @@ def match_plusplus(text: str) -> bool:
 
 @openham_plugin(
     match=match_plusplus,
-    desc="任务（++ 前缀唤起 / 清单 / 子任务 / 到期日 / 拖拽排序）",
+    desc="待办清单",
+    tray_label="待办清单",
+    tray_open="open_todo",
     setup=setup_todo,
 )
 def execute_todo(text: str):

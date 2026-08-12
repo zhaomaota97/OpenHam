@@ -30,79 +30,9 @@ from ui.window_base import OpenHamWindowBase
 from ui import theme, icons
 
 
-# ── 数据层 ──────────────────────────────────────────────────────────
-def _base_dir() -> str:
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-def _data_path() -> str:
-    d = os.path.join(_base_dir(), "todo")
-    os.makedirs(d, exist_ok=True)
-    return os.path.join(d, "tasks.json")
-
-
-def _now() -> float:
-    return time.time()
-
-
-def _make_sub(title: str) -> dict:
-    return {"id": uuid.uuid4().hex, "title": title or "", "done": False}
-
-
-def _make_task(title: str) -> dict:
-    return {"id": uuid.uuid4().hex, "title": title or "", "notes": "",
-            "due": None, "done": False, "created": _now(),
-            "completed": None, "subtasks": []}
-
-
-def _make_list(name: str) -> dict:
-    return {"id": uuid.uuid4().hex, "name": name or "我的任务",
-            "created": _now(), "tasks": [], "sort": "my"}
-
-
-def _norm_task(t: dict) -> dict:
-    t.setdefault("id", uuid.uuid4().hex)
-    t.setdefault("title", "")
-    t.setdefault("notes", "")
-    t.setdefault("due", None)
-    t.setdefault("done", False)
-    t.setdefault("created", _now())
-    t.setdefault("completed", None)
-    subs = t.get("subtasks") or []
-    t["subtasks"] = [{"id": s.get("id", uuid.uuid4().hex),
-                      "title": s.get("title", ""), "done": bool(s.get("done"))}
-                     for s in subs]
-    return t
-
-
-def _load() -> dict:
-    p = _data_path()
-    data = None
-    if os.path.exists(p):
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception:
-            data = None
-    if not isinstance(data, dict) or not data.get("lists"):
-        data = {"lists": [_make_list("我的任务")], "current": None}
-    for lst in data["lists"]:
-        lst.setdefault("id", uuid.uuid4().hex)
-        lst.setdefault("name", "我的任务")
-        lst.setdefault("sort", "my")
-        lst["tasks"] = [_norm_task(t) for t in lst.get("tasks", [])]
-    ids = [l["id"] for l in data["lists"]]
-    if data.get("current") not in ids:
-        data["current"] = ids[0]
-    return data
-
-
-def _save(data: dict):
-    try:
-        with open(_data_path(), "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"[todo] 保存失败: {e}")
+# ── 数据层（已抽到 core.task_store，窗口与 agent 的 task skill 共享同一份数据）──
+from core.task_store import (_base_dir, _data_path, _now, _make_sub, _make_task,
+                             _make_list, _norm_task, _load, _save)
 
 
 def _fmt_due(due: str):
@@ -1071,6 +1001,13 @@ class TodoWindow(OpenHamWindowBase):
 
     # ── 对外 ────────────────────────────────────────────────────────
     def open(self):
+        # 每次打开都从磁盘重载 + 重渲染，确保「说一句话 / agent」直接写文件加的任务也能显示
+        try:
+            self.data = _load()
+            self._refresh_lists()
+            self._render_tasks()
+        except Exception:
+            pass
         if self.isMinimized():
             self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
         if not self.isVisible():

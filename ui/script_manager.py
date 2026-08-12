@@ -1079,7 +1079,7 @@ class ScriptManagerOverlay(OpenHamWindowBase):
         load_dotenv()
         api_key = app_config.get_api_key()
         if not api_key:
-            self._edit_status.setText(icons.richify("❌ 未配置 API Key：请在「设置 → AI 模型」中填写"))
+            self._edit_status.setText(icons.richify("❌ 请先在「设置 → 账号」登录统一账号"))
             self._edit_status.setStyleSheet("color: #d70015;")
             return
             
@@ -1594,11 +1594,15 @@ class ScriptManagerOverlay(OpenHamWindowBase):
                     use_shell = False
 
                 env = _os.environ.copy()
-                # 将用户在设置界面配置的密钥注入子进程环境，便于脚本调用 AI
+                # AI 已统一走网关：把账号 token 当凭证 + 网关 base_url 注入子进程，
+                # 让脚本用 openai/DeepSeek SDK 时自动经网关（用量计入积分）。
                 from core import app_config
-                _key = app_config.get_api_key()
+                _key = app_config.get_token()
                 if _key:
                     env["DEEPSEEK_API_KEY"] = _key
+                    env["OPENAI_API_KEY"] = _key
+                    env["DEEPSEEK_BASE_URL"] = "https://gateway.focus.beer/v1"
+                    env["OPENAI_BASE_URL"] = "https://gateway.focus.beer/v1"
                 if typ == "python":
                     env["PYTHONIOENCODING"] = "utf-8"
                     env["PYTHONUTF8"] = "1"

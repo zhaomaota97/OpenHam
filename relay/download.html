@@ -5,47 +5,65 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OpenHam 下载</title>
 <style>
-  :root{--bg:#f4f5f7;--card:#fff;--ink:#1f2430;--ink2:#5b6370;--line:#e6e8ec;--accent:#c08c1e;}
-  *{box-sizing:border-box;}
-  html,body{margin:0;min-height:100%;}
-  body{background:var(--bg);color:var(--ink);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,sans-serif;
-    display:flex;flex-direction:column;align-items:center;padding:clamp(28px,7vh,80px) 20px 48px;}
-  .wrap{width:100%;max-width:560px;}
-  h1{font-size:28px;margin:0 0 6px;}
-  .sub{color:var(--ink2);margin:0 0 26px;}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:18px;
-    box-shadow:0 1px 2px rgba(20,24,33,.04),0 8px 24px rgba(20,24,33,.06);}
-  .dl{display:flex;align-items:center;gap:14px;}
-  .dl .ham{width:56px;height:56px;border-radius:12px;object-fit:contain;flex:0 0 auto;}
-  .brand{display:flex;align-items:center;gap:12px;margin-bottom:6px;}
-  .brand img{width:40px;height:40px;border-radius:9px;object-fit:contain;}
-  .brand h1{margin:0;}
-  .btn{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;font-weight:700;
-    padding:13px 22px;border-radius:10px;font-size:16px;margin-top:6px;}
-  .btn:hover{background:#d39c28;}
-  .meta{color:var(--ink2);font-size:13px;margin-top:8px;}
-  h3{font-size:15px;margin:0 0 10px;}
-  ol{margin:0;padding-left:20px;color:var(--ink2);font-size:14px;line-height:1.9;}
-  .note{color:var(--ink2);font-size:13px;line-height:1.7;}
-  .note b{color:var(--ink);}
-  a.link{color:var(--accent);font-weight:600;text-decoration:none;}
-  @media(prefers-color-scheme:dark){
-    :root{--bg:#14171c;--card:#1c2026;--ink:#eceef1;--ink2:#aab2bd;--line:#2a2f37;}
+  :root{
+    --blush:#f8e8ee; --cream:#fff8ee; --ink:#1a1424; --ink2:#6b6478;
+    --lilac:#c9a0dc; --sky:#7dd3fc; --amber:#fbbf24;
   }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0;min-height:100vh;background:var(--blush);color:var(--ink);overflow-x:hidden;
+    font-family:'Outfit','Figtree',-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    display:flex;justify-content:center;padding:clamp(28px,7vh,72px) 20px 56px;}
+  .blob{position:fixed;border-radius:50%;filter:blur(70px);z-index:0;pointer-events:none;opacity:.5;}
+  .b1{top:-60px;right:-80px;width:280px;height:280px;background:var(--sky);}
+  .b2{bottom:-40px;left:-90px;width:320px;height:320px;background:var(--lilac);}
+  .wrap{width:100%;max-width:560px;position:relative;z-index:1;}
+
+  .brand{display:flex;align-items:center;gap:14px;margin-bottom:14px;}
+  .brand img{width:52px;height:52px;border-radius:15px;object-fit:contain;
+    border:3px solid var(--ink);background:var(--cream);padding:4px;}
+  .brand h1{margin:0;font-size:clamp(34px,9vw,52px);font-weight:800;letter-spacing:-0.03em;line-height:1;}
+  .sub{color:var(--ink2);margin:0 0 30px;font-size:16px;font-weight:500;}
+
+  .card{background:var(--cream);border:3px solid var(--ink);border-radius:28px;padding:24px 24px 22px;
+    margin-bottom:22px;box-shadow:8px 8px 0 var(--ink);}
+  .card.hero{background:var(--lilac);transform:rotate(-1deg);box-shadow:10px 10px 0 #7d5a92;}
+  .card.play{background:var(--sky);transform:rotate(1deg);box-shadow:10px 10px 0 #3f9dc4;}
+
+  .dl{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+  .ham{width:64px;height:64px;border-radius:18px;object-fit:contain;flex:0 0 auto;
+    border:3px solid var(--ink);background:var(--cream);padding:6px;}
+  .dl .info{flex:1;min-width:200px;}
+  .title{font-weight:800;font-size:19px;letter-spacing:-0.01em;}
+  .btn{display:inline-flex;align-items:center;gap:8px;background:var(--ink);color:var(--cream);
+    text-decoration:none;font-weight:700;padding:13px 24px;border-radius:16px;font-size:16px;margin-top:10px;
+    box-shadow:5px 5px 0 rgba(26,20,36,.35);transition:transform .16s ease,box-shadow .16s ease;}
+  .btn:hover{transform:translate(-1px,-2px);box-shadow:6px 7px 0 rgba(26,20,36,.35);}
+  .meta{color:var(--ink);opacity:.7;font-size:13px;margin-top:9px;font-weight:600;}
+
+  h3{font-size:16px;margin:0 0 12px;font-weight:800;letter-spacing:-0.01em;}
+  ol{margin:0;padding-left:22px;color:var(--ink2);font-size:14.5px;line-height:1.95;}
+  ol b, .note b{color:var(--ink);font-weight:700;}
+  .note{color:var(--ink2);font-size:14px;line-height:1.75;margin:0;}
+  a.link{color:var(--ink);font-weight:800;text-decoration:underline;text-decoration-thickness:2px;
+    text-underline-offset:3px;text-decoration-color:var(--amber);}
+
+  footer{text-align:center;color:var(--ink2);font-size:12px;opacity:.7;margin-top:8px;}
 </style>
 </head>
 <body>
+<div class="blob b1"></div>
+<div class="blob b2"></div>
 <div class="wrap">
   <div class="brand"><img src="logo.png" alt=""><h1>OpenHam</h1></div>
-  <p class="sub">活在快捷键里的 AI 助手，还能和朋友联机一起玩。</p>
+  <p class="sub">活在快捷键里的 AI 助手，全局热键随手唤起。</p>
 
-  <div class="card">
+  <div class="card hero">
     <div class="dl">
       <img class="ham" src="logo.png" alt="OpenHam">
-      <div>
-        <div style="font-weight:700;font-size:17px;">OpenHam（精简版）</div>
-        <a class="btn" href="OpenHam-lite.zip" download>⬇ 下载 OpenHam</a>
+      <div class="info">
+        <div class="title">OpenHam</div>
+        <a class="btn" href="https://files.focus.beer/downloads/openham/OpenHam.zip" download>⬇ 下载 OpenHam</a>
         <div class="meta">Windows · 约 14 MB · 首次运行自动联网安装依赖</div>
         <div class="meta" id="version">版本：加载中…</div>
         <div class="meta" id="updated">更新时间：加载中…</div>
@@ -59,14 +77,8 @@
       <li>下载后<b>解压</b>到一个<b>纯英文、无空格</b>的路径（如 <b>D:\OpenHam</b>）。</li>
       <li>双击 <b>OpenHam.exe</b>。</li>
       <li>首次运行会<b>自动从镜像下载安装依赖</b>（约几分钟，需联网）。</li>
-      <li>装好后按 <b>Alt+Space</b> 唤出，或点托盘图标 →「联机」。</li>
+      <li>装好后按 <b>Alt+Space</b> 唤出，或点托盘图标使用。</li>
     </ol>
-  </div>
-
-  <div class="card">
-    <h3>手机也能玩（无需下载）</h3>
-    <p class="note">朋友建房后把<b>房间口令</b>发给你，手机浏览器打开
-      <a class="link" id="webplay" href="#">联机网页版</a>，输口令即可一起玩。</p>
   </div>
 
   <div class="card">
@@ -75,38 +87,32 @@
       · 仅支持 <b>Windows</b>。<br>
       · 解压路径请用<b>纯英文</b>（含中文/空格可能导致安装失败）。<br>
       · 首次启动若弹蓝色 SmartScreen 提示，点「更多信息 → 仍要运行」即可（程序未签名）。<br>
-      · 联机/玩游戏<b>无需</b> API 密钥；AI 问答需在「设置 → AI 模型」填自己的 DeepSeek key。
+      · AI 功能需在「设置 → 账号」登录统一账号（用量按积分计）。
     </p>
   </div>
+
+  <footer>© 2026 focus.beer · built by one person, with love</footer>
 </div>
 <script>
-  // 联机网页版在 9000 端口
-  document.getElementById("webplay").href = location.protocol + "//" + location.hostname + ":9000/";
-
-  // 读取当前发布版本号（来自 version.json）
+  // 版本号 + 更新时间（都来自 version.json，同源；下载包本体在 MinIO）
   fetch("version.json", { cache: "no-store" })
     .then(function (r) { return r.json(); })
     .then(function (j) {
-      var el = document.getElementById("version");
+      var ev = document.getElementById("version");
       if (j && j.version) {
-        var v = j.version;
-        el.textContent = "版本：" + (/^\d/.test(v) ? "v" + v : v);  // 语义化版本加 v 前缀
-      } else { el.style.display = "none"; }
-    })
-    .catch(function () { document.getElementById("version").style.display = "none"; });
-
-  // 自动读取安装包的最后更新时间（来自 nginx 的 Last-Modified）
-  fetch("OpenHam-lite.zip", { method: "HEAD", cache: "no-store" })
-    .then(function (r) {
-      var lm = r.headers.get("Last-Modified");
-      var el = document.getElementById("updated");
-      if (lm) {
-        var d = new Date(lm), p = function (n) { return String(n).padStart(2, "0"); };
-        el.textContent = "更新时间：" + d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
+        ev.textContent = "版本：" + (/^\d/.test(j.version) ? "v" + j.version : j.version);
+      } else { ev.style.display = "none"; }
+      var eu = document.getElementById("updated");
+      if (j && j.updated) {
+        var d = new Date(j.updated), p = function (n) { return String(n).padStart(2, "0"); };
+        eu.textContent = "更新时间：" + d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
           " " + p(d.getHours()) + ":" + p(d.getMinutes());
-      } else { el.style.display = "none"; }
+      } else { eu.style.display = "none"; }
     })
-    .catch(function () { document.getElementById("updated").style.display = "none"; });
+    .catch(function () {
+      document.getElementById("version").style.display = "none";
+      document.getElementById("updated").style.display = "none";
+    });
 </script>
 </body>
 </html>

@@ -18,12 +18,11 @@ log = logging.getLogger("openham.config")
 _SETTINGS_FILE = "user_settings.json"
 
 _DEFAULTS = {
-    "deepseek_api_key": "",
+    # 统一账号：登录网关换取的 session token + 用户名（AI 统一走网关，不再自带 key）
+    "account_token": "",
+    "account_username": "",
     "ai_model": "deepseek-v4-flash",
-    "ai_base_url": "https://api.deepseek.com",
     "ai_thinking": False,  # False = 非思考模式
-    # 联机
-    "relay_url": "wss://openham.focus.beer/relay/",  # OpenHam relay（统一到 openham 子域）
     "nickname": "",
     # 更新
     "update_url": "https://openham.focus.beer",  # 更新/下载源（含展示页）
@@ -51,8 +50,6 @@ def load_settings(refresh: bool = False) -> dict:
                 data.update({k: v for k, v in stored.items() if k in _DEFAULTS})
         except Exception as e:
             log.warning("读取 %s 失败，使用默认值: %s", _SETTINGS_FILE, e)
-    if data.get("relay_url") in ("ws://47.102.218.59:9000", "wss://relay.focus.beer/"):
-        data["relay_url"] = _DEFAULTS["relay_url"]
     if data.get("update_url") in ("http://47.102.218.59/openham", "https://focus.beer/openham"):
         data["update_url"] = _DEFAULTS["update_url"]
     _cache = data
@@ -75,9 +72,27 @@ def get(key: str, default=None):
     return load_settings().get(key, default if default is not None else _DEFAULTS.get(key))
 
 
+def get_token() -> str:
+    """统一账号的 session token（AI 走网关时作为凭证）。"""
+    return (load_settings().get("account_token") or "").strip()
+
+
+def get_account_username() -> str:
+    return (load_settings().get("account_username") or "").strip()
+
+
+def is_logged_in() -> bool:
+    return bool(get_token())
+
+
+def set_account(token: str, username: str) -> None:
+    save_settings({"account_token": token or "", "account_username": username or ""})
+
+
+def clear_account() -> None:
+    save_settings({"account_token": "", "account_username": ""})
+
+
 def get_api_key() -> str:
-    """获取 DeepSeek API Key：优先用户设置，其次回退环境变量（向后兼容）。"""
-    key = (load_settings().get("deepseek_api_key") or "").strip()
-    if key:
-        return key
-    return os.getenv("DEEPSEEK_API_KEY", "").strip()
+    """兼容旧调用点：AI 已统一走网关，这里返回统一账号 token 充当凭证。"""
+    return get_token()

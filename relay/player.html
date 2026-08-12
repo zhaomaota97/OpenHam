@@ -176,7 +176,7 @@ function connect(){
   catch(e){ setStatus("⚠️ "+e.message); return; }
   $("join").disabled=true; setStatus("正在连接…");
 
-  ws=new WebSocket("ws://"+location.host+"/");
+  ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+location.pathname.replace(/[^/]*$/,""));
   ws.onopen=()=>{ ws.send(JSON.stringify({type:"join",room:roomCode,name:nick})); };
   ws.onmessage=ev=>onMsg(JSON.parse(ev.data));
   ws.onclose=()=>{ setStatus("连接已断开"); $("join").disabled=false; };

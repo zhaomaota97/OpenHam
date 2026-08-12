@@ -4,7 +4,6 @@ import operator
 import os
 import json as _json
 import socket as _socket
-from plugins.gitlab.preset import GITLAB_PREVIEWS
 from utils.system_tools import get_system_info
 
 _cached_scripts = None
@@ -142,11 +141,7 @@ def preview(text: str):
             return f"📶 {_socket.gethostbyname(_socket.gethostname())}"
         except Exception:
             return "📶 获取失败"
-            
-    gitlab_p = GITLAB_PREVIEWS.get(t) or GITLAB_PREVIEWS.get(prefix)
-    if gitlab_p:
-        return gitlab_p
-        
+
     # 动态脚本触发命令预览
     try:
         for s in _sm_load_scripts():
@@ -175,9 +170,7 @@ def get_autocomplete(text: str) -> tuple[str, str] | None:
     from core.plugin_manager import get_plugin_previews
     for k, v in get_plugin_previews().items():
         candidates[k] = v.lstrip("🧩 ")
-    for k, v in GITLAB_PREVIEWS.items():
-        candidates[k] = v.lstrip("↩ ")
-        
+
     try:
         for s in _sm_load_scripts():
             trig = s.get("trigger", "").strip()
